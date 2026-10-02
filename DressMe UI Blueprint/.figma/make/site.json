@@ -1,0 +1,10 @@
+{
+  "description": "This app helps users manage their wardrobe, create outfits, and receive personalized style recommendations based on weather and occasion, enhancing their fashion choices.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
