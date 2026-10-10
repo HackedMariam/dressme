@@ -1,4 +1,6 @@
 import { useState } from "react";
+import AvatarViewer from "./components/AvatarViewer";
+import CustomizeAvatar from "./components/CustomizeAvatar";
 
 type Page =
   | "dashboard"
@@ -10,6 +12,8 @@ type Page =
   | "find-similar"
   | "ai-stylist"
   | "weather"
+  | "avatar-test"
+  | "customize-avatar"
   | "settings";
 
 const OUTFIT_IMG = "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=600&h=800&fit=crop&auto=format";
@@ -39,6 +43,8 @@ const navItems: { label: string; page: Page; icon: string }[] = [
   { label: "Find Similar", page: "find-similar", icon: "◎" },
   { label: "AI Stylist", page: "ai-stylist", icon: "◆" },
   { label: "Weather", page: "weather", icon: "◌" },
+  { label: "Avatar Test", page: "avatar-test", icon: "◐" },
+  { label: "Customize My Avatar", page: "customize-avatar", icon: "◍" },
   { label: "Settings", page: "settings", icon: "⊙" },
 ];
 
@@ -1127,7 +1133,7 @@ function Settings() {
                 />
               ) : (
                 <select className="bg-white border border-[#E2E0D8] rounded-lg px-3 py-2 text-sm text-[#1C1C1C] outline-none w-56">
-                  {item.opts?.map((o) => <option key={o}>{o}</option>)}
+                  {"opts" in item && item.opts.map((o) => <option key={o}>{o}</option>)}
                 </select>
               )}
             </div>
@@ -1173,6 +1179,8 @@ export default function App() {
       case "ai-stylist": return <AIStylist />;
       case "style-profile": return <StyleProfile />;
       case "find-similar": return <FindSimilar />;
+      case "avatar-test": return <AvatarViewer />;
+      case "customize-avatar": return <CustomizeAvatar />;
       case "settings": return <Settings />;
     }
   };
