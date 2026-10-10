@@ -3,8 +3,10 @@ import { Canvas } from "@react-three/fiber";
 import { ContactShadows, Environment, OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 
-function AvatarModel() {
-  const { scene } = useGLTF("/models/avatar.glb");
+const DEFAULT_AVATAR_URL = "/models/avatar.glb";
+
+function AvatarModel({ url }: { url: string }) {
+  const { scene } = useGLTF(url);
 
   const { position, scale } = useMemo(() => {
     const box = new THREE.Box3().setFromObject(scene);
@@ -24,7 +26,7 @@ function AvatarModel() {
   );
 }
 
-export function AvatarCanvas() {
+export function AvatarCanvas({ url = DEFAULT_AVATAR_URL }: { url?: string }) {
   return (
     <div className="relative h-[560px] rounded-xl overflow-hidden bg-[#F0EFEA] border border-[#E2E0D8]">
       <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 1.1, 2.8], fov: 45 }}>
@@ -39,7 +41,7 @@ export function AvatarCanvas() {
             </mesh>
           }
         >
-          <AvatarModel />
+          <AvatarModel url={url} />
           <Environment preset="city" />
           <ContactShadows position={[0, 0, 0]} opacity={0.35} scale={5} blur={2.5} far={2} />
         </Suspense>
@@ -69,4 +71,4 @@ export default function AvatarViewer() {
   );
 }
 
-useGLTF.preload("/models/avatar.glb");
+useGLTF.preload(DEFAULT_AVATAR_URL);

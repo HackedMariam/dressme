@@ -5,6 +5,14 @@ export type Proportions = {
   torsoToLeg: number
 }
 
+export type BodyMetrics = {
+  shoulderToHip: number
+  torsoToLeg: number
+  shoulderToHeight: number
+  hipToHeight: number
+  legToHeight: number
+}
+
 export type RatioReport = {
   key: keyof Proportions
   label: string
@@ -17,6 +25,7 @@ export type PoseAnalysis =
   | {
       ok: true
       proportions: Proportions
+      metrics: BodyMetrics
       quality: number
       qualityLabel: "Good" | "Fair" | "Low"
       reports: RatioReport[]
@@ -36,6 +45,13 @@ const R_ANKLE = 28
 
 const MIN_VISIBILITY = 0.5
 const DEFAULT_PROPORTIONS: Proportions = { shoulderToHip: 1.3, torsoToLeg: 0.75 }
+const DEFAULT_METRICS: BodyMetrics = {
+  shoulderToHip: 1.3,
+  torsoToLeg: 0.75,
+  shoulderToHeight: 0.35,
+  hipToHeight: 0.35,
+  legToHeight: 0.53,
+}
 export const PROPORTION_LIMITS: Record<keyof Proportions, { min: number; max: number; step: number }> = {
   shoulderToHip: { min: 0.6, max: 2.4, step: 0.01 },
   torsoToLeg: { min: 0.3, max: 1.4, step: 0.01 },
@@ -121,6 +137,10 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
   const legLength = dist3(hipMid, ankleMid)
   const personHeight = torsoLength + legLength
 
+  const shoulderToHeight = personHeight > 1e-4 ? shoulderWidth / personHeight : null
+  const hipToHeight = personHeight > 1e-4 ? hipWidth / personHeight : null
+  const legToHeight = personHeight > 1e-4 ? legLength / personHeight : null
+
   const shoulderVisOk = vis(L_SHOULDER) >= MIN_VISIBILITY && vis(R_SHOULDER) >= MIN_VISIBILITY
   const hipVisOk = vis(L_HIP) >= MIN_VISIBILITY && vis(R_HIP) >= MIN_VISIBILITY
   const ankleVisOk = vis(L_ANKLE) >= MIN_VISIBILITY && vis(R_ANKLE) >= MIN_VISIBILITY
@@ -187,6 +207,15 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
     proportions: {
       shoulderToHip: shoulderToHipOk && shoulderToHip !== null ? shoulderToHip : DEFAULT_PROPORTIONS.shoulderToHip,
       torsoToLeg: torsoToLegOk && torsoToLeg !== null ? torsoToLeg : DEFAULT_PROPORTIONS.torsoToLeg,
+    },
+    metrics: {
+      shoulderToHip: shoulderToHipOk && shoulderToHip !== null ? shoulderToHip : DEFAULT_METRICS.shoulderToHip,
+      torsoToLeg: torsoToLegOk && torsoToLeg !== null ? torsoToLeg : DEFAULT_METRICS.torsoToLeg,
+      shoulderToHeight:
+        shoulderVisOk && shoulderToHeight !== null ? shoulderToHeight : DEFAULT_METRICS.shoulderToHeight,
+      hipToHeight: hipVisOk && hipToHeight !== null ? hipToHeight : DEFAULT_METRICS.hipToHeight,
+      legToHeight:
+        hipVisOk && ankleVisOk && legToHeight !== null ? legToHeight : DEFAULT_METRICS.legToHeight,
     },
     quality,
     qualityLabel,

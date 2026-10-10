@@ -1,5 +1,18 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { AvatarCanvas } from "./AvatarViewer"
+import {
+  AGE_PRESETS,
+  defaultMpbTargets,
+  estimatesFromMetrics,
+  generateAvatar,
+  GENDER_PRESETS,
+  mapRatiosToMpbTargets,
+  MPFB_NEUTRAL,
+  MPFB_PARAMS,
+  PHOTO_ESTIMATED_PARAMS,
+  type MpbParam,
+  type MpbParamMeta,
+} from "../lib/avatarApi"
 import {
   analyzePhoto,
   defaultProportions,
@@ -29,9 +42,16 @@ export default function CustomizeAvatar() {
   const [analyzing, setAnalyzing] = useState(false)
   const [analysis, setAnalysis] = useState<Extract<PoseAnalysis, { ok: true }> | null>(null)
   const [adjusted, setAdjusted] = useState<Proportions>(defaultProportions())
+  const [mpfb, setMpb] = useState<Record<MpbParam, number>>(defaultMpbTargets)
+  const [photoKeys, setPhotoKeys] = useState<MpbParam[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [genState, setGenState] = useState<"idle" | "running" | "success" | "error">("idle")
+  const [genError, setGenError] = useState<string | null>(null)
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
+  const [lastJob, setLastJob] = useState<string | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const prevUrlRef = useRef<string | null>(null)
+  const genAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (modelStatus !== "idle") return
@@ -44,8 +64,22 @@ export default function CustomizeAvatar() {
   useEffect(() => {
     return () => {
       if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current)
+      genAbortRef.current?.abort()
     }
   }, [])
+
+  const mapping = useMemo(() => mapRatiosToMpbTargets(adjusted), [adjusted])
+
+  useEffect(() => {
+    const linked = mapping.targets.muscle
+    if (linked === undefined) return
+    setMpb((prev) => (prev.muscle === linked ? prev : { ...prev, muscle: linked }))
+  }, [mapping])
+
+  const activeTargets = useMemo(
+    () => (Object.entries(mpfb) as [MpbParam, number][]).filter(([, v]) => Math.abs(v - MPFB_NEUTRAL) > 0.001),
+    [mpfb],
+  )
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -65,6 +99,12 @@ export default function CustomizeAvatar() {
     setFileName(file.name)
     setAnalysis(null)
     setAdjusted(defaultProportions())
+    setMpb((prev) => {
+      const next = { ...prev }
+      for (const k of PHOTO_ESTIMATED_PARAMS) next[k] = MPFB_NEUTRAL
+      return next
+    })
+    setPhotoKeys([])
     setError(null)
     if (modelStatus === "idle") setModelStatus("loading")
     preloadPoseModel()
@@ -93,6 +133,8 @@ export default function CustomizeAvatar() {
       if (result.ok) {
         setAnalysis(result)
         setAdjusted(result.proportions)
+        setMpb((prev) => ({ ...prev, ...estimatesFromMetrics(result.metrics) }))
+        setPhotoKeys([...PHOTO_ESTIMATED_PARAMS])
       } else {
         setAnalysis(null)
         setError(result.reason)
@@ -107,6 +149,34 @@ export default function CustomizeAvatar() {
 
   const onReset = () => {
     setAdjusted(analysis ? { ...analysis.proportions } : defaultProportions())
+  }
+
+  const onGenerate = async () => {
+    if (genState === "running") return
+    genAbortRef.current?.abort()
+    const controller = new AbortController()
+    genAbortRef.current = controller
+    const timer = window.setTimeout(() => controller.abort(), 320_000)
+    setGenState("running")
+    setGenError(null)
+    try {
+      const result = await generateAvatar(mpfb, controller.signal)
+      setGeneratedUrl(`${result.url}?v=${result.jobId}`)
+      setLastJob(result.jobId)
+      setGenState("success")
+    } catch (e) {
+      const aborted = controller.signal.aborted
+      setGenState("error")
+      setGenError(
+        aborted
+          ? "Generation timed out after ~5 minutes. Check the backend console for the Blender log."
+          : e instanceof Error
+            ? e.message
+            : "Generation failed for an unknown reason.",
+      )
+    } finally {
+      window.clearTimeout(timer)
+    }
   }
 
   const slider = (key: keyof Proportions) => {
@@ -129,6 +199,58 @@ export default function CustomizeAvatar() {
           onChange={(e) => setAdjusted((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
           className="w-full accent-[#556B2F]"
         />
+      </div>
+    )
+  }
+
+  const mpfbSlider = (meta: MpbParamMeta) => {
+    const fromPhoto = photoKeys.includes(meta.key)
+    const presets = meta.key === "gender" ? GENDER_PRESETS : meta.key === "age" ? AGE_PRESETS : null
+    return (
+      <div key={meta.key} className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor={`mpfb-${meta.key}`} className="text-sm font-medium text-[#1C1C1C]">
+            {meta.label}
+            {fromPhoto && <span className="ml-2 text-[10px] font-semibold text-[#556B2F]">from photo</span>}
+          </label>
+          <span className="text-sm font-semibold text-[#556B2F] tabular-nums">{mpfb[meta.key].toFixed(2)}</span>
+        </div>
+        <input
+          id={`mpfb-${meta.key}`}
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={mpfb[meta.key]}
+          onChange={(e) => {
+            const value = Number(e.target.value)
+            setMpb((prev) => ({ ...prev, [meta.key]: value }))
+            setPhotoKeys((prev) => prev.filter((k) => k !== meta.key))
+          }}
+          className="w-full accent-[#556B2F]"
+        />
+        {presets && (
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {presets.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => {
+                  setMpb((prev) => ({ ...prev, [meta.key]: p.value }))
+                  setPhotoKeys((prev) => prev.filter((k) => k !== meta.key))
+                }}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  mpfb[meta.key] === p.value
+                    ? "bg-[#556B2F] text-white border-[#556B2F]"
+                    : "bg-white text-[#1C1C1C] border-[#E2E0D8] hover:bg-[#E2E0D8]"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-[#8C8A82]">{meta.hint}</p>
       </div>
     )
   }
@@ -235,11 +357,60 @@ export default function CustomizeAvatar() {
               {slider("shoulderToHip")}
               {slider("torsoToLeg")}
             </div>
+
+            <div className="space-y-4 border-t border-[#E2E0D8] pt-4">
+              <div>
+                <h4 className="text-sm font-semibold text-[#1C1C1C]">Body shape parameters</h4>
+                <p className="text-xs text-[#8C8A82]">
+                  Direct MPFB2 controls sent to Blender. 0.50 is the neutral default. Weight, muscle, height and
+                  proportions are pre-filled from your photo; gender and age are self-reported, and cup size /
+                  firmness are manual — a pose photo cannot reveal those.
+                </p>
+              </div>
+              {MPFB_PARAMS.map((meta) => mpfbSlider(meta))}
+            </div>
+
+            <div className="bg-white rounded-lg px-4 py-4 space-y-3 border border-[#E2E0D8]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[#1C1C1C]">Generate Avatar</p>
+                  <p className="text-xs text-[#8C8A82]">Runs Blender + MPFB2 locally (~5 s per job)</p>
+                </div>
+                <button
+                  onClick={onGenerate}
+                  disabled={genState === "running"}
+                  className="bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                >
+                  {genState === "running" ? "Generating…" : "Generate Avatar"}
+                </button>
+              </div>
+              <div className="text-xs text-[#8C8A82] space-y-1">
+                <p className="font-medium text-[#1C1C1C]">
+                  Will apply:{" "}
+                  {activeTargets.length
+                    ? activeTargets.map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")
+                    : "default body (all parameters neutral)"}
+                </p>
+                <p>· Muscle is linked to the shoulder-to-hip ratio slider; torso-to-leg has no MPFB parameter</p>
+                <p>· Every value is 0.00–1.00 with 0.50 as the neutral default</p>
+              </div>
+              {genState === "running" && (
+                <p className="text-xs text-[#556B2F]">Blender is regenerating your avatar… the original file is never overwritten.</p>
+              )}
+              {genState === "success" && (
+                <p className="text-xs text-[#556B2F]">
+                  Done — the viewer now shows your generated avatar (job {lastJob}). The original avatar.glb is unchanged.
+                </p>
+              )}
+              {genState === "error" && genError && (
+                <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{genError}</div>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="space-y-4">
-          <AvatarCanvas />
+          <AvatarCanvas url={generatedUrl ?? undefined} />
           <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-3">
             <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Current targets</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -258,8 +429,8 @@ export default function CustomizeAvatar() {
               })}
             </div>
             <p className="text-xs text-[#8C8A82]">
-              The avatar GLB is not modified yet. In the next step these targets will be mapped to MPFB body
-              parameters in Blender.
+              Generate Avatar applies these targets via local Blender + MPFB2 into a new file under
+              public/models/generated/ — your original avatar.glb is never overwritten.
             </p>
           </div>
         </div>
