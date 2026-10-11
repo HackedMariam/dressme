@@ -31,6 +31,7 @@ BLENDER_PATH = os.environ.get(
     r"C:\Users\maria\Downloads\blender-5.4.0-alpha+main.29ff43161222-windows.amd64-release\blender-5.4.0-alpha+main.29ff43161222-windows.amd64-release\blender.exe",
 )
 BLENDER_SCRIPT = BACKEND_DIR / "blender" / "generate_avatar.py"
+DRESSED_BLENDER_SCRIPT = BACKEND_DIR / "blender" / "generate_dressed_avatar.py"
 AVATAR_BLEND = os.environ.get(
     "AVATAR_BLEND",
     r"C:\Users\maria\Desktop\5eme esprit\avatar.blend",
@@ -50,6 +51,9 @@ ALLOWED_PARAMS = {
 }
 MAX_TARGETS = len(ALLOWED_PARAMS)
 
+ALLOWED_GARMENTS = ["tshirt", "trousers", "jacket"]
+MAX_GARMENTS = len(ALLOWED_GARMENTS)
+
 _job_lock = threading.Lock()
 app = FastAPI(title="DressMe avatar backend", version="1.0")
 app.add_middleware(
@@ -62,12 +66,14 @@ app.add_middleware(
 
 class GenerateRequest(BaseModel):
     targets: dict[str, float] = Field(..., description="MPFB parameter name -> value in [0, 1]")
+    outfit: list[str] = Field(default_factory=list, description="Garment ids to fit and export")
 
 
 class GenerateResponse(BaseModel):
     jobId: str
     url: str
     params: dict[str, float]
+    outfit: list[str]
     bytes: int
     elapsedSeconds: float
 
@@ -90,6 +96,21 @@ def validate_targets(targets: dict[str, float]) -> dict[str, float]:
         if not (0.0 <= v <= 1.0):
             raise HTTPException(status_code=422, detail=f"parameter '{key}' must be between 0.0 and 1.0")
         cleaned[key] = round(v, 4)
+    return cleaned
+
+
+def validate_outfit(outfit: list[str]) -> list[str]:
+    if len(outfit) > MAX_GARMENTS:
+        raise HTTPException(status_code=422, detail=f"at most {MAX_GARMENTS} garments allowed")
+    cleaned: list[str] = []
+    for g in outfit:
+        if g not in ALLOWED_GARMENTS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"unsupported garment '{g}'. Allowed: {ALLOWED_GARMENTS}",
+            )
+        if g not in cleaned:
+            cleaned.append(g)
     return cleaned
 
 
@@ -118,6 +139,8 @@ def health() -> dict:
         "ok": True,
         "blenderExists": Path(BLENDER_PATH).is_file(),
         "blendExists": Path(AVATAR_BLEND).is_file(),
+        "dressedScriptExists": DRESSED_BLENDER_SCRIPT.is_file(),
+        "allowedGarments": ALLOWED_GARMENTS,
     }
 
 
@@ -126,13 +149,15 @@ def generate(req: GenerateRequest) -> GenerateResponse:
     import time
 
     targets = validate_targets(req.targets)
+    outfit = validate_outfit(req.outfit)
+    script = DRESSED_BLENDER_SCRIPT if outfit else BLENDER_SCRIPT
+    if not script.is_file():
+        raise HTTPException(status_code=500, detail=f"Generator script missing: {script}")
 
     if not Path(BLENDER_PATH).is_file():
         raise HTTPException(status_code=500, detail=f"Blender not found at {BLENDER_PATH}")
     if not Path(AVATAR_BLEND).is_file():
         raise HTTPException(status_code=500, detail=f"Avatar scene not found at {AVATAR_BLEND}")
-    if not BLENDER_SCRIPT.is_file():
-        raise HTTPException(status_code=500, detail=f"Generator script missing: {BLENDER_SCRIPT}")
 
     if not _job_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="A generation job is already running. Try again shortly.")
@@ -150,13 +175,15 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             "--background",
             AVATAR_BLEND,
             "--python",
-            str(BLENDER_SCRIPT),
+            str(script),
             "--",
             "--params",
             str(params_path),
             "--output",
             str(temp_glb),
         ]
+        if outfit:
+            cmd.extend(["--outfit", ",".join(outfit)])
         started = time.monotonic()
         try:
             proc = subprocess.run(
@@ -197,6 +224,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             jobId=job_id,
             url=f"/models/generated/{final_name}",
             params=targets,
+            outfit=outfit,
             bytes=final_path.stat().st_size,
             elapsedSeconds=elapsed,
         )

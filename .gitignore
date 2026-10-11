@@ -1,0 +1,32 @@
+# Python
+backend/venv/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+dist/
+
+# Backend runtime
+backend/temp/
+*.log
+
+# Blender backups
+*.blend1
+
+# Generated avatar models (should not be committed)
+public/models/generated/
+DressMe UI Blueprint/public/models/generated/
+
+# Environment
+.env
+.env.*
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

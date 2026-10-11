@@ -34,6 +34,23 @@ export const MPFB_PARAMS: MpbParamMeta[] = [
 
 export const MPFB_NEUTRAL = 0.5
 
+export type GarmentId = "tshirt" | "trousers" | "jacket"
+
+export type GarmentMeta = {
+  id: GarmentId
+  label: string
+  swatch: string
+  hint: string
+}
+
+export const GARMENTS: GarmentMeta[] = [
+  { id: "tshirt", label: "T-Shirt", swatch: "#34538C", hint: "Short-sleeve top, neckline to hip" },
+  { id: "trousers", label: "Trousers", swatch: "#29292B", hint: "Waist to ankle, split legs" },
+  { id: "jacket", label: "Jacket", swatch: "#8C5733", hint: "Long sleeves, layered over the top" },
+]
+
+export const DEFAULT_DRESSED_URL = "/models/dressed_avatar.glb"
+
 export function defaultMpbTargets(): Record<MpbParam, number> {
   return {
     gender: MPFB_NEUTRAL,
@@ -51,6 +68,7 @@ export type GenerateResult = {
   jobId: string
   url: string
   params: Record<string, number>
+  outfit: string[]
   bytes: number
   elapsedSeconds: number
 }
@@ -126,13 +144,17 @@ export function mapRatiosToMpbTargets(ratios: Proportions): MappingPreview {
   }
 }
 
-export async function generateAvatar(targets: MpbTargets, signal?: AbortSignal): Promise<GenerateResult> {
+export async function generateAvatar(
+  targets: MpbTargets,
+  outfit: GarmentId[] = [],
+  signal?: AbortSignal,
+): Promise<GenerateResult> {
   let res: Response
   try {
     res = await fetch(`${API_BASE}/api/avatar/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targets }),
+      body: JSON.stringify({ targets, outfit }),
       signal,
     })
   } catch {

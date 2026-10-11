@@ -1,6 +1,8 @@
 import { useState } from "react";
 import AvatarViewer from "./components/AvatarViewer";
 import CustomizeAvatar from "./components/CustomizeAvatar";
+import TryOnStudio from "./components/TryOnStudio";
+import { defaultMpbTargets, type MpbParam } from "./lib/avatarApi";
 
 type Page =
   | "dashboard"
@@ -14,6 +16,7 @@ type Page =
   | "weather"
   | "avatar-test"
   | "customize-avatar"
+  | "try-on"
   | "settings";
 
 const OUTFIT_IMG = "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=600&h=800&fit=crop&auto=format";
@@ -45,6 +48,7 @@ const navItems: { label: string; page: Page; icon: string }[] = [
   { label: "Weather", page: "weather", icon: "◌" },
   { label: "Avatar Test", page: "avatar-test", icon: "◐" },
   { label: "Customize My Avatar", page: "customize-avatar", icon: "◍" },
+  { label: "Try On Outfits", page: "try-on", icon: "◑" },
   { label: "Settings", page: "settings", icon: "⊙" },
 ];
 
@@ -1167,6 +1171,8 @@ function Settings() {
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
+  const [avatarParams, setAvatarParams] = useState<Record<MpbParam, number>>(defaultMpbTargets);
+  const [hasCustomized, setHasCustomized] = useState(false);
 
   const renderPage = () => {
     switch (page) {
@@ -1180,7 +1186,21 @@ export default function App() {
       case "style-profile": return <StyleProfile />;
       case "find-similar": return <FindSimilar />;
       case "avatar-test": return <AvatarViewer />;
-      case "customize-avatar": return <CustomizeAvatar />;
+      case "customize-avatar":
+        return (
+          <CustomizeAvatar
+            onUseParams={(p) => { setAvatarParams(p); setHasCustomized(true); }}
+            onGoToTryOn={() => setPage("try-on")}
+          />
+        );
+      case "try-on":
+        return (
+          <TryOnStudio
+            params={avatarParams}
+            hasCustomized={hasCustomized}
+            onBack={() => setPage("customize-avatar")}
+          />
+        );
       case "settings": return <Settings />;
     }
   };

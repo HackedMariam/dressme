@@ -35,7 +35,13 @@ function qualityBadgeStyle(label: "Good" | "Fair" | "Low"): string {
   return "bg-[#F5E0E0] text-[#8A2E2E]"
 }
 
-export default function CustomizeAvatar() {
+export default function CustomizeAvatar({
+  onUseParams,
+  onGoToTryOn,
+}: {
+  onUseParams?: (p: Record<MpbParam, number>) => void
+  onGoToTryOn?: () => void
+} = {}) {
   const [fileUrl, setFileUrl] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [modelStatus, setModelStatus] = useState<ModelStatus>("idle")
@@ -160,10 +166,11 @@ export default function CustomizeAvatar() {
     setGenState("running")
     setGenError(null)
     try {
-      const result = await generateAvatar(mpfb, controller.signal)
+      const result = await generateAvatar(mpfb, [], controller.signal)
       setGeneratedUrl(`${result.url}?v=${result.jobId}`)
       setLastJob(result.jobId)
       setGenState("success")
+      onUseParams?.(mpfb)
     } catch (e) {
       const aborted = controller.signal.aborted
       setGenState("error")
@@ -401,6 +408,14 @@ export default function CustomizeAvatar() {
                 <p className="text-xs text-[#556B2F]">
                   Done — the viewer now shows your generated avatar (job {lastJob}). The original avatar.glb is unchanged.
                 </p>
+              )}
+              {genState === "success" && onGoToTryOn && (
+                <button
+                  onClick={onGoToTryOn}
+                  className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+                >
+                  Try on outfits →
+                </button>
               )}
               {genState === "error" && genError && (
                 <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{genError}</div>
