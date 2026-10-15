@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 
 type Page =
   | "dashboard"
@@ -17,6 +17,8 @@ const WARDROBE_IMG = "https://images.unsplash.com/photo-1490481651871-ab68de25d4
 const EDITORIAL_IMG = "https://images.unsplash.com/photo-1683392969197-17547ac3e06e?w=600&h=800&fit=crop&auto=format";
 const FLATLAY_IMG = "https://images.unsplash.com/photo-1467043237213-65f2da53396f?w=400&h=500&fit=crop&auto=format";
 const RACK_IMG = "https://images.unsplash.com/photo-1532453288672-3a27e9be9efd?w=400&h=500&fit=crop&auto=format";
+
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 const wardrobeItems = [
   { id: 1, name: "Merino Wool Turtleneck", category: "Tops", color: "Ivory", season: "Winter", img: "https://images.unsplash.com/photo-1603805752838-aa579d77da72?w=300&h=380&fit=crop&auto=format", tags: ["Casual", "Layering"], wear: 12, cost: 89 },
@@ -798,9 +800,119 @@ function ShouldIBuy() {
   );
 }
 
+type StylistSource = { source: string | null; page: number | null };
+type StylistMessage = { role: "ai" | "user"; text: string; sources?: StylistSource[] };
+
+/** Turns inline markdown (**bold**, *italic*) into React nodes. */
+function renderInline(text: string): ReactElement[] {
+  const nodes: ReactElement[] = [];
+  const pattern = /\*\*([^*]+)\*\*|\*([^*]+)\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(<span key={lastIndex}>{text.slice(lastIndex, match.index)}</span>);
+    }
+    if (match[1] !== undefined) {
+      nodes.push(
+        <strong key={match.index} className="font-semibold">
+          {match[1]}
+        </strong>,
+      );
+    } else {
+      nodes.push(<em key={match.index}>{match[2]}</em>);
+    }
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(<span key={lastIndex}>{text.slice(lastIndex)}</span>);
+  }
+
+  return nodes;
+}
+
+/** Renders an LLM answer as paragraphs, headings and bullet/numbered lists. */
+function FormattedText({ text }: { text: string }) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactElement[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+  let paragraph: string[] = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(
+      <p key={`p${blocks.length}`} className="mb-2 last:mb-0">
+        {renderInline(paragraph.join(" "))}
+      </p>,
+    );
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!list) return;
+    const items = list.items.map((item, i) => (
+      <li key={i} className="pl-1">
+        {renderInline(item)}
+      </li>
+    ));
+    blocks.push(
+      list.ordered ? (
+        <ol key={`b${blocks.length}`} className="list-decimal ml-5 space-y-1 mb-2 last:mb-0">
+          {items}
+        </ol>
+      ) : (
+        <ul key={`b${blocks.length}`} className="list-disc ml-5 space-y-1 mb-2 last:mb-0">
+          {items}
+        </ul>
+      ),
+    );
+    list = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushParagraph();
+      continue;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    const ordered = line.match(/^\d+[.)]\s+(.*)$/);
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+
+    if (bullet || ordered) {
+      flushParagraph();
+      const isOrdered = Boolean(ordered);
+      if (list && list.ordered !== isOrdered) flushList();
+      if (!list) list = { ordered: isOrdered, items: [] };
+      list.items.push((bullet ?? ordered)![1]);
+    } else if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push(
+        <p key={`h${blocks.length}`} className="font-semibold mt-1 mb-1">
+          {renderInline(heading[1])}
+        </p>,
+      );
+    } else {
+      flushList();
+      paragraph.push(line);
+    }
+  }
+
+  flushParagraph();
+  flushList();
+
+  return <>{blocks}</>;
+}
+
 function AIStylist() {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState([
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState<StylistMessage[]>([
     {
       role: "ai",
       text: "Hi Sophia! I've reviewed your wardrobe — 84 items across 8 categories. What would you like to style today? I can suggest outfits for specific occasions, help you work with a new piece, or plan a capsule wardrobe for an upcoming trip.",
@@ -814,15 +926,39 @@ function AIStylist() {
     "I have a job interview tomorrow",
   ];
 
-  const send = () => {
-    if (!input.trim()) return;
-    const userMsg = { role: "user", text: input };
-    const aiResponse = {
-      role: "ai",
-      text: `Great choice! Based on today's 18°C weather and your wardrobe, I'd suggest pairing your Ivory Turtleneck with the Charcoal Wide-Leg Trousers and Chelsea Boots. The camel blazer ties it together beautifully — that's a 94/100 synergy score. Want me to show you alternate colorways or shoes?`,
-    };
-    setMessages((m) => [...m, userMsg, aiResponse]);
+  const send = async () => {
+    const question = input.trim();
+    if (!question || loading) return;
+
+    setMessages((m) => [...m, { role: "user", text: question }]);
     setInput("");
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, top_k: 5 }),
+      });
+
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+
+      const data = await res.json();
+      setMessages((m) => [
+        ...m,
+        { role: "ai", text: data.answer, sources: data.sources ?? [] },
+      ]);
+    } catch {
+      setMessages((m) => [
+        ...m,
+        {
+          role: "ai",
+          text: "Sorry, I couldn't reach the styling service. Is the DressMe API running?",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -842,10 +978,26 @@ function AIStylist() {
                   {m.role === "ai" ? "AI" : "S"}
                 </div>
                 <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === "ai" ? "bg-white text-[#1C1C1C] rounded-tl-none" : "bg-[#1C1C1C] text-white rounded-tr-none"}`}>
-                  {m.text}
+                  <FormattedText text={m.text} />
+                  {m.role === "ai" && m.sources && m.sources.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-[#E2E0D8] text-[11px] text-[#8C8A82]">
+                      Sources: {m.sources.map((s) => `${s.source ?? "Unknown"} (p${s.page ?? "?"})`).join(", ")}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
+
+            {loading && (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-semibold bg-[#556B2F] text-white">
+                  AI
+                </div>
+                <div className="bg-white text-[#8C8A82] rounded-2xl rounded-tl-none px-4 py-3 text-sm">
+                  Thinking…
+                </div>
+              </div>
+            )}
 
             {/* Outfit card */}
             <div className="ml-11 bg-white rounded-xl overflow-hidden border border-[#E2E0D8] max-w-sm">
@@ -885,11 +1037,13 @@ function AIStylist() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
               placeholder="Ask your AI stylist anything…"
-              className="flex-1 px-4 py-2.5 bg-white border border-[#E2E0D8] rounded-xl text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
+              disabled={loading}
+              className="flex-1 px-4 py-2.5 bg-white border border-[#E2E0D8] rounded-xl text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors disabled:opacity-60"
             />
             <button
               onClick={send}
-              className="bg-[#556B2F] hover:bg-[#6B8A3A] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+              disabled={loading}
+              className="bg-[#556B2F] hover:bg-[#6B8A3A] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60"
             >
               Send
             </button>
