@@ -1,0 +1,7 @@
+pymupdf==1.28.2
+sentence-transformers==4.1.0
+supabase==2.32.0
+python-dotenv==1.2.2
+openai==3.19.2
+fastapi==0.119.1
+uvicorn[standard]==0.38.0

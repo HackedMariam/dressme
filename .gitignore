@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+env/
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+
+# Generated RAG pipeline artifacts
+rag_backend/data/
+
+# Supabase CLI temp
+supabase/.temp/
+
+# OS / editor cruft
+desktop.ini
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
