@@ -1,0 +1,13 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Checkpoints and runtime session cache
+smart_purchasing/data/checkpoints/
+*.log
+
+# OS generated files
+.DS_Store
+desktop.ini
+Thumbs.db

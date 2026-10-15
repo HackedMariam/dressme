@@ -1,0 +1,212 @@
+[
+  {
+    "id": "CASE_01",
+    "name": "Blue Jacket (Exact Duplicate)",
+    "candidate": {
+      "category": "jacket",
+      "color": "blue",
+      "style": ["smart_casual"],
+      "price": 130.0,
+      "budget": 150.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 40.0,
+    "scenario_type": "Direct Duplicate"
+  },
+  {
+    "id": "CASE_02",
+    "name": "Blue Shirt (Exact Duplicate)",
+    "candidate": {
+      "category": "shirt",
+      "color": "blue",
+      "style": ["casual"],
+      "price": 50.0,
+      "budget": 80.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 40.0,
+    "scenario_type": "Direct Duplicate"
+  },
+  {
+    "id": "CASE_03",
+    "name": "Blue Skirt (Exact Duplicate)",
+    "candidate": {
+      "category": "skirt",
+      "color": "blue",
+      "style": ["sporty"],
+      "price": 65.0,
+      "budget": 80.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 40.0,
+    "scenario_type": "Direct Duplicate"
+  },
+  {
+    "id": "CASE_04",
+    "name": "Cream Sandals (Exact Duplicate)",
+    "candidate": {
+      "category": "sandals",
+      "color": "cream",
+      "style": ["smart_casual"],
+      "price": 70.0,
+      "budget": 90.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 40.0,
+    "scenario_type": "Direct Duplicate"
+  },
+  {
+    "id": "CASE_05",
+    "name": "Black T-Shirt (Exact Duplicate)",
+    "candidate": {
+      "category": "t-shirt",
+      "color": "black",
+      "style": ["formal"],
+      "price": 35.0,
+      "budget": 50.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 40.0,
+    "scenario_type": "Direct Duplicate"
+  },
+  {
+    "id": "CASE_06",
+    "name": "Navy Trousers (Essential Wardrobe Gap)",
+    "candidate": {
+      "category": "trousers",
+      "color": "navy",
+      "style": ["formal"],
+      "price": 90.0,
+      "budget": 120.0
+    },
+    "ground_truth_decision": "BUY",
+    "target_score": 73.0,
+    "scenario_type": "Essential Gap"
+  },
+  {
+    "id": "CASE_07",
+    "name": "Black Tailored Jacket (New Neutral Color)",
+    "candidate": {
+      "category": "jacket",
+      "color": "black",
+      "style": ["formal"],
+      "price": 120.0,
+      "budget": 150.0
+    },
+    "ground_truth_decision": "BUY",
+    "target_score": 74.0,
+    "scenario_type": "Color Diversity"
+  },
+  {
+    "id": "CASE_08",
+    "name": "White Shirt (New Color Staple)",
+    "candidate": {
+      "category": "shirt",
+      "color": "white",
+      "style": ["formal", "smart_casual"],
+      "price": 55.0,
+      "budget": 70.0
+    },
+    "ground_truth_decision": "BUY",
+    "target_score": 73.0,
+    "scenario_type": "Color Diversity"
+  },
+  {
+    "id": "CASE_09",
+    "name": "Black Skirt (New Color Bottom)",
+    "candidate": {
+      "category": "skirt",
+      "color": "black",
+      "style": ["smart_casual"],
+      "price": 60.0,
+      "budget": 80.0
+    },
+    "ground_truth_decision": "BUY",
+    "target_score": 75.0,
+    "scenario_type": "Color Diversity"
+  },
+  {
+    "id": "CASE_10",
+    "name": "White Minimalist Sneakers (Footwear Gap)",
+    "candidate": {
+      "category": "sneakers",
+      "color": "white",
+      "style": ["casual"],
+      "price": 85.0,
+      "budget": 100.0
+    },
+    "ground_truth_decision": "BUY",
+    "target_score": 73.0,
+    "scenario_type": "Essential Gap"
+  },
+  {
+    "id": "CASE_11",
+    "name": "Designer Leather Jacket (Severe Budget Conflict)",
+    "candidate": {
+      "category": "jacket",
+      "color": "brown",
+      "style": ["casual"],
+      "price": 380.0,
+      "budget": 150.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 42.0,
+    "scenario_type": "Budget Conflict"
+  },
+  {
+    "id": "CASE_12",
+    "name": "Grey Coat (Exact Duplicate)",
+    "candidate": {
+      "category": "coat",
+      "color": "grey",
+      "style": ["sporty"],
+      "price": 110.0,
+      "budget": 140.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 40.0,
+    "scenario_type": "Direct Duplicate"
+  },
+  {
+    "id": "CASE_13",
+    "name": "Camel Trench Coat (New Outerwear Style)",
+    "candidate": {
+      "category": "coat",
+      "color": "camel",
+      "style": ["smart_casual"],
+      "price": 140.0,
+      "budget": 160.0
+    },
+    "ground_truth_decision": "BUY",
+    "target_score": 73.0,
+    "scenario_type": "Color Diversity"
+  },
+  {
+    "id": "CASE_14",
+    "name": "Green Casual Dress (Exact Duplicate)",
+    "candidate": {
+      "category": "dress",
+      "color": "green",
+      "style": ["sporty"],
+      "price": 75.0,
+      "budget": 90.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 40.0,
+    "scenario_type": "Direct Duplicate"
+  },
+  {
+    "id": "CASE_15",
+    "name": "Burgundy Shorts (Exact Duplicate)",
+    "candidate": {
+      "category": "shorts",
+      "color": "burgundy",
+      "style": ["casual"],
+      "price": 45.0,
+      "budget": 60.0
+    },
+    "ground_truth_decision": "SKIP",
+    "target_score": 40.0,
+    "scenario_type": "Direct Duplicate"
+  }
+]
