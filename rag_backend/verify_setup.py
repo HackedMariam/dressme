@@ -106,10 +106,13 @@ def main() -> int:
             "model; re-run embedder.py and indexer.py."
         )
 
-    print(
-        "\nApply the migration with: "
-        "npx supabase db push (from the repo root, after supabase link)"
-    )
+    if failed:
+        print(
+            "\nApply the migration with: "
+            "npx supabase db push (from the repo root, after supabase link)"
+        )
+    else:
+        print("\nAll checks passed.")
     return 1 if failed else 0
 
 

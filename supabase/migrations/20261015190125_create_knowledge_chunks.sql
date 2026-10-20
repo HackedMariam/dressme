@@ -30,6 +30,7 @@ returns table (
 )
 language sql
 stable
+set search_path = public, extensions
 as $$
     select
         k.chunk_id,

@@ -76,7 +76,8 @@ returns table (
 )
 language sql
 stable
-as $$
+set search_path = public, extensions
+as $fn$
     select
         k.chunk_id,
         k.content,
@@ -92,7 +93,7 @@ as $$
     where 1 - (k.embedding <=> query_embedding) >= min_similarity
     order by k.embedding <=> query_embedding
     limit match_count;
-$$;
+$fn$;
 
 -- ---------------------------------------------------------------------------
 -- Keyword (full-text) search for hybrid retrieval
@@ -115,7 +116,8 @@ returns table (
 )
 language sql
 stable
-as $$
+set search_path = public, extensions
+as $fn$
     with parsed as (
         select websearch_to_tsquery('english', query_text) as ts_query
     )
@@ -138,7 +140,7 @@ as $$
       and to_tsvector('english', coalesce(k.content, '')) @@ parsed.ts_query
     order by similarity desc
     limit match_count;
-$$;
+$fn$;
 
 -- ---------------------------------------------------------------------------
 -- RLS: public read-only knowledge base; writes only via service role
