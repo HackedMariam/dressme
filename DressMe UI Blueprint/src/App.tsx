@@ -1,4 +1,5 @@
 import { useState, type ReactElement } from "react";
+import { useEffect, useRef } from "react";
 
 type Page =
   | "dashboard"
@@ -800,13 +801,59 @@ function ShouldIBuy() {
   );
 }
 
-type StylistSource = { source: string | null; page: number | null };
-type StylistMessage = { role: "ai" | "user"; text: string; sources?: StylistSource[] };
+type StylistSource = {
+  chunk_id?: string | null;
+  chunk_ids?: string[];
+  source: string | null;
+  page: number | null;
+  title?: string | null;
+  section?: string | null;
+  similarity?: number | null;
+};
+type StylistMessage = {
+  id: string;
+  role: "ai" | "user";
+  text: string;
+  sources?: StylistSource[];
+  error?: boolean;
+  retryQuestion?: string;
+};
+
+const CHAT_STORAGE_KEY = "dressme.chat.v1";
+
+const INITIAL_MESSAGE: StylistMessage = {
+  id: "welcome",
+  role: "ai",
+  text: "Hi Sophia! I've reviewed your wardrobe — 84 items across 8 categories. What would you like to style today? I can suggest outfits for specific occasions, help you work with a new piece, or plan a capsule wardrobe for an upcoming trip.",
+};
+
+function createId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function loadStoredChat(): { conversationId: string; messages: StylistMessage[] } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { conversationId?: string; messages?: StylistMessage[] };
+    if (!parsed.conversationId || !Array.isArray(parsed.messages)) return null;
+    const messages = parsed.messages
+      .filter((message) => message && (message.role === "ai" || message.role === "user"))
+      .map((message, index) => ({ ...message, id: message.id ?? `stored-${index}` }));
+    return { conversationId: parsed.conversationId, messages };
+  } catch {
+    return null;
+  }
+}
 
 /** Turns inline markdown (**bold**, *italic*) into React nodes. */
 function renderInline(text: string): ReactElement[] {
   const nodes: ReactElement[] = [];
-  const pattern = /\*\*([^*]+)\*\*|\*([^*]+)\*/g;
+  const pattern = /\*\*([^*]+)\*\*|\*([^*]+)\*|\[S(\d+)\]/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -820,8 +867,18 @@ function renderInline(text: string): ReactElement[] {
           {match[1]}
         </strong>,
       );
-    } else {
+    } else if (match[2] !== undefined) {
       nodes.push(<em key={match.index}>{match[2]}</em>);
+    } else {
+      nodes.push(
+        <sup
+          key={match.index}
+          title={`Source S${match[3]}`}
+          className="ml-0.5 rounded bg-[#E8EDE0] px-1 text-[9px] font-semibold text-[#556B2F]"
+        >
+          S{match[3]}
+        </sup>,
+      );
     }
     lastIndex = pattern.lastIndex;
   }
@@ -912,12 +969,38 @@ function FormattedText({ text }: { text: string }) {
 function AIStylist() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<StylistMessage[]>([
-    {
-      role: "ai",
-      text: "Hi Sophia! I've reviewed your wardrobe — 84 items across 8 categories. What would you like to style today? I can suggest outfits for specific occasions, help you work with a new piece, or plan a capsule wardrobe for an upcoming trip.",
-    },
-  ]);
+  const [storedChat] = useState(loadStoredChat);
+  const [messages, setMessages] = useState<StylistMessage[]>(() =>
+    storedChat?.messages?.length ? storedChat.messages : [{ ...INITIAL_MESSAGE, id: createId() }],
+  );
+  const [conversationId, setConversationId] = useState(
+    () => storedChat?.conversationId ?? createId(),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    try {
+      if (messages.length) {
+        window.localStorage.setItem(
+          CHAT_STORAGE_KEY,
+          JSON.stringify({ conversationId, messages }),
+        );
+      } else {
+        window.localStorage.removeItem(CHAT_STORAGE_KEY);
+      }
+    } catch {
+      // Storage can be unavailable in private browsing; chat still works.
+    }
+  }, [conversationId, messages]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [messages, loading]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const quickPrompts = [
     "What should I wear to a dinner party?",
@@ -926,80 +1009,274 @@ function AIStylist() {
     "I have a job interview tomorrow",
   ];
 
-  const send = async () => {
-    const question = input.trim();
+  const patchMessage = (id: string, patch: Partial<StylistMessage>) => {
+    setMessages((current) =>
+      current.map((message) => (message.id === id ? { ...message, ...patch } : message)),
+    );
+  };
+
+  const friendlyError = (error: unknown) => {
+    const raw = error instanceof Error ? error.message : String(error);
+    if (raw.includes("401")) return "The styling service requires an API key. Check the API configuration.";
+    if (raw.includes("429")) return "You're sending messages too quickly. Please wait a moment and try again.";
+    if (raw.includes("503")) return "The fashion knowledge index is unavailable right now. Please try again shortly.";
+    if (raw.includes("502")) return "The styling model is unavailable right now. Please try again shortly.";
+    if (/failed to fetch|network|load failed/i.test(raw)) {
+      return "Sorry, I couldn't reach the styling service. Is the DressMe API running?";
+    }
+    return "Sorry, something went wrong while styling. Please try again.";
+  };
+
+  const streamRequest = async (
+    question: string,
+    assistantId: string,
+    controller: AbortController,
+  ) => {
+    const response = await fetch(`${API_URL}/ask/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, top_k: 5, conversation_id: conversationId }),
+      signal: controller.signal,
+    });
+
+    if (response.status === 404 || !response.body) return false;
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const body = await response.json();
+        detail = typeof body?.detail === "string" ? body.detail : "";
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
+      throw new Error(`HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let text = "";
+    let sources: StylistSource[] = [];
+    let gotDone = false;
+
+    const processEvent = (rawEvent: string) => {
+      const dataLine = rawEvent
+        .split("\n")
+        .find((line) => line.startsWith("data:"));
+      if (!dataLine) return;
+
+      const data = JSON.parse(dataLine.replace(/^data:\s*/, ""));
+      if (typeof data.conversation_id === "string") setConversationId(data.conversation_id);
+
+      if (data.type === "sources") {
+        sources = data.sources ?? [];
+        patchMessage(assistantId, { sources });
+      } else if (data.type === "token") {
+        text += data.text ?? "";
+        patchMessage(assistantId, { text });
+      } else if (data.type === "done") {
+        gotDone = true;
+        patchMessage(assistantId, { text, sources });
+      } else if (data.type === "error") {
+        throw new Error(data.message ?? "Streaming failed");
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+      events.filter(Boolean).forEach(processEvent);
+    }
+
+    if (buffer.trim()) processEvent(buffer);
+    return gotDone || text.length > 0;
+  };
+
+  const sendViaRest = async (
+    question: string,
+    assistantId: string,
+    controller: AbortController,
+  ) => {
+    const response = await fetch(`${API_URL}/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, top_k: 5, conversation_id: conversationId }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const body = await response.json();
+        detail = typeof body?.detail === "string" ? body.detail : "";
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
+      throw new Error(`HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+    }
+
+    const data = await response.json();
+    if (typeof data.conversation_id === "string") setConversationId(data.conversation_id);
+    patchMessage(assistantId, {
+      text: data.answer ?? "",
+      sources: data.sources ?? [],
+    });
+  };
+
+  const send = async (override?: string) => {
+    const question = (override ?? input).trim();
     if (!question || loading) return;
 
-    setMessages((m) => [...m, { role: "user", text: question }]);
+    const assistantId = createId();
+    setError(null);
     setInput("");
+    setMessages((current) => [
+      ...current,
+      { id: createId(), role: "user", text: question },
+      { id: assistantId, role: "ai", text: "", sources: [] },
+    ]);
     setLoading(true);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const res = await fetch(`${API_URL}/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, top_k: 5 }),
+      const streamed = await streamRequest(question, assistantId, controller);
+      if (!streamed) await sendViaRest(question, assistantId, controller);
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId && !message.text
+            ? {
+                ...message,
+                text: "I didn't get a response from the stylist. Please try again.",
+                error: true,
+                retryQuestion: question,
+              }
+            : message,
+        ),
+      );
+    } catch (caught) {
+      const message =
+        caught instanceof DOMException && caught.name === "AbortError"
+          ? "Request cancelled."
+          : friendlyError(caught);
+      setError(message);
+      patchMessage(assistantId, {
+        text: message,
+        error: true,
+        retryQuestion: question,
       });
-
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-
-      const data = await res.json();
-      setMessages((m) => [
-        ...m,
-        { role: "ai", text: data.answer, sources: data.sources ?? [] },
-      ]);
-    } catch {
-      setMessages((m) => [
-        ...m,
-        {
-          role: "ai",
-          text: "Sorry, I couldn't reach the styling service. Is the DressMe API running?",
-        },
-      ]);
     } finally {
       setLoading(false);
+      abortRef.current = null;
+    }
+  };
+
+  const clearChat = () => {
+    abortRef.current?.abort();
+    setMessages([]);
+    setConversationId(createId());
+    setError(null);
+    setLoading(false);
+    try {
+      window.localStorage.removeItem(CHAT_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures.
     }
   };
 
   return (
     <div className="space-y-6 flex flex-col h-full">
-      <div>
-        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">AI Stylist</h1>
-        <p className="text-[#8C8A82] text-sm mt-1">Your personal wardrobe intelligence, always on</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">AI Stylist</h1>
+          <p className="text-[#8C8A82] text-sm mt-1">Your personal wardrobe intelligence, always on</p>
+        </div>
+        <button
+          onClick={clearChat}
+          disabled={loading}
+          className="text-xs font-semibold text-[#8C8A82] border border-[#E2E0D8] rounded-lg px-3 py-2 hover:border-[#556B2F] hover:text-[#556B2F] transition-colors disabled:opacity-50"
+        >
+          Clear chat
+        </button>
       </div>
 
       <div className="flex gap-6 flex-1 min-h-0">
         <div className="flex-1 flex flex-col bg-[#F0EFEA] rounded-xl overflow-hidden">
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {messages.map((m, i) => (
-              <div key={i} className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+            {messages.length === 0 && (
+              <div className="flex h-full flex-col items-center justify-center text-center px-6">
+                <div className="w-12 h-12 rounded-full bg-[#556B2F] text-white flex items-center justify-center text-sm font-semibold">
+                  AI
+                </div>
+                <h2 className="font-display text-xl font-medium text-[#1C1C1C] mt-4">
+                  What would you like to style?
+                </h2>
+                <p className="text-sm text-[#8C8A82] mt-2 max-w-sm">
+                  Ask about an occasion, a piece you own, a trip, or a colour
+                  combination. Answers are grounded in the DressMe fashion
+                  knowledge base with inline citations.
+                </p>
+                <div className="mt-5 flex flex-wrap justify-center gap-2">
+                  {quickPrompts.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => void send(q)}
+                      className="text-xs bg-white border border-[#E2E0D8] text-[#1C1C1C] px-3 py-1.5 rounded-full hover:border-[#556B2F] transition-colors"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.map((m) => (
+              <div key={m.id} className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
                 <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-semibold ${m.role === "ai" ? "bg-[#556B2F] text-white" : "bg-[#1C1C1C] text-white"}`}>
                   {m.role === "ai" ? "AI" : "S"}
                 </div>
-                <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === "ai" ? "bg-white text-[#1C1C1C] rounded-tl-none" : "bg-[#1C1C1C] text-white rounded-tr-none"}`}>
-                  <FormattedText text={m.text} />
+                <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === "ai" ? (m.error ? "bg-red-50 text-red-800 border border-red-200 rounded-tl-none" : "bg-white text-[#1C1C1C] rounded-tl-none") : "bg-[#1C1C1C] text-white rounded-tr-none"}`}>
+                  {m.text ? <FormattedText text={m.text} /> : <span className="text-[#8C8A82]">Thinking...</span>}
+                  {m.role === "ai" && m.error && m.retryQuestion && (
+                    <button
+                      onClick={() => void send(m.retryQuestion)}
+                      disabled={loading}
+                      className="mt-2 block text-[11px] font-semibold text-red-700 underline underline-offset-2 disabled:opacity-50"
+                    >
+                      Try again
+                    </button>
+                  )}
                   {m.role === "ai" && m.sources && m.sources.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-[#E2E0D8] text-[11px] text-[#8C8A82]">
-                      Sources: {m.sources.map((s) => `${s.source ?? "Unknown"} (p${s.page ?? "?"})`).join(", ")}
+                      <span className="font-semibold uppercase tracking-wide">Sources: </span>
+                      {m.sources.map((s, index) => (
+                        <span
+                          key={`${s.chunk_id ?? s.source}-${s.page}-${index}`}
+                          title={s.chunk_id ?? undefined}
+                          className="mr-2 inline-block"
+                        >
+                          {s.title || s.source || "Unknown"} (p{s.page ?? "?"}
+                          {typeof s.similarity === "number" ? `, ${(s.similarity * 100).toFixed(0)}%` : ""})
+                        </span>
+                      ))}
                     </div>
                   )}
                 </div>
               </div>
             ))}
 
-            {loading && (
-              <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-semibold bg-[#556B2F] text-white">
-                  AI
-                </div>
-                <div className="bg-white text-[#8C8A82] rounded-2xl rounded-tl-none px-4 py-3 text-sm">
-                  Thinking…
-                </div>
-              </div>
+            {error && messages.length > 0 && (
+              <p className="text-center text-[11px] text-red-700">{error}</p>
             )}
 
+
             {/* Outfit card */}
+            {messages.length > 0 && (
             <div className="ml-11 bg-white rounded-xl overflow-hidden border border-[#E2E0D8] max-w-sm">
               <div className="h-32 overflow-hidden">
                 <img src={OUTFIT_IMG} alt="Suggested outfit" className="w-full h-full object-cover object-top" />
@@ -1015,6 +1292,7 @@ function AIStylist() {
                 </button>
               </div>
             </div>
+            )}
           </div>
 
           {/* Quick prompts */}
@@ -1035,14 +1313,16 @@ function AIStylist() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && send()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void send();
+              }}
               placeholder="Ask your AI stylist anything…"
               disabled={loading}
               className="flex-1 px-4 py-2.5 bg-white border border-[#E2E0D8] rounded-xl text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors disabled:opacity-60"
             />
             <button
-              onClick={send}
-              disabled={loading}
+              onClick={() => void send()}
+              disabled={loading || !input.trim()}
               className="bg-[#556B2F] hover:bg-[#6B8A3A] text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60"
             >
               Send
@@ -1281,7 +1561,7 @@ function Settings() {
                 />
               ) : (
                 <select className="bg-white border border-[#E2E0D8] rounded-lg px-3 py-2 text-sm text-[#1C1C1C] outline-none w-56">
-                  {item.opts?.map((o) => <option key={o}>{o}</option>)}
+                  {"opts" in item && item.opts.map((o) => <option key={o}>{o}</option>)}
                 </select>
               )}
             </div>
