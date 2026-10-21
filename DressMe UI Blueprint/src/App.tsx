@@ -1,4 +1,5 @@
 import { useState } from "react";
+import HelpMePack from "./features/helpmepack/HelpMePack";
 
 type Page =
   | "dashboard"
@@ -442,159 +443,6 @@ function OutfitStudio() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function HelpMePack() {
-  const [step, setStep] = useState<"form" | "result">("form");
-  const [dest, setDest] = useState("Paris");
-  const [dates, setDates] = useState("Oct 14–21");
-  const [tripType, setTripType] = useState("Business + Leisure");
-  const [dresscode, setDresscode] = useState("Smart Casual");
-  const [bags, setBags] = useState("1 Carry-On");
-
-  const checklist = [
-    { item: "Camel Blazer", status: "own", outfits: 4 },
-    { item: "Ivory Turtleneck", status: "own", outfits: 5 },
-    { item: "Charcoal Wide-Leg Trousers", status: "own", outfits: 3 },
-    { item: "Silk Slip Dress", status: "own", outfits: 2 },
-    { item: "White Oxford Shirt", status: "own", outfits: 4 },
-    { item: "Chelsea Boots", status: "own", outfits: 6 },
-    { item: "Trench Coat", status: "buy", outfits: 5 },
-    { item: "Pointed-Toe Flats", status: "buy", outfits: 3 },
-    { item: "Crossbody Bag", status: "optional", outfits: 2 },
-    { item: "Statement Earrings", status: "optional", outfits: 0 },
-  ];
-
-  const statusColor = { own: "text-[#556B2F] bg-[#E8EDE0]", buy: "text-amber-700 bg-amber-50", optional: "text-[#8C8A82] bg-[#F0EFEA]" };
-  const statusLabel = { own: "Already Own", buy: "Rec. Purchase", optional: "Optional" };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Help Me Pack</h1>
-        <p className="text-[#8C8A82] text-sm mt-1">Smart packing optimized for your trip and wardrobe</p>
-      </div>
-
-      {step === "form" ? (
-        <div className="grid grid-cols-[1fr_360px] gap-6">
-          <div className="bg-[#F0EFEA] rounded-xl p-8 space-y-5">
-            <h2 className="font-display text-xl font-medium text-[#1C1C1C]">Trip Details</h2>
-
-            {[
-              { label: "Destination", value: dest, set: setDest, placeholder: "City or country" },
-              { label: "Dates", value: dates, set: setDates, placeholder: "e.g. Oct 14–21" },
-            ].map((f) => (
-              <div key={f.label}>
-                <label className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest block mb-2">{f.label}</label>
-                <input
-                  value={f.value}
-                  onChange={(e) => f.set(e.target.value)}
-                  placeholder={f.placeholder}
-                  className="w-full px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
-                />
-              </div>
-            ))}
-
-            {[
-              { label: "Trip Type", value: tripType, set: setTripType, opts: ["Leisure", "Business", "Business + Leisure", "Adventure", "Beach", "Formal Event"] },
-              { label: "Dress Code", value: dresscode, set: setDresscode, opts: ["Casual", "Smart Casual", "Business Casual", "Formal", "Black Tie", "Mixed"] },
-              { label: "Luggage Limit", value: bags, set: setBags, opts: ["Personal Item Only", "1 Carry-On", "1 Checked Bag", "2 Checked Bags", "No Limit"] },
-            ].map((f) => (
-              <div key={f.label}>
-                <label className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest block mb-2">{f.label}</label>
-                <select
-                  value={f.value}
-                  onChange={(e) => f.set(e.target.value)}
-                  className="w-full px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
-                >
-                  {f.opts.map((o) => <option key={o}>{o}</option>)}
-                </select>
-              </div>
-            ))}
-
-            <button
-              onClick={() => setStep("result")}
-              className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white font-semibold py-3.5 rounded-lg transition-colors mt-2"
-            >
-              Generate Pack List
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <div className="bg-[#1C1C1C] rounded-xl overflow-hidden h-48">
-              <img src={EDITORIAL_IMG} alt="Travel fashion" className="w-full h-full object-cover opacity-60" />
-            </div>
-            <div className="bg-[#F0EFEA] rounded-xl p-5">
-              <p className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest mb-3">Packing Intelligence</p>
-              {["Removes redundant items", "Maximizes outfit combinations", "Weather-aware selection", "Daily look generator"].map((f) => (
-                <div key={f} className="flex items-center gap-2 py-2 border-b border-[#E2E0D8] last:border-0">
-                  <span className="text-[#556B2F] text-sm">✓</span>
-                  <span className="text-sm text-[#1C1C1C]">{f}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <div className="bg-[#1C1C1C] rounded-xl p-6 flex items-center justify-between">
-            <div>
-              <p className="text-[#556B2F] text-xs font-semibold uppercase tracking-widest">Pack List Ready</p>
-              <h2 className="font-display text-2xl font-medium text-white mt-1">{dest} · {dates}</h2>
-              <p className="text-white/50 text-sm mt-0.5">{tripType} · {dresscode} · {bags}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-white/40 text-xs uppercase tracking-widest">Outfit combinations</p>
-              <p className="font-display text-4xl font-semibold text-white">18</p>
-              <p className="text-white/50 text-xs">from 10 items</p>
-            </div>
-            <button
-              onClick={() => setStep("form")}
-              className="text-white/50 hover:text-white text-xs border border-white/20 rounded-lg px-4 py-2 transition-colors"
-            >
-              Edit Trip
-            </button>
-          </div>
-
-          <div className="grid grid-cols-[1fr_280px] gap-6">
-            <div className="bg-[#F0EFEA] rounded-xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#E2E0D8] flex items-center justify-between">
-                <p className="font-medium text-[#1C1C1C] text-sm">Smart Checklist</p>
-                <div className="flex gap-2 text-[10px] font-semibold">
-                  {(["own", "buy", "optional"] as const).map((s) => (
-                    <span key={s} className={`px-2 py-0.5 rounded-full ${statusColor[s]}`}>{statusLabel[s]}</span>
-                  ))}
-                </div>
-              </div>
-              {checklist.map((c, i) => (
-                <div key={i} className="flex items-center gap-4 px-6 py-3.5 border-b border-[#E2E0D8] last:border-0 hover:bg-[#E2E0D8]/50 transition-colors">
-                  <input type="checkbox" defaultChecked={c.status === "own"} className="rounded accent-[#556B2F]" />
-                  <span className="text-sm font-medium text-[#1C1C1C] flex-1">{c.item}</span>
-                  {c.outfits > 0 && <span className="text-xs text-[#8C8A82]">{c.outfits} outfits</span>}
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusColor[c.status as keyof typeof statusColor]}`}>
-                    {statusLabel[c.status as keyof typeof statusLabel]}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-4">
-              <div className="bg-[#F0EFEA] rounded-xl p-5">
-                <p className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest mb-3">Daily Looks</p>
-                {["Mon: Blazer + Turtleneck + Trousers", "Tue: Shirt + Jeans + Boots", "Wed: Slip Dress + Trench", "Thu: Blazer + Shirt + Trousers"].map((l) => (
-                  <div key={l} className="text-xs text-[#1C1C1C] py-2 border-b border-[#E2E0D8] last:border-0">{l}</div>
-                ))}
-              </div>
-              <div className="bg-[#E8EDE0] rounded-xl p-5">
-                <p className="text-xs font-semibold text-[#556B2F] uppercase tracking-widest mb-2">Optimizer Result</p>
-                <p className="text-sm text-[#1C1C1C]">2 redundant items removed · Saved 0.8kg luggage weight</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1117,7 +965,8 @@ function Settings() {
       ].map((section) => (
         <div key={section.title} className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
           <h3 className="font-display text-lg font-medium text-[#1C1C1C]">{section.title}</h3>
-          {section.items.map((item) => (
+          {section.items.map(
+            (item: { label: string; value: string; type: string; opts?: string[] }) => (
             <div key={item.label} className="flex items-center justify-between">
               <label className="text-sm font-medium text-[#1C1C1C]">{item.label}</label>
               {item.type === "text" ? (

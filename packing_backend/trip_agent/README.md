@@ -122,8 +122,15 @@ the labeled synthetic weather fallback.
 ## Tests
 
 ```powershell
-python -m pytest packing_backend/trip_agent/tests -q
+python -m pytest backend packing_backend/trip_agent/tests -q
+npm run typecheck:frontend
+npm run build:frontend
 ```
+
+API integration tests live in `backend/test_api.py` and cover text/structured
+trip creation, clarification continuation, weather/requirements, capsule and
+checklist retrieval, checklist updates without optimizer reruns, trip editing,
+infeasible recovery, and the mock Gap Agent.
 
 Coverage includes:
 
@@ -135,6 +142,88 @@ Coverage includes:
 - updating a trip and reoptimizing
 - checklist state updates without optimizer reruns
 - tool argument validation, weather caching, and the Gap Agent placeholder
+
+## API + HelpMePack frontend
+
+The agent is exposed by `backend/main.py` (FastAPI) and consumed by the existing
+HelpMePack page in `DressMe UI Blueprint/src/features/helpmepack/HelpMePack.tsx`.
+Sessions are kept in memory per backend process; the frontend stores the current
+`session_id` in `localStorage` so it can resume after a page refresh.
+
+### One-command startup
+
+From the repository root:
+
+```powershell
+npm run dev:all
+```
+
+This starts:
+
+- FastAPI backend on `http://127.0.0.1:8000`
+- Existing Vite HelpMePack frontend on `http://localhost:8443`
+
+The launcher is `scripts/dev-all.mjs`. It reuses ports that are already open,
+prints clear readiness logs, and stops both child processes together on
+`Ctrl+C`. For manual backend debugging use `npm run dev:backend`; for the
+frontend only use `npm run dev:frontend`.
+
+### Environment
+
+Root `.env`:
+
+```dotenv
+OPENAI_API_KEY=your_key_here
+LLM_MODEL=gpt-4o
+CORS_ORIGINS=http://localhost:8443,http://localhost:5173
+```
+
+Frontend `.env` in `DressMe UI Blueprint/`:
+
+```dotenv
+VITE_API_URL=http://localhost:8000
+```
+
+Useful overrides for the launcher: `BACKEND_PORT`, `FRONTEND_PORT`,
+`VITE_API_URL`, `PYTHON`, `FRONTEND_PM`.
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | API/LLM/weather/session health |
+| `POST` | `/api/trips` | Create from `{mode:"text", text:...}` or `{mode:"structured", trip:{...}}` |
+| `POST` | `/api/trips/{session_id}/messages` | Continue a clarification conversation |
+| `GET` | `/api/trips/{session_id}` | Retrieve full session state |
+| `PATCH` | `/api/trips/{session_id}` | Update trip details and optionally reoptimize |
+| `DELETE` | `/api/trips/{session_id}` | Drop an in-memory session |
+| `POST` | `/api/trips/{session_id}/weather` | Retrieve/refresh weather |
+| `POST` | `/api/trips/{session_id}/requirements` | Retrieve/generate daily requirements |
+| `POST` | `/api/trips/{session_id}/optimize` | Run CP-SAT and return the result |
+| `POST` | `/api/trips/{session_id}/suggest-alternatives` | Diagnose infeasibility |
+| `GET` | `/api/trips/{session_id}/capsule` | Retrieve the optimized capsule |
+| `GET` | `/api/trips/{session_id}/checklist` | Retrieve the packing checklist |
+| `PATCH` | `/api/trips/{session_id}/checklist/{item_id}` | Mark packed/unpacked (no optimizer rerun) |
+| `POST` | `/api/trips/{session_id}/gap-analysis` | Invoke the optional mock Gap Agent |
+
+Interactive OpenAPI docs are available at `http://127.0.0.1:8000/docs`.
+
+### Frontend flow
+
+The HelpMePack page preserves the existing manual form and adds an "AI
+description" tab. Both modes call the same backend:
+
+1. Manual form -> structured trip payload.
+2. AI text -> `mode:"text"` and LLM extraction.
+3. Missing details -> the agent's clarification question is shown inline; the
+   answer continues the same session.
+4. Successful optimization -> weather cards, extracted details, daily outfits,
+   capsule summary, and an interactive checklist.
+5. Checklist updates call the checklist endpoint only.
+6. Edit trip -> `PATCH /api/trips/{id}` with `reoptimize: true`.
+7. Infeasible results -> explanations and recovery suggestions without silent
+   constraint relaxation.
+8. Gap analysis -> deterministic mock implementation, clearly labeled optional.
 
 ## LLM behavior and safety
 

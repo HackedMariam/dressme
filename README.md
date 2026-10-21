@@ -376,6 +376,45 @@ pnpm dev
 
 Requires Node.js and pnpm (versions pinned in `.mise.toml`).
 
+### Running the full HelpMePack app (Trip Agent + frontend)
+
+One-time setup from the repository root:
+
+```bash
+python -m pip install -r requirements.txt
+pnpm --dir "DressMe UI Blueprint" install
+```
+
+Make sure the root `.env` contains `OPENAI_API_KEY` and `LLM_MODEL`.
+The frontend uses `VITE_API_URL` (defaults to `http://localhost:8000`).
+
+Start the FastAPI backend and the existing Vite frontend together:
+
+```bash
+npm run dev:all
+```
+
+- HelpMePack UI: `http://localhost:8443`
+- API docs: `http://127.0.0.1:8000/docs`
+- Health check: `http://127.0.0.1:8000/api/health`
+
+The launcher reuses ports that are already running and stops both services when
+you press `Ctrl+C`. Optional overrides: `BACKEND_PORT`, `FRONTEND_PORT`,
+`VITE_API_URL`, `PYTHON`, `FRONTEND_PM`.
+
+Backend tests, frontend typecheck, and production build:
+
+```bash
+npm run test:backend
+npm run typecheck:frontend
+npm run build:frontend
+```
+
+The HelpMePack page supports both the existing manual form and a new natural
+language "AI description" mode. See
+`packing_backend/trip_agent/README.md` for the API endpoints, session model, and
+Trip Agent architecture.
+
 ---
 
 ## Disclaimer / Project Status
