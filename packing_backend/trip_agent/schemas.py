@@ -223,6 +223,10 @@ class WeatherData(BaseModel):
     days: list[WeatherDay] = Field(default_factory=list)
     source: Literal["open-meteo", "synthetic_fallback"] = "open-meteo"
     warning: str | None = None
+    resolved_name: str | None = None
+    resolved_country: str | None = None
+    requested_country: bool = False
+    geocoding_note: str | None = None
     retrieved_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def day_for(self, target_date: date_type, index: int) -> WeatherDay:
@@ -389,6 +393,7 @@ class AgentState(BaseModel):
     checklist: PackingChecklist | None = None
     missing_info: list[str] = Field(default_factory=list)
     needs_clarification: bool = False
+    clarification_question: str | None = None
     suggestions: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     tool_history: list[ToolCallRecord] = Field(default_factory=list)
@@ -424,6 +429,7 @@ class AgentState(BaseModel):
             "trip_details": details,
             "missing_info": self.missing_info,
             "needs_clarification": self.needs_clarification,
+            "clarification_question": self.clarification_question,
             "weather_source": self.weather.source if self.weather else None,
             "weather_days": len(self.weather.days) if self.weather else 0,
             "daily_requirements_generated": len(self.daily_requirements),

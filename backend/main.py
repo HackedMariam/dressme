@@ -253,6 +253,7 @@ def _state_payload(agent: TripAgent) -> dict[str, Any]:
         "capsule": _capsule_payload(agent),
         "checklist": _checklist_payload(agent),
         "missing_info": state.missing_info,
+        "clarification_question": state.clarification_question,
         "suggestions": state.suggestions,
         "errors": state.errors,
         "messages": [message.model_dump(mode="json") for message in state.messages],
@@ -274,6 +275,7 @@ def _response_payload(
         else None
     )
     payload["optimization_runs"] = agent.state.optimization_runs
+    payload["clarification_question"] = agent.state.clarification_question
     return payload
 
 

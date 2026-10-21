@@ -20,6 +20,10 @@ const FRONTEND_PM = process.env.FRONTEND_PM || "pnpm";
 const children = new Map();
 let shuttingDown = false;
 
+// Keep the launcher alive even when both services were already running and no
+// child processes were spawned by this process.
+setInterval(() => {}, 1 << 30);
+
 function log(prefix, message) {
   for (const line of String(message).split(/\r?\n/)) {
     if (line.trim()) console.log(`[${prefix}] ${line}`);

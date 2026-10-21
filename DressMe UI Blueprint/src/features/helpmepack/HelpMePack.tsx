@@ -645,7 +645,8 @@ export default function HelpMePack() {
             The agent needs one more detail
           </p>
           <p className="text-sm text-[#1C1C1C]">
-            {trip.message ||
+            {trip.clarification_question ||
+              trip.message ||
               "I need a little more information before I can build your capsule."}
           </p>
           <div className="flex gap-3">
@@ -655,7 +656,7 @@ export default function HelpMePack() {
               onKeyDown={(event) => {
                 if (event.key === "Enter") void submitClarification();
               }}
-              placeholder="e.g. June 3–7, 2027"
+              placeholder="Type the missing detail…"
               className="flex-1 px-4 py-2.5 bg-[#F0EFEA] border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
             />
             <button
@@ -801,6 +802,18 @@ export default function HelpMePack() {
               <p className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest">
                 Weather
               </p>
+              {weather?.resolved_name && (
+                <p className="mt-1 text-[10px] text-[#8C8A82]">
+                  Forecast location: {weather.resolved_name}
+                  {weather.resolved_country ? `, ${weather.resolved_country}` : ""}
+                  {weather.requested_country ? " · country-level request" : ""}
+                </p>
+              )}
+              {weather?.geocoding_note && !syntheticWeather && (
+                <p className="mt-2 rounded-lg bg-white px-3 py-2 text-[10px] text-[#8C8A82]">
+                  {weather.geocoding_note}
+                </p>
+              )}
               {weather?.days.length ? (
                 <div className="mt-3 space-y-2">
                   {weather.days.map((day) => (

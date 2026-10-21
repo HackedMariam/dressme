@@ -36,7 +36,7 @@ from .schemas import (
     normalize_activity,
 )
 from .wardrobe import SyntheticWardrobeProvider, WardrobeProvider
-from .weather import fetch_weather
+from .weather import DestinationResolutionError, fetch_weather
 
 logger = logging.getLogger(__name__)
 
@@ -525,6 +525,7 @@ class TripTools:
         if self.state.needs_clarification:
             self.state.status = "needs_clarification"
             question = details.clarification_question()
+            self.state.clarification_question = question
             return {
                 "ok": True,
                 "trip_details": details.model_dump(mode="json"),
@@ -536,6 +537,7 @@ class TripTools:
                 "next_action": "ask_user",
             }
 
+        self.state.clarification_question = None
         if details_changed or self.state.status in {
             "collecting_details",
             "needs_clarification",
@@ -590,18 +592,55 @@ class TripTools:
                 "next_action": "get_activity_requirements",
             }
 
-        weather = fetch_weather(
-            destination=destination,
-            start=details.start_date,
-            end=end,
-            allow_network=args.allow_network and self.allow_weather_network,
-        )
+        try:
+            weather = fetch_weather(
+                destination=destination,
+                start=details.start_date,
+                end=end,
+                allow_network=args.allow_network and self.allow_weather_network,
+            )
+        except DestinationResolutionError as exc:
+            # Do not keep planning against a fictional or ambiguous place.
+            self.state.trip_details = TripDetails.model_validate(
+                {
+                    **details.model_dump(mode="json"),
+                    "destination": None,
+                }
+            )
+            self.state.weather = None
+            self.state.daily_requirements = []
+            self.state.optimization_result = None
+            self.state.capsule = None
+            self.state.checklist = None
+            self.state.suggestions = []
+            self.state.missing_info = self.state.trip_details.compute_missing_fields()
+            self.state.needs_clarification = True
+            self.state.status = "needs_clarification"
+            self.state.errors.append(str(exc))
+            question = (
+                f"I couldn't verify '{destination}' as a real city or country. "
+                "What destination should I use? You can also include the country, "
+                "for example 'Atlantis, South Africa'."
+            )
+            self.state.clarification_question = question
+            return {
+                "ok": False,
+                "error": str(exc),
+                "destination_unresolved": True,
+                "needs_clarification": True,
+                "question": question,
+                "missing_fields": self.state.missing_info,
+                "next_action": "ask_user",
+            }
+
         self.state.weather = weather
         self.state.daily_requirements = []
         self.state.optimization_result = None
         self.state.capsule = None
         self.state.checklist = None
         self.state.suggestions = []
+        self.state.needs_clarification = False
+        self.state.clarification_question = None
         self.state.status = "ready"
 
         return {
@@ -961,6 +1000,11 @@ class TripTools:
         self.state.trip_details = new_details
         self.state.missing_info = new_details.compute_missing_fields()
         self.state.needs_clarification = bool(self.state.missing_info)
+        self.state.clarification_question = (
+            new_details.clarification_question()
+            if self.state.needs_clarification
+            else None
+        )
 
         detail_fields = {
             "destination",

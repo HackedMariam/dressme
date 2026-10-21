@@ -36,6 +36,10 @@ export type WeatherData = {
   days: WeatherDay[];
   source: "open-meteo" | "synthetic_fallback";
   warning?: string | null;
+  resolved_name?: string | null;
+  resolved_country?: string | null;
+  requested_country?: boolean;
+  geocoding_note?: string | null;
   retrieved_at?: string;
 };
 
@@ -132,6 +136,7 @@ export type TripPayload = {
   capsule: Capsule | null;
   checklist: ChecklistSummary | null;
   missing_info: string[];
+  clarification_question?: string | null;
   suggestions: string[];
   errors: string[];
   optimization_status?: string | null;

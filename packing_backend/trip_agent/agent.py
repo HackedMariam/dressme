@@ -302,6 +302,11 @@ class TripAgent:
         if details is None or details.compute_missing_fields():
             self.state.needs_clarification = True
             self.state.missing_info = details.compute_missing_fields() if details else []
+            self.state.clarification_question = (
+                details.clarification_question()
+                if details
+                else "I need the missing trip details before I can continue."
+            )
             return
 
         if self.state.weather is None:
@@ -346,8 +351,12 @@ class TripAgent:
         )
 
     def _compose_completion_message(self) -> str:
-        if self.state.needs_clarification and self.state.trip_details:
-            return self.state.trip_details.clarification_question()
+        if self.state.needs_clarification:
+            if self.state.clarification_question:
+                return self.state.clarification_question
+            if self.state.trip_details:
+                return self.state.trip_details.clarification_question()
+            return "I need a few more details before I can continue."
 
         if self.state.capsule is not None:
             capsule = self.state.capsule

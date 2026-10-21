@@ -243,10 +243,14 @@ description" tab. Both modes call the same backend:
 ## Notes and limitations
 
 - Wardrobe, compatibility, and missing preferences remain synthetic.
-- No frontend integration is included.
 - Open-Meteo forecasts are limited to roughly the next 15 days; other dates use
   the labeled synthetic fallback.
-- `check_gaps` is an interface only: inject a `gap_checker` callable into
-  `TripAgent` to connect a teammate's Gap Agent.
+- Destination geocoding is confidence-checked. Fuzzy/fictional names are
+  refused instead of silently using an unrelated real town; the agent asks for a
+  valid destination. Country requests use a representative city where available
+  (for example `France` → `Paris`) or a clearly labelled country-centroid
+  forecast.
+- `check_gaps` is wired to a deterministic mock Gap Agent in the API. Inject a
+  different `gap_checker` callable into `TripAgent` to connect the real agent.
 - Weather/LLM calls have timeouts and all tool executions are logged as structured
   key/value events.
