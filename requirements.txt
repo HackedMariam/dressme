@@ -1,5 +1,8 @@
-
 fastapi
 uvicorn[standard]
 ortools
 pandas
+openai
+pydantic
+requests
+pytest
