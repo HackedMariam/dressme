@@ -13,6 +13,8 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tqdm import tqdm
+
 from config import get_settings
 from ingestion.quality import text_sha256
 from rag.supabase_client import execute_with_retries, get_supabase
@@ -272,6 +274,12 @@ def main() -> None:
         return
 
     inserted = 0
+    progress = tqdm(
+        total=len(records),
+        desc="Indexing",
+        unit="chunk",
+        dynamic_ncols=True,
+    )
     for start in range(0, len(records), args.batch_size):
         batch_records = records[start : start + args.batch_size]
         payload = [
@@ -280,7 +288,8 @@ def main() -> None:
         ]
         write_batch(client, payload)
         inserted += len(payload)
-        print(f"Upserted {inserted}/{len(records)}...")
+        progress.update(len(payload))
+    progress.close()
 
     deleted = delete_chunk_ids(client, stale)
 

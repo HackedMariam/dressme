@@ -15,6 +15,11 @@ DressMe is a smart wardrobe ecosystem designed primarily for the **Tunisian mark
 - [Project Overview](#project-overview)
 - [Business Objectives](#business-objectives)
 - [AI & Multi-Agent Architecture](#ai--multi-agent-architecture)
+- [RAG System](#rag-system)
+- [Running the RAG API](#running-the-rag-api)
+- [RAG Configuration](#rag-configuration)
+- [RAG Evaluation](#rag-evaluation)
+- [Troubleshooting](#troubleshooting)
 - [Prototype](#prototype)
 - [Screens](#screens)
 - [Current Status](#current-status)
@@ -239,6 +244,299 @@ Concepts and technologies under consideration include:
 
 ---
 
+## RAG System
+
+The AI Stylist is backed by a Retrieval-Augmented Generation service in `rag_backend/`. It retrieves passages from a curated corpus of fashion books, grounds the answer in those passages, and returns inline citations.
+
+> **Scope.** This is a fashion-knowledge RAG, not a wardrobe retriever. It does not yet retrieve the user's clothes, wear log, style profile, weather, or purchase history. Those data sources remain future work.
+
+Full technical reference: [`docs/rag.md`](docs/rag.md).
+
+### Architecture
+
+```text
+PDF corpus
+   -> PyMuPDF extraction -> OCR fallback -> quality checks
+   -> character chunking -> embeddings -> Supabase pgvector
+Question
+   -> optional LLM query rewrite -> vector + full-text search
+   -> Reciprocal Rank Fusion -> top passages as [S1]...[Sn]
+   -> LLM answer with inline citations -> FastAPI -> AI Stylist UI
+```
+
+### Corpus and index
+
+| Metric | Current value |
+|---|---:|
+| PDFs | 38 |
+| Pages extracted | 6,600 |
+| Extracted characters | 10,729,040 |
+| OCR pages | 1,281 |
+| Empty pages | 675 |
+| Extraction errors | 0 |
+| Indexed chunks | 14,574 |
+| Embedding model | `sentence-transformers/all-MiniLM-L6-v2` |
+| Embedding dimension | 384 |
+| Embedding version | `sentence-transformers/all-MiniLM-L6-v2-v1` |
+| Vector store | Supabase Postgres + pgvector |
+| Vector index | HNSW, cosine distance |
+
+OCR was run on five scanned or low-text books: `clothing_for_women_1916.pdf`, `Color Harmony Workbook.pdf`, `J.J. Pizzutos Fabric Science...pdf`, `scarves.pdf`, and `Textilepedia...pdf`.
+
+> **Corpus reproducibility.** The current local corpus has 38 PDFs, but 19 of them are currently untracked in git. A fresh clone may index only the committed PDFs until those files are added or fetched.
+
+### Ingestion and chunking
+
+| Parameter | Value |
+|---|---|
+| PDF input folder | `rag_backend/ingestion/pdfs/` |
+| Extraction | PyMuPDF text layer |
+| OCR fallback | Tesseract, triggered below 24 characters, 200 DPI, `eng` |
+| Chunk unit | Characters, not tokens |
+| Chunk size | 1,000 characters |
+| Chunk overlap | 150 characters |
+| Minimum chunk | 40 characters |
+| Boundary handling | Split at the last space after the first half of the chunk |
+| Cross-page chunks | No; each page is chunked independently |
+| Chunk ID | `{slug(source)}-p{page}-c{chunk_index}` |
+| Embedding batch | 32 |
+| Index batch | 250 |
+
+Each chunk stores the source, page, title, author, section, category, topics, document ID, chunk index, content hash, embedding model/version, and OCR flag. Topic tags are produced by deterministic keyword matching.
+
+The extractor caches every PDF by file SHA-256 plus OCR settings in `rag_backend/data/extraction_cache/`. Runs are resumable: checkpoints are written every 25 pages, so stopping mid-run loses at most about 25 pages of OCR work.
+
+### Storage
+
+| Artifact | Location |
+|---|---|
+| Source PDFs | `rag_backend/ingestion/pdfs/` |
+| Extracted pages | `rag_backend/data/extracted_pages.json` |
+| Chunks | `rag_backend/data/chunks.jsonl` |
+| Embedded chunks | `rag_backend/data/embedded_chunks.jsonl` |
+| Extraction cache | `rag_backend/data/extraction_cache/` |
+| Quality report | `rag_backend/data/quality_report.json` |
+| Evaluation results | `rag_backend/data/evaluation_results.json` |
+| Conversations | `rag_backend/data/conversations.sqlite3` |
+| Knowledge index | Supabase `public.knowledge_chunks` |
+| Vector + keyword RPCs | Supabase `match_knowledge_chunks`, `search_knowledge_chunks` |
+
+`rag_backend/data/` is gitignored. Docker persists `/data` and the Hugging Face cache as volumes.
+
+### Retrieval and answering
+
+1. Optionally rewrite the question with the LLM (last four history messages, max 80 tokens).
+2. Embed the query with the same 384-dimension model.
+3. Run cosine vector search and English full-text search, each with 30 candidates.
+4. Fuse the lists with Reciprocal Rank Fusion:
+
+```text
+score(chunk) = sum over lists of 1 / (60 + rank_in_list)
+```
+
+5. Keep the top `top_k` passages, filter weak matches, and build a context capped at 12,000 characters.
+6. Ask the LLM to answer using `[S1]`, `[S2]`, ... citations.
+7. Return the answer, deduplicated sources, citations, rewritten query, and `grounded` flag.
+
+| Setting | Default |
+|---|---:|
+| `RAG_TOP_K` | 5 |
+| `RAG_CANDIDATE_K` | 30 |
+| `RAG_MIN_SIMILARITY` | 0.25 |
+| `RAG_HYBRID_ENABLED` | true |
+| `RAG_RRF_CONSTANT` | 60 |
+| `RAG_MAX_CONTEXT_CHARS` | 12,000 |
+| `QUERY_REWRITE_ENABLED` | true |
+
+`grounded` is currently a heuristic: true when the answer contains at least one valid citation. It does not prove that the cited text supports the claim.
+
+### API
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/` | GET | Service metadata |
+| `/health` | GET | Supabase and LLM health |
+| `/ask` | POST | Grounded answer |
+| `/ask/stream` | POST | SSE streamed answer |
+| `/conversations` | POST | Create conversation |
+| `/conversations/{id}` | GET | Read history |
+| `/conversations/{id}` | DELETE | Delete conversation |
+
+Authentication is optional and controlled by `RAG_API_KEY`. Clients send `X-API-Key: <key>` or `Authorization: Bearer <key>`. The UI uses `VITE_RAG_API_KEY`.
+
+The default rate limit is 30 requests per minute per IP and path. It is in-memory and assumes a single API instance.
+
+---
+
+## Running the RAG API
+
+Prerequisites:
+
+- Python 3.12.
+- A Supabase project with the migrations applied.
+- An OpenAI-compatible API key.
+- Tesseract OCR for scanned PDFs.
+- Node.js and pnpm for the UI.
+
+Configure the backend by copying `.env.example` to `.env` and filling in:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `OPENAI_API_KEY` or `LLM_API_KEY`
+- `LLM_MODEL`
+- `RAG_API_KEY` (recommended outside local development)
+
+Start the API:
+
+```powershell
+cd rag_backend
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
+```
+
+Or run it with Docker:
+
+```powershell
+docker compose up -d --build rag-api
+```
+
+Configure the UI in `DressMe UI Blueprint/.env`:
+
+```text
+VITE_API_URL=http://localhost:8000
+VITE_RAG_API_KEY=<same value as RAG_API_KEY>
+```
+
+Then start the UI:
+
+```powershell
+cd "DressMe UI Blueprint"
+pnpm dev
+```
+
+The Vite server runs on `http://localhost:8443` by default. Restart the API and Vite after changing environment variables.
+
+### Adding or updating PDFs
+
+1. Put the PDFs in `rag_backend/ingestion/pdfs/`.
+2. Run the pipeline from `rag_backend`.
+
+Full run:
+
+```powershell
+python pipeline.py
+```
+
+OCR only the scanned books:
+
+```powershell
+python pipeline.py --ocr-only Color,Textilepedia,Fabric,clothing_for_women,scarves
+```
+
+Useful options:
+
+| Option | Effect |
+|---|---|
+| `--ocr-only <substrings>` | OCR only PDFs whose filename matches one of the comma-separated substrings |
+| `--refresh` | Re-extract every PDF and overwrite cache entries |
+| `--no-cache` | Ignore the extraction cache |
+| `--prune` | Delete chunks for PDFs no longer present |
+| `--no-ocr` | Disable OCR entirely |
+| `--skip-extract` | Reuse `extracted_pages.json` |
+| `--skip-embed` | Reuse `embedded_chunks.jsonl` |
+| `--skip-index` | Stop before writing to Supabase |
+
+Stopping and resuming is safe: rerun the same command. Completed PDFs are reused from the cache, and the interrupted PDF resumes from its last page checkpoint.
+
+Verify the index:
+
+```powershell
+python verify_setup.py
+```
+
+This checks the table, metadata columns, vector RPC with `min_similarity`, keyword RPC, and embedding version.
+
+---
+
+## RAG Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SUPABASE_URL` | required | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | required | Server-side Supabase key |
+| `OPENAI_API_KEY` / `LLM_API_KEY` | required | LLM provider key |
+| `LLM_MODEL` | required | Answer and rewrite model |
+| `LLM_BASE_URL` | empty | Optional OpenAI-compatible endpoint |
+| `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model |
+| `EMBEDDING_VERSION` | model name + `-v1` | Index version marker |
+| `EMBEDDING_BATCH_SIZE` | 32 | Embedding batch size |
+| `CHUNK_SIZE` | 1000 | Chunk size in characters |
+| `CHUNK_OVERLAP` | 150 | Chunk overlap in characters |
+| `RAG_TOP_K` | 5 | Final passages returned |
+| `RAG_CANDIDATE_K` | 30 | Candidates per retrieval method |
+| `RAG_MIN_SIMILARITY` | 0.25 | Vector similarity floor |
+| `RAG_HYBRID_ENABLED` | true | Enable vector + keyword fusion |
+| `RAG_RRF_CONSTANT` | 60 | RRF constant |
+| `RAG_MAX_CONTEXT_CHARS` | 12000 | Context budget |
+| `QUERY_REWRITE_ENABLED` | true | LLM query rewriting |
+| `OCR_ENABLED` | true | Enable OCR fallback |
+| `OCR_MIN_CHARS` | 24 | OCR trigger threshold |
+| `OCR_DPI` | 200 | OCR render DPI |
+| `OCR_LANGUAGE` | eng | Tesseract language |
+| `TESSERACT_CMD` | auto-detected | Explicit `tesseract.exe` path |
+| `RAG_EXTRACTION_CACHE_DIR` | `data/extraction_cache` | Per-PDF cache directory |
+| `RAG_API_KEY` | empty | Shared API secret; empty disables auth |
+| `RAG_API_KEY_HEADER` | `X-API-Key` | API key header name |
+| `RAG_RATE_LIMIT_PER_MINUTE` | 30 | Requests per minute per IP/path |
+| `CORS_ORIGINS` | localhost 5173 + 8443 | Allowed UI origins |
+| `VITE_API_URL` | `http://localhost:8000` | UI API base URL |
+| `VITE_RAG_API_KEY` | empty | UI API key |
+
+Security note: `VITE_*` values are embedded in the browser bundle. The UI key is demo-level gating, not real secrecy. Production should use a server-side proxy.
+
+---
+
+## RAG Evaluation
+
+The golden set contains 12 fashion questions in `rag_backend/evaluation/golden_qa.jsonl`.
+
+```powershell
+cd rag_backend
+python -m evaluation.evaluate --top-k 5
+python -m evaluation.evaluate --top-k 5 --judge
+```
+
+Current retrieval results:
+
+| Metric | Value |
+|---|---:|
+| questions | 12 |
+| hit@k | 91.67% |
+| MRR@k | 85.42% |
+| context precision | 71.67% |
+
+`--judge` adds LLM-based faithfulness, answer relevance, and citation accuracy. The saved `evaluation_results.json` currently contains retrieval metrics only. The default evaluation calls `retrieve()` directly, so it does not exercise production query rewriting.
+
+Known weak spots: `color-harmony` still misses the expected source, and `work-clothes` ranks its relevant source low. Fabric and wool questions improved after OCR and now hit.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `Tesseract OCR binary not found` | Install Tesseract or set `TESSERACT_CMD`; verify with `tesseract --version` |
+| `401` from `/ask` | Send `X-API-Key` or Bearer token; restart the API after changing `.env` |
+| `503` from `/ask` | Check `/health`; run `python verify_setup.py` |
+| Embedding version mismatch | Re-run the pipeline and restart the API |
+| Scanned PDFs index as empty | Enable OCR for the file with `--ocr-only`; inspect `quality_report.json` |
+| OCR is slow | Use `--ocr-only`; reruns reuse the cache and resume checkpoints |
+| UI cannot reach the API | Check `VITE_API_URL` and `CORS_ORIGINS`; restart Vite after env changes |
+| API key visible in browser | Use a server-side proxy for production |
+
+For the full technical reference, see [`docs/rag.md`](docs/rag.md).
+
+---
+
 ## Prototype
 
 This repository contains the DressMe **UI / Figma prototype**, built as a React + Vite + Tailwind application from the Figma Make design. It exists to make the product tangible and testable before the technical implementation is decided.
@@ -251,7 +549,7 @@ The prototype is used to:
 - **Demonstrate the 7 BOs** — give concrete form to each objective.
 - **Provide a foundation for the technical implementation** — act as the visual and UX reference the real frontend is built against.
 
-The prototype is interactive but **not connected to any backend, AI model, or data source**. Scores, weather, wardrobe items, recommendations, and chat replies are all hard-coded sample data for illustration. The prototype will keep evolving as product and technical decisions are refined.
+Most prototype screens still use hard-coded sample data. The **AI Stylist** screen is the exception: it is connected to the RAG API in `rag_backend/` and returns grounded answers with sources. Wardrobe items, weather, scores, and the other feature screens remain illustrative placeholders. The prototype will keep evolving as product and technical decisions are refined.
 
 ### Prototype screens
 
@@ -301,13 +599,20 @@ Each screen maps to the BOs it is meant to demonstrate:
 - Product ideation completed around the 7 business objectives.
 - UI/UX prototype under development from the Figma design.
 - Core navigation and the main feature flows implemented as interactive prototype screens.
+- RAG backend implemented: PDF ingestion, OCR, chunking, embeddings, hybrid retrieval, grounded answers, citations, and streaming.
+- Supabase knowledge index populated with 38 PDFs and 14,574 chunks.
+- AI Stylist connected to the RAG API.
+- Extraction cache and resumable OCR pipeline in place.
+- Golden-set evaluation and RAG CI (Ruff + pytest) in place.
 
 **Still open**
 
-- The technical architecture is not yet defined.
+- The full technical architecture is not finalized.
 - The multi-agent approach is planned but not finalized — agent boundaries, models, and orchestration are unresolved.
-- Feature scope, CV models, external APIs, data model, and implementation choices remain under evaluation.
-- No AI pipeline, backend, or persistence layer exists yet.
+- Wardrobe CV, personal wardrobe retrieval, and the wardrobe data model are not implemented.
+- RAG is not yet multilingual (English corpus and English full-text search).
+- Production hardening is incomplete: server-side API proxy, shared rate limiting, multi-instance conversation storage, and observability.
+- Answer faithfulness/relevance evaluation (`--judge`) is not part of CI yet.
 
 **This is not a finished or production-ready product.**
 
@@ -323,8 +628,8 @@ Indicative only — the order and content may change as decisions are made.
 4. **Backend and data architecture** — wardrobe/item schema, user accounts, wear logs, storage for images
 5. **Wardrobe computer vision pipeline** — detection, segmentation, background removal, classification, attribute extraction (BO1)
 6. **Recommendation and contextual intelligence** — compatibility scoring, occasion/weather conditioning, ranking (BO4), gap and redundancy analysis (BO2, BO3)
-7. **Multi-agent architecture integration** — agent definitions, orchestration, shared memory, RAG, explanation layer (BO5)
-8. **Testing and evaluation** — CV accuracy, recommendation quality, agent task evaluation, user studies
+7. **Multi-agent architecture integration** — agent definitions, orchestration, shared memory, explanation layer (BO5); the grounded RAG knowledge layer is already implemented
+8. **Testing and evaluation** — CV accuracy, recommendation quality, RAG faithfulness, agent task evaluation, user studies
 9. **Iterative refinement** — feedback-driven improvement across the pipeline
 
 ---
@@ -335,36 +640,41 @@ The structure below is **indicative and will change** as the prototype transitio
 
 ```text
 DressMe/
-├── UI / prototype/   # Current Figma-derived prototype (this repository today)
-├── frontend/         # Production frontend (planned)
-│   └── src/features/ # One folder per feature — see the GitHub rules above
-├── backend/          # Services, APIs, persistence (planned)
-├── ai/               # Vision pipeline, agents, orchestration (planned)
-└── docs/             # Product, architecture, and evaluation notes (planned)
-```
-
-Today the repository holds the prototype application and screenshots:
-
-```text
-DressMe/
-├── README.md
+├── DressMe UI Blueprint/  # React + Vite + Tailwind prototype
+│   └── src/
+│       ├── main.tsx
+│       ├── App.tsx        # Prototype screens and AI Stylist integration
+│       ├── index.css
+│       └── features/      # Created as features are split out
+├── rag_backend/           # RAG API, ingestion, retrieval, evaluation
+│   ├── app.py             # FastAPI application
+│   ├── pipeline.py        # extract -> chunk -> embed -> index
+│   ├── ingestion/
+│   │   ├── pdfs/          # Source PDF corpus
+│   │   ├── pdf_extractor.py
+│   │   ├── chunker.py
+│   │   ├── embedder.py
+│   │   ├── indexer.py
+│   │   └── quality.py
+│   ├── rag/               # retriever, query rewrite, LLM, Supabase
+│   ├── evaluation/        # golden QA set and metrics
+│   ├── tests/
+│   └── data/              # Generated artifacts; gitignored
+├── supabase/
+│   └── migrations/        # knowledge_chunks, RPCs, RLS, indexes
+├── docs/
+│   └── rag.md             # Full RAG technical reference
+├── .github/workflows/
+│   └── rag-ci.yml         # Ruff + pytest for rag_backend
+├── docker-compose.yml     # rag-api service
+├── .env.example
 ├── dashboard.png
 ├── wardrobe.png
 ├── helpmepack.png
-└── DressMe UI Blueprint/          # React + Vite + Tailwind prototype
-    ├── index.html
-    ├── package.json
-    ├── vite.config.ts
-    ├── tsconfig.json
-    └── src/
-        ├── main.tsx
-        ├── App.tsx                # All prototype screens and navigation
-        ├── index.css
-        └── features/              # Created as features are split out
-            ├── helpmepack/form/
-            ├── wardrobe/grid/
-            └── ...
+└── README.md
 ```
+
+The generated RAG artifacts in `rag_backend/data/` (extracted pages, chunks, embeddings, extraction cache, quality report, evaluation results, and conversations) are gitignored and recreated by the pipeline.
 
 ### Running the prototype
 
@@ -374,10 +684,12 @@ pnpm install
 pnpm dev
 ```
 
-Requires Node.js and pnpm (versions pinned in `.mise.toml`).
+Requires Node.js and pnpm (versions pinned in `.mise.toml`). The AI Stylist screen also requires the RAG API to be running; see [Running the RAG API](#running-the-rag-api).
 
 ---
 
 ## Disclaimer / Project Status
 
-DressMe is **under active development**. The prototype, architecture, AI components, and feature scope may change as the project progresses. The seven business objectives and the multi-agent direction described above represent the current understanding of the product and are subject to revision — they should not be read as committed technical decisions or as evidence of implemented functionality.
+DressMe is **under active development**. The prototype, architecture, AI components, and feature scope may change as the project progresses. The seven business objectives and the multi-agent direction described above represent the current understanding of the product and are subject to revision.
+
+The RAG service is implemented and usable, but it is not production-hardened: it is not yet wardrobe-aware, multilingual, or fully evaluated for answer faithfulness, and the demo API key is exposed to the browser. Everything else in this README should not be read as evidence of implemented functionality.

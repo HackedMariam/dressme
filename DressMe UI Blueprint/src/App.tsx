@@ -20,6 +20,11 @@ const FLATLAY_IMG = "https://images.unsplash.com/photo-1467043237213-65f2da53396
 const RACK_IMG = "https://images.unsplash.com/photo-1532453288672-3a27e9be9efd?w=400&h=500&fit=crop&auto=format";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const RAG_API_KEY = import.meta.env.VITE_RAG_API_KEY;
+const API_HEADERS: HeadersInit = {
+  "Content-Type": "application/json",
+  ...(RAG_API_KEY ? { "X-API-Key": RAG_API_KEY } : {}),
+};
 
 const wardrobeItems = [
   { id: 1, name: "Merino Wool Turtleneck", category: "Tops", color: "Ivory", season: "Winter", img: "https://images.unsplash.com/photo-1603805752838-aa579d77da72?w=300&h=380&fit=crop&auto=format", tags: ["Casual", "Layering"], wear: 12, cost: 89 },
@@ -1034,7 +1039,7 @@ function AIStylist() {
   ) => {
     const response = await fetch(`${API_URL}/ask/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: API_HEADERS,
       body: JSON.stringify({ question, top_k: 5, conversation_id: conversationId }),
       signal: controller.signal,
     });
@@ -1101,7 +1106,7 @@ function AIStylist() {
   ) => {
     const response = await fetch(`${API_URL}/ask`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: API_HEADERS,
       body: JSON.stringify({ question, top_k: 5, conversation_id: conversationId }),
       signal: controller.signal,
     });

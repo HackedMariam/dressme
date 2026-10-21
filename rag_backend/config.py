@@ -15,6 +15,7 @@ from pathlib import Path
 RAG_ROOT = Path(__file__).resolve().parent
 DEFAULT_PDF_DIR = RAG_ROOT / "ingestion" / "pdfs"
 DEFAULT_DATA_DIR = RAG_ROOT / "data"
+DEFAULT_EXTRACTION_CACHE_DIR = DEFAULT_DATA_DIR / "extraction_cache"
 
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://localhost:8443"
@@ -97,6 +98,7 @@ class Settings:
     embedded_file: Path = DEFAULT_DATA_DIR / "embedded_chunks.jsonl"
     quality_report_file: Path = DEFAULT_DATA_DIR / "quality_report.json"
     conversations_db: Path = DEFAULT_DATA_DIR / "conversations.sqlite3"
+    extraction_cache_dir: Path = DEFAULT_EXTRACTION_CACHE_DIR
 
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     embedding_version: str = f"{DEFAULT_EMBEDDING_MODEL}-v1"
@@ -115,6 +117,7 @@ class Settings:
     ocr_min_chars: int = 24
     ocr_dpi: int = 200
     ocr_language: str = "eng"
+    tesseract_cmd: str | None = None
 
     query_rewrite_enabled: bool = True
     llm_timeout_seconds: float = 45.0
@@ -204,6 +207,10 @@ def get_settings() -> Settings:
         embedded_file=data_dir / "embedded_chunks.jsonl",
         quality_report_file=data_dir / "quality_report.json",
         conversations_db=data_dir / "conversations.sqlite3",
+        extraction_cache_dir=_resolve_path(
+            _env("RAG_EXTRACTION_CACHE_DIR"),
+            data_dir / "extraction_cache",
+        ),
         embedding_model=embedding_model,
         embedding_version=embedding_version,
         chunk_size=_env_int("CHUNK_SIZE", 1000),
@@ -219,6 +226,7 @@ def get_settings() -> Settings:
         ocr_min_chars=_env_int("OCR_MIN_CHARS", 24),
         ocr_dpi=_env_int("OCR_DPI", 200),
         ocr_language=_env("OCR_LANGUAGE", "eng") or "eng",
+        tesseract_cmd=_env("TESSERACT_CMD"),
         query_rewrite_enabled=_env_bool("QUERY_REWRITE_ENABLED", True),
         llm_timeout_seconds=_env_float("LLM_TIMEOUT_SECONDS", 45.0),
         llm_max_retries=_env_int("LLM_MAX_RETRIES", 2),
