@@ -1,0 +1,6 @@
+# Real OpenAI CLIP embeddings (openai/clip-vit-base-patch32 via HuggingFace transformers).
+# Without these packages the backend still runs, using a deterministic text-hashing fallback.
+# CPU-only torch on Windows/macOS is the default PyPI wheel. On Linux, for a smaller CPU build:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.5.0
+transformers>=4.46.0
