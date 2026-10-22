@@ -228,6 +228,14 @@ def color_family_of(name: str) -> str:
     return next((f for f, names in _FAMILY.items() if name in names), "neutral")
 
 
+def fallback_enrich(detection: dict) -> dict:
+    """Instant, rule-based classification (no GPT-4 call) for the live-scan fast path.
+    The item is saved right away with this; call enrich() via /reclassify afterwards
+    to replace it with the full LLM classification.
+    """
+    return _fallback(detection, reason="fast capture - full classification pending")
+
+
 def _fallback(det: dict, reason: str) -> dict:
     cat = det["category"]
     seasons, style, occ, formality, warmth, material = _RULES.get(

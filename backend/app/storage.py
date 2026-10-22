@@ -6,12 +6,25 @@ another user's wardrobe even though the backend uses the service_role key.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
 
 from . import config
+from .enricher import color_family_of
+
+log = logging.getLogger("dressme.storage")
+_MISSING_COLUMN = re.compile(r"Could not find the '(\w+)' column")
+
+
+def _fill_defaults(row: dict) -> dict:
+    """Values that can be derived when an older database doesn't store them."""
+    if row and not row.get("color_family") and row.get("color_name"):
+        row["color_family"] = color_family_of(row["color_name"])
+    return row
 
 
 def item_folder(user_id: str, item_id: str) -> str:
@@ -26,6 +39,25 @@ class SupabaseStore:
 
         self.db = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY)
         self.bucket = config.SUPABASE_BUCKET
+        self.missing_columns: set[str] = set()
+
+    def _write(self, fn, row: dict) -> list[dict]:
+        """Run an insert/update; if the table lacks a column (older schema), drop it and retry."""
+        from postgrest.exceptions import APIError
+
+        row = {k: v for k, v in row.items() if k not in self.missing_columns}
+        while True:
+            try:
+                return fn(row).execute().data
+            except APIError as e:
+                m = _MISSING_COLUMN.search(str(e))
+                if not m or m.group(1) not in row:
+                    raise
+                col = m.group(1)
+                self.missing_columns.add(col)
+                log.warning("Column items.%s is missing in Supabase: saving without it. "
+                            "Run supabase/schema.sql again to add it.", col)
+                row.pop(col)
 
     def upload(self, path: str, data: bytes, content_type: str) -> str:
         self.db.storage.from_(self.bucket).upload(
@@ -36,20 +68,29 @@ class SupabaseStore:
         return self.db.storage.from_(self.bucket).download(path)
 
     def insert_item(self, row: dict) -> dict:
-        return self.db.table("items").insert(row).execute().data[0]
+        saved = self._write(lambda r: self.db.table("items").insert(r), row)[0]
+        return _fill_defaults({**row, **saved})
 
     def list_items(self, user_id: str) -> list[dict]:
-        return (self.db.table("items").select("*").eq("user_id", user_id)
+        rows = (self.db.table("items").select("*").eq("user_id", user_id)
                 .order("created_at", desc=True).execute().data)
+        return [_fill_defaults(r) for r in rows]
 
     def get_item(self, user_id: str, item_id: str) -> dict | None:
         rows = (self.db.table("items").select("*").eq("id", item_id).eq("user_id", user_id)
                 .limit(1).execute().data)
-        return rows[0] if rows else None
+        return _fill_defaults(rows[0]) if rows else None
 
     def update_item(self, user_id: str, item_id: str, patch: dict) -> dict:
-        return (self.db.table("items").update(patch).eq("id", item_id).eq("user_id", user_id)
-                .execute().data[0])
+        def run(r):
+            return self.db.table("items").update(r).eq("id", item_id).eq("user_id", user_id)
+
+        stored = {k: v for k, v in patch.items() if k not in self.missing_columns}
+        rows = self._write(run, stored) if stored else []
+        item = rows[0] if rows else self.get_item(user_id, item_id)
+        if item is None:
+            raise KeyError(item_id)
+        return _fill_defaults({**item, **patch})
 
     def delete_item(self, user_id: str, item_id: str) -> None:
         self.db.table("items").delete().eq("id", item_id).eq("user_id", user_id).execute()

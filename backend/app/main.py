@@ -16,17 +16,18 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import config
+from . import agent, config
 from .auth import User, current_user
 from .colors import COLOR_NAMES
 from .detector import GarmentDetector
-from .enricher import color_family_of, enrich
+from .enricher import color_family_of, enrich, fallback_enrich
 from .storage import LocalStore, get_store, item_folder
 from .taxonomy import (CLASS_TO_GROUP, COLOR_FAMILIES, GROUP_TO_ZONE, GROUPS, MODEL_CLASSES,
                        OCCASIONS, PATTERNS, SEASONS, STYLES)
@@ -48,6 +49,23 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="DressMe API", version="2.0", lifespan=lifespan)
+
+
+# Registered before CORS so CORS wraps it: an unexpected error still reaches the
+# browser as a readable JSON 500 instead of a CORS-blocked "network error".
+@app.middleware("http")
+async def json_errors(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        log.exception("Unhandled error on %s %s", request.method, request.url.path)
+        detail = "Internal server error"
+        if "schema cache" in str(e) or "PGRST2" in str(e):
+            detail = ("The Supabase database schema is out of date. "
+                      "Run supabase/schema.sql again in the Supabase SQL Editor.")
+        return JSONResponse({"detail": detail}, status_code=500)
+
+
 app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_credentials=True,
                    allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["*"])
 
@@ -148,12 +166,15 @@ async def _read_upload(file: UploadFile) -> bytes:
 async def analyze(file: UploadFile = File(...),
                   all_items: bool = Query(False, description="Save every garment found in the photo"),
                   save: bool = Query(True, description="False = preview only, nothing stored"),
+                  fast: bool = Query(False, description="Skip the GPT-4 step for an instant save "
+                                     "(category/colour only); call /reclassify afterwards to fill "
+                                     "in the rest. Used by the live camera scan."),
                   user: User = Depends(current_user)) -> dict[str, Any]:
     data = await _read_upload(file)
-    return await run_in_threadpool(_analyze_sync, data, all_items, save, user)
+    return await run_in_threadpool(_analyze_sync, data, all_items, save, fast, user)
 
 
-def _analyze_sync(data: bytes, all_items: bool, save: bool, user: User) -> dict[str, Any]:
+def _analyze_sync(data: bytes, all_items: bool, save: bool, fast: bool, user: User) -> dict[str, Any]:
     try:
         img = GarmentDetector.load_image(data)
     except Exception:
@@ -169,8 +190,11 @@ def _analyze_sync(data: bytes, all_items: bool, save: bool, user: User) -> dict[
         raise HTTPException(422, "No clothing item detected. Try a photo of a single item on a plain background.")
 
     dets = [d.to_dict() for d in detections]
-    with ThreadPoolExecutor(max_workers=min(4, len(detections))) as pool:
-        llms = list(pool.map(lambda pair: enrich(pair[0], pair[1].cutout_png), zip(dets, detections)))
+    if fast:
+        llms = [fallback_enrich(d) for d in dets]
+    else:
+        with ThreadPoolExecutor(max_workers=min(4, len(detections))) as pool:
+            llms = list(pool.map(lambda pair: enrich(pair[0], pair[1].cutout_png), zip(dets, detections)))
 
     orig_bytes = b""
     if save:  # original, resized once (shared by every item of this photo)
@@ -188,7 +212,11 @@ def _analyze_sync(data: bytes, all_items: bool, save: bool, user: User) -> dict[
             folder = item_folder(user.id, item_id)
             row["image_url"] = store.upload(f"{folder}/original.jpg", orig_bytes, "image/jpeg")
             row["cutout_url"] = store.upload(f"{folder}/cutout.png", det.cutout_png, "image/png")
-            row = store.insert_item(row)
+            try:
+                row = store.insert_item(row)
+            except Exception:
+                store.delete_item(user.id, item_id)  # don't leave orphan images in the bucket
+                raise
         else:
             row["image_url"] = ""
             row["cutout_url"] = "data:image/png;base64," + base64.b64encode(det.cutout_png).decode()
@@ -201,6 +229,109 @@ def _analyze_sync(data: bytes, all_items: bool, save: bool, user: User) -> dict[
 @app.get("/api/items")
 def list_items(user: User = Depends(current_user)) -> list[dict]:
     return store.list_items(user.id)
+
+
+@app.post("/api/items/quick-detect")
+async def quick_detect(file: UploadFile = File(...), user: User = Depends(current_user)) -> dict[str, Any]:
+    """Cheap preview detection for the live camera scan: YOLO only, no save, no GPT-4.
+    Called repeatedly (every few hundred ms) while the camera is pointed at something,
+    so it never raises — an unreadable frame or an empty view just means no detection.
+    """
+    data = await _read_upload(file)
+    return await run_in_threadpool(_quick_detect_sync, data)
+
+
+def _quick_detect_sync(data: bytes) -> dict[str, Any]:
+    try:
+        img = GarmentDetector.load_image(data)
+        detector = GarmentDetector.get()
+    except Exception:
+        return {"detections": []}
+
+    out = []
+    for det in detector.detect(img, all_items=False):
+        d = det.to_dict()
+        primary = (d.get("colors") or [{}])[0]
+        out.append({"category": d["category"], "group": d["group"], "confidence": d["confidence"],
+                    "box": d["box"], "color_name": primary.get("name")})
+    return {"detections": out}
+
+
+@app.post("/api/search/photo")
+async def search_by_photo(file: UploadFile = File(...), user: User = Depends(current_user)) -> dict[str, Any]:
+    """Find wardrobe items that look like the garment in this photo.
+
+    Skips the LLM enrichment step (enrich() calls GPT-4) so this stays fast
+    enough for a "take a photo to search" interaction.
+    """
+    data = await _read_upload(file)
+    return await run_in_threadpool(_search_by_photo_sync, data, user)
+
+
+def _search_by_photo_sync(data: bytes, user: User) -> dict[str, Any]:
+    try:
+        img = GarmentDetector.load_image(data)
+    except Exception:
+        raise HTTPException(400, "Unreadable image. Use a JPG, PNG, WEBP or HEIC photo.")
+    try:
+        detector = GarmentDetector.get()
+    except Exception:
+        log.exception("model unavailable")
+        raise HTTPException(503, "The detection model is not available on the server.")
+
+    detections = detector.detect(img, all_items=False)
+    if not detections:
+        raise HTTPException(422, "No clothing item detected. Try a photo of a single item on a plain background.")
+
+    det = detections[0].to_dict()
+    category = det["category"]
+    group = CLASS_TO_GROUP.get(category, "Accessories")
+    primary = (det.get("colors") or [{}])[0]
+    color_name = primary.get("name")
+    color_family = color_family_of(color_name) if color_name else None
+
+    # Same garment class first; only widen to the whole group (e.g. "top" vs "sweater")
+    # if nothing of that exact class is in the wardrobe.
+    items = store.list_items(user.id)
+    candidates = [i for i in items if i.get("category") == category] \
+        or [i for i in items if i.get("category_group") == group]
+
+    def score(item: dict) -> int:
+        if color_name and item.get("color_name") == color_name:
+            return 2
+        if color_family and item.get("color_family") == color_family:
+            return 1
+        return 0
+
+    best = max(candidates, key=score, default=None)
+    return {"category": category, "group": group, "color_name": color_name, "match": best}
+
+
+class AgentRequest(BaseModel):
+    message: str
+
+
+@app.post("/api/agent/search")
+async def agent_search(body: AgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+    """Ask the AI stylist a free-form question; it searches the real wardrobe before answering."""
+    items = store.list_items(user.id)
+    return await run_in_threadpool(agent.chat, items, body.message)
+
+
+class DuplicateCheckRequest(BaseModel):
+    category: str
+    color_name: str | None = None
+    pattern: str | None = None
+    material: str | None = None
+
+
+@app.post("/api/agent/check-duplicate")
+async def agent_check_duplicate(body: DuplicateCheckRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+    """Run right after a live-scan capture: the agent decides whether to search the wardrobe for
+    a near-duplicate of the item that was just saved, and flags it if it finds a confident match.
+    """
+    items = store.list_items(user.id)
+    return await run_in_threadpool(agent.check_duplicate, items, body.model_dump())
 
 
 def _get_or_404(user: User, item_id: str) -> dict:

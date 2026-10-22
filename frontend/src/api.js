@@ -33,10 +33,15 @@ async function req(path, opts = {}) {
 export const api = {
   health: () => req('/api/health'),
   list: () => req('/api/items'),
-  analyze: (file, allItems = false) => {
+  analyze: (file, allItems = false, fast = false) => {
     const fd = new FormData()
     fd.append('file', file)
-    return req(`/api/items/analyze?all_items=${allItems}`, { method: 'POST', body: fd })
+    return req(`/api/items/analyze?all_items=${allItems}&fast=${fast}`, { method: 'POST', body: fd })
+  },
+  quickDetect: (blob) => {
+    const fd = new FormData()
+    fd.append('file', blob, 'frame.jpg')
+    return req('/api/items/quick-detect', { method: 'POST', body: fd })
   },
   update: (id, fields, confirm = true) =>
     req(`/api/items/${id}`, {
@@ -45,6 +50,22 @@ export const api = {
       body: JSON.stringify({ fields, confirm }),
     }),
   reclassify: (id) => req(`/api/items/${id}/reclassify`, { method: 'POST' }),
+  searchByPhoto: (file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return req('/api/search/photo', { method: 'POST', body: fd })
+  },
+  agentSearch: (message) => req('/api/agent/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  }),
+  checkDuplicate: (item) => req('/api/agent/check-duplicate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category: item.category, color_name: item.color_name,
+                          pattern: item.pattern, material: item.material }),
+  }),
   remove: (id) => req(`/api/items/${id}`, { method: 'DELETE' }),
   accuracy: () => req('/api/stats/accuracy'),
 }
