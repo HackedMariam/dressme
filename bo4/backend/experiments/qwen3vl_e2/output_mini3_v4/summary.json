@@ -1,0 +1,84 @@
+{
+  "planned_calls": 3,
+  "calls": 3,
+  "errors": [],
+  "done_stop": 3,
+  "json_parsed": 3,
+  "schema_valid": 3,
+  "eval_count_hit_limit": 0,
+  "eval_count": [
+    777,
+    423,
+    1905
+  ],
+  "thinking_chars": [
+    2895,
+    1489,
+    6881
+  ],
+  "wall_s": [
+    38.934881699999096,
+    17.683078499998373,
+    74.74949819999892
+  ],
+  "wall_minus_load_s": [
+    31.009840199999097,
+    17.650700899998373,
+    74.73284879999892
+  ],
+  "wall_median_s": 38.934881699999096,
+  "wall_max_s": 74.74949819999892,
+  "eval_tokens_per_s": [
+    28.42610786914054,
+    29.066545416339782,
+    26.612769823974478
+  ],
+  "vram_peak_mib": 2977,
+  "ram_min_available_mib": 1244.9453125,
+  "gpu_share": [
+    0.7358684985093105,
+    0.7358684985093105,
+    0.7358684985093105
+  ],
+  "indicative_vs_acceptance": {
+    "latency_within_p50_max": [
+      false,
+      false,
+      false
+    ],
+    "latency_within_p95_max": [
+      false,
+      true,
+      false
+    ],
+    "ram_ok": true,
+    "vram_ok": true
+  },
+  "stop_reason": null,
+  "preflights": [
+    {
+      "article_id": "0781758009",
+      "available_mib": 3421.78515625,
+      "model_loaded": false,
+      "required_mib": 1918.0,
+      "ok": true,
+      "model_ram_in_use_mib": null
+    },
+    {
+      "article_id": "0783144006",
+      "available_mib": 2128.875,
+      "model_loaded": true,
+      "required_mib": 1500.0,
+      "ok": true,
+      "model_ram_in_use_mib": 648.5299987792969
+    },
+    {
+      "article_id": "0801843006",
+      "available_mib": 1726.69921875,
+      "model_loaded": true,
+      "required_mib": 1500.0,
+      "ok": true,
+      "model_ram_in_use_mib": 648.5299987792969
+    }
+  ]
+}

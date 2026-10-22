@@ -1,0 +1,97 @@
+{
+  "article_id": "0840606004",
+  "options": {
+    "temperature": 0,
+    "seed": 0,
+    "num_ctx": 6144,
+    "num_predict": 2048
+  },
+  "inference_done": true,
+  "show": {
+    "capabilities": [
+      "completion",
+      "vision",
+      "tools",
+      "thinking"
+    ],
+    "details": {
+      "parent_model": "",
+      "format": "gguf",
+      "family": "qwen3vl",
+      "families": [
+        "qwen3vl"
+      ],
+      "parameter_size": "2.1B",
+      "quantization_level": "Q4_K_M"
+    },
+    "parameters": "temperature                    1\ntop_k                          20\ntop_p                          0.95",
+    "template_chars": 13,
+    "template_sha256": "b507b9c2f6ca642bffcd06665ea7c91f235fd32daeefdf875a0f938db05fb315",
+    "template_mentions_think": false,
+    "context_length": {
+      "qwen3vl.context_length": 262144
+    }
+  },
+  "preflight": {
+    "available_mib": 2912.484375,
+    "model_loaded": false,
+    "required_mib": 1918.0,
+    "ok": true,
+    "model_ram_in_use_mib": null
+  },
+  "result": {
+    "article_id": "0840606004",
+    "phase": "single_check",
+    "repeat": 0,
+    "error": null,
+    "wall_s": 32.44149819999802,
+    "vram_peak_mib": 2977,
+    "ram_min_available_mib": 1555.41015625,
+    "done_reason": "stop",
+    "thinking_present": true,
+    "thinking_chars": 2149,
+    "thinking_head": "<think>\nGot it, let's analyze the image. First, it's a pair of pants, so category should be trousers. Primary color: the main color is pink, with white stripes. So primary_color is pink. Pattern: it's",
+    "thinking_tail": " the material is knit, so jersey_fine_knit. Pattern is striped. Primary color is pink. Fit: regular. Style: casual_basic. Formality: casual. Thickness: medium. Certainty: high.\n\nYes, that seems right.",
+    "content_chars": 224,
+    "content_head": "{\"category\": \"trousers\", \"primary_color\": \"pink\", \"pattern\": \"striped\", \"material_appearance\": \"jersey_fine_knit\", \"fit\": \"regular\", \"style\": \"casual_basic\", \"formality\": \"casual\", \"thickness\": \"mediu",
+    "content_tail": " \"primary_color\": \"pink\", \"pattern\": \"striped\", \"material_appearance\": \"jersey_fine_knit\", \"fit\": \"regular\", \"style\": \"casual_basic\", \"formality\": \"casual\", \"thickness\": \"medium\", \"certainty\": \"high\"}",
+    "json_parsed": true,
+    "schema_valid": true,
+    "validation_error": null,
+    "attributes": {
+      "category": "trousers",
+      "primary_color": "pink",
+      "pattern": "striped",
+      "material_appearance": "jersey_fine_knit",
+      "fit": "regular",
+      "style": "casual_basic",
+      "formality": "casual",
+      "thickness": "medium",
+      "certainty": "high"
+    },
+    "total_duration": 32433584900,
+    "load_duration": 8363759700,
+    "prompt_eval_count": 3107,
+    "prompt_eval_duration": 3547663000,
+    "eval_count": 596,
+    "eval_duration": 20314514000,
+    "gpu_share": 0.7358684985093105,
+    "loaded_size": 2574600107,
+    "loaded_size_vram": 1894567115
+  },
+  "eval_count_hit_limit": false,
+  "stop_further_inference": false,
+  "metadata": {
+    "created_utc": "2026-10-15T18:13:36+00:00",
+    "model": "qwen3-vl:2b",
+    "model_digest": "0635d9d857d497aeadba3d7d27485746c50554446f9f6ec01ef39788221adbe8",
+    "ollama_version": "0.40.4",
+    "think": false,
+    "timeout_s": 180.0,
+    "image_sha256": "5eb51b89c2ebeee952d2f050900dbbb7a799ce3c0c2df77e745028622f95aaf5",
+    "taxonomy_version": "e2-taxonomy/1",
+    "taxonomy_sha256": "a324e53304b3aaa9a1a18fb190464e57ecd730287477c4f4ba6209f467da972c",
+    "prompt_sha256": "1ce78ff8826e1a587832fb794945386339bb3a7a7b19cc0520a1de0f7d748dc2",
+    "note": "Diagnostic sur une image : ni exactitude, ni verdict d'acceptation."
+  }
+}
