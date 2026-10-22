@@ -86,6 +86,29 @@ photo more closely.
 
     curl -X POST http://127.0.0.1:8000/api/avatar/generate -H "Content-Type: application/json" -d "{\"targets\": {\"weight\": 0.2}}"
 
+## Clad body scan (optional, hosted API)
+
+The Customize page can use [Clad](https://clad.you/) for a photo-based body scan
+that returns ISO 8559-1 measurements (bust, waist, hip, inseam, shoulder width,
+thigh, upper arm, BMI, ...). The measurements are mapped to MPFB controls
+(`height`, `legLength`, `muscle`, `weight`, `proportions`, `cupsize`).
+
+Add the key to the **repo-root** `.env` (never commit it):
+
+    CLAD_API_KEY=ck_live_...
+
+Restart the backend after changing `.env`. The frontend never sees the key:
+
+- `GET /api/body/status` -> `{"configured": true, "source": "clad"}`
+- `POST /api/body/scan` (multipart `photo`, `height_cm`) -> measurements + MPFB targets
+- `POST /api/body/questionnaire` (8-question JSON flow) -> measurements + MPFB targets
+
+Photo scans are async on Clad's side; the backend polls the job and caches the
+result by image hash + height in `backend/temp/clad_cache/`. Free-tier limits are
+**10 photo calls/week** and **50 questionnaire calls/week** per key. If the photo
+quota is exhausted, use the questionnaire flow or the local MediaPipe estimate.
+The original photo is sent to Clad and is not stored by DressMe.
+
 ## Avatar audit (stable format)
 
 `backend/blender/audit_avatar.py` inspects `avatar.blend`. Current findings:

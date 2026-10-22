@@ -59,6 +59,52 @@ export type Health = {
   dressedScriptExists: boolean
   allowedGarments: string[]
   slots?: string[]
+  bodyScanConfigured?: boolean
+}
+
+export type CladQuotaBucket = {
+  limit: number
+  used_this_week: number
+}
+
+export type CladQuota = {
+  photo?: CladQuotaBucket
+  questionnaire?: CladQuotaBucket
+  resets_at?: string
+}
+
+export type BodyScanResult = {
+  ok: boolean
+  source: string
+  cached: boolean
+  measurements: Record<string, number>
+  targets: Partial<Record<BodyParam, number>>
+  ratios: {
+    shoulderToHip?: number
+    legFraction?: number
+    torsoToLeg?: number
+    waistToHip?: number
+  }
+  notes: string[]
+  quota?: CladQuota
+}
+
+export type BodyScanStatus = {
+  configured: boolean
+  source: string
+}
+
+export type QuestionnairePayload = {
+  height_cm: number
+  mass_kg: number
+  gender: "female" | "male"
+  body_shape: "hourglass" | "rectangle" | "inverted_triangle" | "pear" | "apple"
+  belly: number
+  build: number
+  legs: number
+  arms: number
+  cupsize?: string
+  ancestry?: string
 }
 
 export type MappingPreview = {
@@ -285,4 +331,67 @@ export async function checkAvatarBackend(): Promise<Health> {
   const res = await fetch(`${API_BASE}/api/health`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return (await res.json()) as Health
+}
+
+async function readApiError(res: Response): Promise<string> {
+  let detail = `HTTP ${res.status}`
+  try {
+    const body = await res.json()
+    if (typeof body?.detail === "string") detail = body.detail
+  } catch {
+    // keep the HTTP status
+  }
+  return detail
+}
+
+export async function checkBodyScanStatus(): Promise<BodyScanStatus> {
+  const res = await fetch(`${API_BASE}/api/body/status`)
+  if (!res.ok) throw new Error(await readApiError(res))
+  return (await res.json()) as BodyScanStatus
+}
+
+export async function scanBodyPhoto(
+  file: File,
+  heightCm: number,
+  signal?: AbortSignal,
+): Promise<BodyScanResult> {
+  const form = new FormData()
+  form.append("photo", file)
+  form.append("height_cm", String(heightCm))
+
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/body/scan`, {
+      method: "POST",
+      body: form,
+      signal,
+    })
+  } catch {
+    throw new Error(
+      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8000",
+    )
+  }
+  if (!res.ok) throw new Error(await readApiError(res))
+  return (await res.json()) as BodyScanResult
+}
+
+export async function scanBodyQuestionnaire(
+  payload: QuestionnairePayload,
+  signal?: AbortSignal,
+): Promise<BodyScanResult> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/body/questionnaire`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    })
+  } catch {
+    throw new Error(
+      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8000",
+    )
+  }
+  if (!res.ok) throw new Error(await readApiError(res))
+  return (await res.json()) as BodyScanResult
 }

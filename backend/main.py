@@ -21,10 +21,13 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+import body_scan
 
 BACKEND_DIR = Path(__file__).resolve().parent
 BLENDER_PATH = os.environ.get(
@@ -97,6 +100,33 @@ class GenerateResponse(BaseModel):
     bytes: int
     elapsedSeconds: float
     metrics: dict[str, float] = Field(default_factory=dict)
+
+
+class QuestionnaireRequest(BaseModel):
+    height_cm: float = Field(..., ge=140, le=220)
+    mass_kg: float = Field(..., ge=30, le=200)
+    gender: Literal["female", "male"]
+    body_shape: Literal["hourglass", "rectangle", "inverted_triangle", "pear", "apple"]
+    belly: int = Field(..., ge=1, le=3)
+    build: int = Field(..., ge=1, le=3)
+    legs: int = Field(2, ge=1, le=3)
+    arms: int = Field(2, ge=1, le=3)
+    cupsize: str | None = None
+    ancestry: str | None = "mixed"
+
+
+def _body_scan_response(result: dict) -> dict:
+    derived = body_scan.measurements_to_targets(result.get("measurements") or {})
+    return {
+        "ok": True,
+        "source": result.get("model", "clad"),
+        "cached": bool(result.get("cached")),
+        "measurements": result.get("measurements") or {},
+        "targets": derived["targets"],
+        "ratios": derived["ratios"],
+        "notes": derived["notes"],
+        "quota": result.get("quota"),
+    }
 
 
 def validate_targets(targets: dict[str, float]) -> dict[str, float]:
@@ -207,7 +237,65 @@ def health() -> dict:
         "dressedScriptExists": DRESSED_BLENDER_SCRIPT.is_file(),
         "allowedGarments": ALLOWED_GARMENTS,
         "slots": GARMENT_SLOTS,
+        "bodyScanConfigured": body_scan.is_configured(),
     }
+
+
+@app.get("/api/body/status")
+def body_scan_status() -> dict:
+    return {
+        "configured": body_scan.is_configured(),
+        "source": "clad",
+    }
+
+
+@app.post("/api/body/scan")
+async def scan_body(photo: UploadFile = File(...), height_cm: float = Form(...)) -> dict:
+    if not (140.0 <= height_cm <= 220.0):
+        raise HTTPException(status_code=422, detail="height_cm must be between 140 and 220")
+    if not body_scan.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="CLAD_API_KEY is not configured. Add it to the repo-root .env.",
+        )
+
+    content_type = (photo.content_type or "").lower()
+    if content_type not in body_scan.ALLOWED_PHOTO_TYPES:
+        raise HTTPException(status_code=422, detail="Upload a JPG, PNG, or WebP photo")
+
+    image_bytes = await photo.read()
+    if not image_bytes:
+        raise HTTPException(status_code=422, detail="The uploaded photo is empty")
+    if len(image_bytes) > body_scan.MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="The photo is larger than 20 MB")
+
+    try:
+        result = await body_scan.scan_photo(
+            image_bytes,
+            photo.filename or "photo.jpg",
+            content_type,
+            height_cm,
+        )
+    except body_scan.CladError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    return _body_scan_response(result)
+
+
+@app.post("/api/body/questionnaire")
+async def scan_body_questionnaire(payload: QuestionnaireRequest) -> dict:
+    if not body_scan.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="CLAD_API_KEY is not configured. Add it to the repo-root .env.",
+        )
+
+    try:
+        result = await body_scan.scan_questionnaire(payload.model_dump(exclude_none=True))
+    except body_scan.CladError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    return _body_scan_response(result)
 
 
 @app.post("/api/avatar/generate", response_model=GenerateResponse)

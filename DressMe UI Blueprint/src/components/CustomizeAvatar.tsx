@@ -9,17 +9,23 @@ import {
   fitTargets,
   generateAvatar,
   GENDER_PRESETS,
+  checkBodyScanStatus,
   heightFromCm,
   legLengthFromTorsoToLeg,
   MPFB_NEUTRAL,
   MPFB_PARAMS,
   muscleFromShoulderToHip,
   PHOTO_ESTIMATED_PARAMS,
+  scanBodyPhoto,
+  scanBodyQuestionnaire,
+  type BodyScanResult,
   type BodyTargets,
   type GenerateResult,
   type MpbParam,
   type MpbParamMeta,
+  type QuestionnairePayload,
 } from "../lib/avatarApi"
+import { BODY_SHAPES, CUP_SIZES, GENDERS, measurementRows, quotaRemaining } from "../lib/clad"
 import {
   analyzePhoto,
   defaultProportions,
@@ -67,6 +73,21 @@ export default function CustomizeAvatar({
   const [heightCm, setHeightCm] = useState(170)
   const [genIteration, setGenIteration] = useState(0)
   const [fitInfo, setFitInfo] = useState<{ score: number; achieved: Record<string, number> } | null>(null)
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [legLengthOverride, setLegLengthOverride] = useState<number | null>(null)
+  const [cladConsent, setCladConsent] = useState(false)
+  const [cladState, setCladState] = useState<"idle" | "running" | "success" | "error">("idle")
+  const [cladError, setCladError] = useState<string | null>(null)
+  const [cladResult, setCladResult] = useState<BodyScanResult | null>(null)
+  const [cladConfigured, setCladConfigured] = useState<boolean | null>(null)
+  const [qMass, setQMass] = useState(65)
+  const [qGender, setQGender] = useState<"female" | "male">("female")
+  const [qShape, setQShape] = useState<QuestionnairePayload["body_shape"]>("hourglass")
+  const [qBelly, setQBelly] = useState(2)
+  const [qBuild, setQBuild] = useState(2)
+  const [qLegs, setQLegs] = useState(2)
+  const [qArms, setQArms] = useState(2)
+  const [qCup, setQCup] = useState("")
   const imgRef = useRef<HTMLImageElement | null>(null)
   const prevUrlRef = useRef<string | null>(null)
   const genAbortRef = useRef<AbortController | null>(null)
@@ -87,17 +108,36 @@ export default function CustomizeAvatar({
   }, [])
 
   useEffect(() => {
+    let active = true
+    checkBodyScanStatus()
+      .then((status) => {
+        if (active) setCladConfigured(status.configured)
+      })
+      .catch(() => {
+        if (active) setCladConfigured(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
     if (!linkMuscle) return
     const linked = muscleFromShoulderToHip(adjusted.shoulderToHip)
     setMpb((prev) => (prev.muscle === linked ? prev : { ...prev, muscle: linked }))
   }, [adjusted.shoulderToHip, linkMuscle])
 
-  const legLength = useMemo(() => legLengthFromTorsoToLeg(adjusted.torsoToLeg), [adjusted.torsoToLeg])
+  const derivedLegLength = useMemo(() => legLengthFromTorsoToLeg(adjusted.torsoToLeg), [adjusted.torsoToLeg])
+  const legLength = legLengthOverride ?? derivedLegLength
 
   const activeTargets = useMemo(
     () => (Object.entries(mpfb) as [MpbParam, number][]).filter(([, v]) => Math.abs(v - MPFB_NEUTRAL) > 0.001),
     [mpfb],
   )
+
+  const cladRows = cladResult ? measurementRows(cladResult.measurements) : []
+  const photoScanRemaining = cladResult ? quotaRemaining(cladResult.quota, "photo") : null
+  const questionnaireRemaining = cladResult ? quotaRemaining(cladResult.quota, "questionnaire") : null
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -115,8 +155,14 @@ export default function CustomizeAvatar({
     prevUrlRef.current = url
     setFileUrl(url)
     setFileName(file.name)
+    setPhotoFile(file)
     setAnalysis(null)
     setAdjusted(defaultProportions())
+    setLegLengthOverride(null)
+    setCladResult(null)
+    setCladState("idle")
+    setCladError(null)
+    setCladConsent(false)
     setMpb((prev) => {
       const next = { ...prev }
       for (const k of PHOTO_ESTIMATED_PARAMS) next[k] = MPFB_NEUTRAL
@@ -148,6 +194,10 @@ export default function CustomizeAvatar({
     }
     setAnalyzing(true)
     setError(null)
+    setCladResult(null)
+    setCladError(null)
+    setCladState("idle")
+    setLegLengthOverride(null)
     try {
       if (img.decode) {
         await img.decode().catch(() => undefined)
@@ -181,14 +231,97 @@ export default function CustomizeAvatar({
 
   const onReset = () => {
     setAdjusted(analysis ? { ...analysis.proportions } : defaultProportions())
+    setLegLengthOverride(null)
     setFitInfo(null)
   }
 
   const onHeightCmChange = (value: number) => {
     setHeightCm(value)
-    if (!Number.isFinite(value) || value < 130 || value > 220) return
+    if (!Number.isFinite(value) || value < 140 || value > 220) return
     setMpb((prev) => ({ ...prev, height: heightFromCm(value) }))
     setPhotoKeys((prev) => prev.filter((k) => k !== "height"))
+  }
+
+  const applyBodyScan = (result: BodyScanResult) => {
+    const targets = result.targets
+    setCladResult(result)
+    setCladState("success")
+    setCladError(null)
+
+    setMpb((prev) => {
+      const next = { ...prev }
+      if (targets.height !== undefined) next.height = targets.height
+      if (targets.muscle !== undefined) next.muscle = targets.muscle
+      if (targets.weight !== undefined) next.weight = targets.weight
+      if (targets.proportions !== undefined) next.proportions = targets.proportions
+      if (targets.cupsize !== undefined) next.cupsize = targets.cupsize
+      return next
+    })
+
+    if (result.ratios.shoulderToHip !== undefined) {
+      const ratio = result.ratios.shoulderToHip
+      setAdjusted((prev) => ({ ...prev, shoulderToHip: ratio }))
+    }
+    if (targets.legLength !== undefined) {
+      setLegLengthOverride(targets.legLength)
+    }
+
+    setLinkMuscle(false)
+    const keys: MpbParam[] = []
+    if (targets.height !== undefined) keys.push("height")
+    if (targets.muscle !== undefined) keys.push("muscle")
+    if (targets.weight !== undefined) keys.push("weight")
+    if (targets.proportions !== undefined) keys.push("proportions")
+    if (targets.cupsize !== undefined) keys.push("cupsize")
+    setPhotoKeys(keys)
+    setAnalysis(null)
+    setFitInfo(null)
+    if (result.measurements.height_cm) {
+      setHeightCm(Math.round(result.measurements.height_cm))
+    }
+  }
+
+  const onCladScan = async () => {
+    if (!photoFile) {
+      setCladError("Upload a full-body photo first.")
+      return
+    }
+    if (!cladConsent) {
+      setCladError("Please agree to send this photo to Clad before scanning.")
+      return
+    }
+    setCladState("running")
+    setCladError(null)
+    try {
+      const result = await scanBodyPhoto(photoFile, heightCm)
+      applyBodyScan(result)
+    } catch (e) {
+      setCladState("error")
+      setCladError(e instanceof Error ? e.message : "Body scan failed.")
+    }
+  }
+
+  const onCladQuestionnaire = async () => {
+    setCladState("running")
+    setCladError(null)
+    const payload: QuestionnairePayload = {
+      height_cm: heightCm,
+      mass_kg: qMass,
+      gender: qGender,
+      body_shape: qShape,
+      belly: qBelly,
+      build: qBuild,
+      legs: qLegs,
+      arms: qArms,
+      ...(qCup ? { cupsize: qCup } : {}),
+    }
+    try {
+      const result = await scanBodyQuestionnaire(payload)
+      applyBodyScan(result)
+    } catch (e) {
+      setCladState("error")
+      setCladError(e instanceof Error ? e.message : "Questionnaire measurement failed.")
+    }
   }
 
   const onGenerate = async () => {
@@ -227,6 +360,7 @@ export default function CustomizeAvatar({
       setLastJob(last.jobId)
       setLastResult(last)
       setGenState("success")
+      setLegLengthOverride(current.legLength)
       if (desired && last.metrics) {
         setFitInfo({ score: fitScore(last.metrics, desired), achieved: last.metrics })
       }
@@ -263,7 +397,10 @@ export default function CustomizeAvatar({
           max={limits.max}
           step={limits.step}
           value={adjusted[key]}
-          onChange={(e) => setAdjusted((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
+          onChange={(e) => {
+            setAdjusted((prev) => ({ ...prev, [key]: Number(e.target.value) }))
+            if (key === "torsoToLeg") setLegLengthOverride(null)
+          }}
           className="w-full accent-[#556B2F]"
         />
         {key === "torsoToLeg" && (
@@ -382,7 +519,7 @@ export default function CustomizeAvatar({
                   <input
                     id="height-cm"
                     type="number"
-                    min={130}
+                    min={140}
                     max={220}
                     step={1}
                     value={heightCm}
@@ -406,6 +543,213 @@ export default function CustomizeAvatar({
           </div>
 
           <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Body scan (Clad)</h3>
+                <p className="text-xs text-[#8C8A82] mt-0.5">
+                  Photo + height → 24 ISO 8559-1 measurements. This sends the photo to Clad.
+                </p>
+              </div>
+              <span
+                className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${
+                  cladState === "success"
+                    ? "bg-[#E8EDE0] text-[#556B2F]"
+                    : cladState === "error"
+                      ? "bg-[#F5E0E0] text-[#8A2E2E]"
+                      : "bg-[#E2E0D8] text-[#8C8A82]"
+                }`}
+              >
+                {cladState === "running"
+                  ? "Scanning…"
+                  : cladState === "success"
+                    ? "Measurements ready"
+                    : cladState === "error"
+                      ? "Scan failed"
+                      : "Optional"}
+              </span>
+            </div>
+
+            {cladConfigured === false && (
+              <div className="bg-[#F5EDDC] text-[#7A5B1E] text-xs rounded-lg px-3 py-2.5">
+                Clad is not configured. Add <code className="font-mono">CLAD_API_KEY</code> to the repo-root{" "}
+                <code className="font-mono">.env</code> and restart the backend.
+              </div>
+            )}
+
+            <label className="flex items-start gap-2 text-xs text-[#8C8A82]">
+              <input
+                type="checkbox"
+                checked={cladConsent}
+                onChange={(e) => setCladConsent(e.target.checked)}
+                className="mt-0.5 accent-[#556B2F]"
+              />
+              <span>
+                I agree to send this photo to Clad for body measurement. DressMe does not store the original image.
+              </span>
+            </label>
+
+            <button
+              onClick={onCladScan}
+              disabled={!photoFile || !cladConsent || cladState === "running" || cladConfigured === false}
+              className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {cladState === "running" ? "Measuring…" : "Measure with Clad"}
+            </button>
+
+            {cladError && (
+              <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{cladError}</div>
+            )}
+
+            {cladResult && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  {cladRows.map((row) => (
+                    <div key={row.key} className="bg-white rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-[#8C8A82] uppercase tracking-wide">{row.label}</p>
+                      <p className="text-sm font-semibold text-[#1C1C1C] tabular-nums">
+                        {row.value.toFixed(1)}
+                        {row.unit ? (
+                          <span className="ml-1 text-[10px] font-normal text-[#8C8A82]">{row.unit}</span>
+                        ) : null}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-[#556B2F]">
+                  Applied to the sliders: height, leg length, muscle, weight, proportions
+                  {cladResult.targets.cupsize !== undefined ? ", cup size" : ""}.
+                </p>
+                {cladResult.cached && (
+                  <p className="text-[11px] text-[#8C8A82]">Cached result — no new API call was used.</p>
+                )}
+                {(photoScanRemaining !== null || questionnaireRemaining !== null) && (
+                  <p className="text-[11px] text-[#8C8A82]">
+                    {photoScanRemaining !== null
+                      ? `Photo scans left this week: ${photoScanRemaining}. `
+                      : ""}
+                    {questionnaireRemaining !== null
+                      ? `Questionnaire calls left: ${questionnaireRemaining}.`
+                      : ""}
+                  </p>
+                )}
+                {cladResult.notes.length > 0 && (
+                  <ul className="text-[11px] text-[#8C8A82] list-disc pl-4 space-y-1">
+                    {cladResult.notes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <details className="border-t border-[#E2E0D8] pt-3">
+              <summary className="text-xs font-semibold text-[#1C1C1C] cursor-pointer">
+                No photo? Use the 8-question sizing flow
+              </summary>
+              <div className="grid grid-cols-2 gap-3 pt-3">
+                <div>
+                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-mass">
+                    Mass (kg)
+                  </label>
+                  <input
+                    id="q-mass"
+                    type="number"
+                    min={30}
+                    max={200}
+                    value={qMass}
+                    onChange={(e) => setQMass(Number(e.target.value))}
+                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-gender">
+                    Gender
+                  </label>
+                  <select
+                    id="q-gender"
+                    value={qGender}
+                    onChange={(e) => setQGender(e.target.value as "female" | "male")}
+                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                  >
+                    {GENDERS.map((g) => (
+                      <option key={g.value} value={g.value}>
+                        {g.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-shape">
+                    Body shape
+                  </label>
+                  <select
+                    id="q-shape"
+                    value={qShape}
+                    onChange={(e) => setQShape(e.target.value as QuestionnairePayload["body_shape"])}
+                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                  >
+                    {BODY_SHAPES.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-cup">
+                    Cup size (optional)
+                  </label>
+                  <select
+                    id="q-cup"
+                    value={qCup}
+                    onChange={(e) => setQCup(e.target.value)}
+                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                  >
+                    <option value="">—</option>
+                    {CUP_SIZES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {[
+                  { label: "Belly", value: qBelly, set: setQBelly, id: "q-belly" },
+                  { label: "Build", value: qBuild, set: setQBuild, id: "q-build" },
+                  { label: "Legs", value: qLegs, set: setQLegs, id: "q-legs" },
+                  { label: "Arms", value: qArms, set: setQArms, id: "q-arms" },
+                ].map((field) => (
+                  <div key={field.id}>
+                    <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor={field.id}>
+                      {field.label}
+                    </label>
+                    <select
+                      id={field.id}
+                      value={field.value}
+                      onChange={(e) => field.set(Number(e.target.value))}
+                      className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                    >
+                      {[1, 2, 3].map((n) => (
+                        <option key={n} value={n}>
+                          {n === 1 ? "Low" : n === 2 ? "Average" : "High"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={onCladQuestionnaire}
+                disabled={cladState === "running" || cladConfigured === false}
+                className="mt-3 w-full bg-white border border-[#E2E0D8] hover:bg-[#E2E0D8] text-[#1C1C1C] text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40"
+              >
+                {cladState === "running" ? "Measuring…" : "Measure from questionnaire"}
+              </button>
+            </details>
+          </div>
+
+          <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Estimated proportions</h3>
               {analysis && (
@@ -414,6 +758,12 @@ export default function CustomizeAvatar({
                 </span>
               )}
             </div>
+
+            {cladResult && (
+              <p className="text-xs text-[#556B2F]">
+                Clad scan applied. Running “Estimate proportions” will replace these values with local pose estimates.
+              </p>
+            )}
 
             {!analysis && !error && (
               <p className="text-sm text-[#8C8A82]">
