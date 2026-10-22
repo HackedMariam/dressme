@@ -28,6 +28,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import body_scan
+import mpfb_details
+import optimizer
+import vision
 
 BACKEND_DIR = Path(__file__).resolve().parent
 BLENDER_PATH = os.environ.get(
@@ -73,6 +76,8 @@ ALLOWED_GARMENTS = list(GARMENT_CATALOG)
 MAX_GARMENTS = len(GARMENT_SLOTS)
 
 _job_lock = threading.Lock()
+_opt_jobs: dict[str, dict] = {}
+_opt_jobs_lock = threading.Lock()
 app = FastAPI(title="DressMe avatar backend", version="1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -89,6 +94,10 @@ app.add_middleware(
 
 class GenerateRequest(BaseModel):
     targets: dict[str, float] = Field(..., description="MPFB parameter name -> value in [0, 1]")
+    details: dict[str, float] = Field(
+        default_factory=dict,
+        description="Optional MPFB detail target name -> value in [0, 1]",
+    )
     outfit: list[str] = Field(default_factory=list, description="Garment ids to fit and export")
 
 
@@ -96,6 +105,7 @@ class GenerateResponse(BaseModel):
     jobId: str
     url: str
     params: dict[str, float]
+    details: dict[str, float]
     outfit: list[str]
     bytes: int
     elapsedSeconds: float
@@ -115,17 +125,39 @@ class QuestionnaireRequest(BaseModel):
     ancestry: str | None = "mixed"
 
 
+class OptimizeRequest(BaseModel):
+    targets: dict[str, float] = Field(..., description="Starting macro targets")
+    details: dict[str, float] = Field(default_factory=dict, description="Starting detail targets")
+    silhouettes: dict[str, str] = Field(..., description="Normalized front/side PNG data URLs")
+    maxEvaluations: int = Field(36, ge=8, le=96)
+
+
+class MeasurementsRequest(BaseModel):
+    height_cm: float = Field(..., ge=140, le=220)
+    mass_kg: float | None = Field(None, ge=30, le=200)
+    bmi: float | None = Field(None, ge=10, le=60)
+    bust_cm: float | None = Field(None, ge=40, le=200)
+    underbust_cm: float | None = Field(None, ge=40, le=200)
+    waist_cm: float | None = Field(None, ge=40, le=200)
+    hip_cm: float | None = Field(None, ge=50, le=220)
+    shoulder_width_cm: float | None = Field(None, ge=20, le=80)
+    inseam_cm: float | None = Field(None, ge=40, le=140)
+    thigh_cm: float | None = Field(None, ge=25, le=120)
+    upperarm_cm: float | None = Field(None, ge=15, le=80)
+    neck_cm: float | None = Field(None, ge=20, le=70)
+    calf_cm: float | None = Field(None, ge=20, le=80)
+    wrist_cm: float | None = Field(None, ge=10, le=40)
+
+
 def _body_scan_response(result: dict) -> dict:
     derived = body_scan.measurements_to_targets(result.get("measurements") or {})
     return {
         "ok": True,
-        "source": result.get("model", "clad"),
-        "cached": bool(result.get("cached")),
+        "source": result.get("model", body_scan.MODEL_NAME),
         "measurements": result.get("measurements") or {},
         "targets": derived["targets"],
         "ratios": derived["ratios"],
         "notes": derived["notes"],
-        "quota": result.get("quota"),
     }
 
 
@@ -148,6 +180,13 @@ def validate_targets(targets: dict[str, float]) -> dict[str, float]:
             raise HTTPException(status_code=422, detail=f"parameter '{key}' must be between 0.0 and 1.0")
         cleaned[key] = round(v, 4)
     return cleaned
+
+
+def validate_details(details: dict[str, float]) -> dict[str, float]:
+    try:
+        return mpfb_details.validate_details(details)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def validate_outfit(outfit: list[str]) -> list[str]:
@@ -237,70 +276,70 @@ def health() -> dict:
         "dressedScriptExists": DRESSED_BLENDER_SCRIPT.is_file(),
         "allowedGarments": ALLOWED_GARMENTS,
         "slots": GARMENT_SLOTS,
-        "bodyScanConfigured": body_scan.is_configured(),
+        "visionConfigured": vision.is_configured(),
     }
 
 
 @app.get("/api/body/status")
 def body_scan_status() -> dict:
     return {
-        "configured": body_scan.is_configured(),
-        "source": "clad",
+        "configured": True,
+        "source": body_scan.MODEL_NAME,
     }
 
 
-@app.post("/api/body/scan")
-async def scan_body(photo: UploadFile = File(...), height_cm: float = Form(...)) -> dict:
+@app.post("/api/body/questionnaire")
+def scan_body_questionnaire(payload: QuestionnaireRequest) -> dict:
+    result = body_scan.scan_questionnaire(payload.model_dump(exclude_none=True))
+    return _body_scan_response(result)
+
+
+@app.post("/api/body/measurements")
+def body_measurements(payload: MeasurementsRequest) -> dict:
+    measurements = payload.model_dump(exclude_none=True)
+    derived = body_scan.measurements_to_targets(measurements)
+    return {
+        "ok": True,
+        "source": "photo-measurements",
+        "measurements": measurements,
+        "targets": derived["targets"],
+        "ratios": derived["ratios"],
+        "notes": derived["notes"],
+    }
+
+
+async def _read_photo(upload: UploadFile) -> tuple[bytes, str]:
+    content_type = (upload.content_type or "").lower()
+    if content_type not in vision.ALLOWED_PHOTO_TYPES:
+        raise HTTPException(status_code=422, detail="Upload a JPG, PNG, or WebP photo")
+    data = await upload.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="The uploaded photo is empty")
+    if len(data) > vision.MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="A photo is larger than 20 MB")
+    return data, content_type
+
+
+@app.post("/api/body/vision")
+async def body_vision(
+    front: UploadFile = File(...),
+    side: UploadFile = File(...),
+    height_cm: float = Form(...),
+) -> dict:
     if not (140.0 <= height_cm <= 220.0):
         raise HTTPException(status_code=422, detail="height_cm must be between 140 and 220")
-    if not body_scan.is_configured():
-        raise HTTPException(
-            status_code=503,
-            detail="CLAD_API_KEY is not configured. Add it to the repo-root .env.",
-        )
-
-    content_type = (photo.content_type or "").lower()
-    if content_type not in body_scan.ALLOWED_PHOTO_TYPES:
-        raise HTTPException(status_code=422, detail="Upload a JPG, PNG, or WebP photo")
-
-    image_bytes = await photo.read()
-    if not image_bytes:
-        raise HTTPException(status_code=422, detail="The uploaded photo is empty")
-    if len(image_bytes) > body_scan.MAX_PHOTO_BYTES:
-        raise HTTPException(status_code=413, detail="The photo is larger than 20 MB")
-
+    front_bytes, front_type = await _read_photo(front)
+    side_bytes, side_type = await _read_photo(side)
     try:
-        result = await body_scan.scan_photo(
-            image_bytes,
-            photo.filename or "photo.jpg",
-            content_type,
-            height_cm,
-        )
-    except body_scan.CladError as exc:
+        return await vision.analyze_photos(front_bytes, front_type, side_bytes, side_type, height_cm)
+    except vision.VisionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-
-    return _body_scan_response(result)
-
-
-@app.post("/api/body/questionnaire")
-async def scan_body_questionnaire(payload: QuestionnaireRequest) -> dict:
-    if not body_scan.is_configured():
-        raise HTTPException(
-            status_code=503,
-            detail="CLAD_API_KEY is not configured. Add it to the repo-root .env.",
-        )
-
-    try:
-        result = await body_scan.scan_questionnaire(payload.model_dump(exclude_none=True))
-    except body_scan.CladError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-
-    return _body_scan_response(result)
 
 
 @app.post("/api/avatar/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest) -> GenerateResponse:
     targets = validate_targets(req.targets)
+    details = validate_details(req.details)
     outfit = validate_outfit(req.outfit)
     script = DRESSED_BLENDER_SCRIPT if outfit else BLENDER_SCRIPT
     if not script.is_file():
@@ -321,8 +360,10 @@ def generate(req: GenerateRequest) -> GenerateResponse:
         cleanup_temp()
 
         params_path = TEMP_DIR / f"params_{job_id}.json"
+        details_path = TEMP_DIR / f"details_{job_id}.json"
         temp_glb = TEMP_DIR / f"avatar_{job_id}.glb"
         params_path.write_text(json.dumps(targets), encoding="utf-8")
+        details_path.write_text(json.dumps(details), encoding="utf-8")
 
         cmd = [
             BLENDER_PATH,
@@ -333,6 +374,8 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             "--",
             "--params",
             str(params_path),
+            "--details",
+            str(details_path),
             "--output",
             str(temp_glb),
         ]
@@ -356,6 +399,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             elapsed = round(time.monotonic() - started, 1)
             try:
                 params_path.unlink(missing_ok=True)
+                details_path.unlink(missing_ok=True)
             except OSError:
                 pass
 
@@ -381,6 +425,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             jobId=job_id,
             url=f"/models/generated/{final_name}",
             params=targets,
+            details=details,
             outfit=outfit,
             bytes=final_path.stat().st_size,
             elapsedSeconds=elapsed,
@@ -388,3 +433,109 @@ def generate(req: GenerateRequest) -> GenerateResponse:
         )
     finally:
         _job_lock.release()
+
+
+def _update_opt_job(job_id: str, **fields) -> None:
+    with _opt_jobs_lock:
+        job = _opt_jobs.get(job_id)
+        if job is not None:
+            job.update(fields)
+
+
+def _run_optimize(
+    job_id: str,
+    targets: dict[str, float],
+    details: dict[str, float],
+    silhouettes: dict[str, str],
+    max_evaluations: int,
+) -> None:
+    work_dir = TEMP_DIR / f"opt_{job_id}"
+    config = {
+        "blender": BLENDER_PATH,
+        "avatar_blend": AVATAR_BLEND,
+        "script": str(BLENDER_SCRIPT),
+        "work_dir": str(work_dir),
+        "eval_timeout": min(JOB_TIMEOUT_SECONDS, 180),
+    }
+
+    def progress(payload: dict) -> None:
+        _update_opt_job(job_id, progress=payload)
+
+    try:
+        result = optimizer.optimize(
+            targets,
+            details,
+            silhouettes,
+            config,
+            max_evaluations=max_evaluations,
+            progress=progress,
+        )
+        best_glb = Path(result.pop("glbPath"))
+        final_name = f"avatar_opt_{job_id}.glb"
+        final_path = GENERATED_DIR / final_name
+        GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(best_glb), str(final_path))
+        result["jobId"] = job_id
+        result["url"] = f"/models/generated/{final_name}"
+        result["bytes"] = final_path.stat().st_size
+        _update_opt_job(job_id, status="done", result=result)
+    except Exception as exc:
+        _update_opt_job(job_id, status="error", error=str(exc))
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        _job_lock.release()
+
+
+def _validate_silhouettes(silhouettes: dict[str, str]) -> None:
+    for key in ("front", "side"):
+        data = silhouettes.get(key)
+        if not isinstance(data, str) or not data.startswith("data:image/png;base64,"):
+            raise HTTPException(status_code=422, detail=f"{key} silhouette must be a PNG data URL")
+        if len(data) > 8 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"{key} silhouette is too large")
+
+
+@app.post("/api/avatar/optimize")
+def start_optimize(payload: OptimizeRequest) -> dict:
+    targets = validate_targets(payload.targets)
+    details = validate_details(payload.details)
+    _validate_silhouettes(payload.silhouettes)
+    if not _job_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A Blender job is already running. Try again shortly.")
+
+    job_id = uuid.uuid4().hex[:12]
+    job = {
+        "jobId": job_id,
+        "status": "running",
+        "createdAt": int(time.time()),
+        "progress": {
+            "evaluations": 0,
+            "maxEvaluations": payload.maxEvaluations,
+            "bestScore": None,
+        },
+    }
+    with _opt_jobs_lock:
+        _opt_jobs[job_id] = job
+
+    try:
+        thread = threading.Thread(
+            target=_run_optimize,
+            args=(job_id, targets, details, payload.silhouettes, payload.maxEvaluations),
+            daemon=True,
+        )
+        thread.start()
+    except Exception as exc:
+        _job_lock.release()
+        _update_opt_job(job_id, status="error", error=str(exc))
+        raise HTTPException(status_code=500, detail="Could not start the optimizer") from exc
+
+    return {"jobId": job_id, "status": "running", "progress": job["progress"]}
+
+
+@app.get("/api/avatar/optimize/{job_id}")
+def get_optimize(job_id: str) -> dict:
+    with _opt_jobs_lock:
+        job = _opt_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown optimization job")
+        return dict(job)

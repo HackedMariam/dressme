@@ -30,6 +30,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 import sys
 import traceback
 
@@ -128,6 +129,70 @@ def mesh_height(body_obj) -> float:
     return max(zs) - min(zs) if zs else 0.0
 
 
+def render_silhouette_views(body_obj, out_prefix: str) -> dict:
+    """Render transparent front/side masks of the generated body for fitting."""
+    matrix_world = body_obj.matrix_world
+    coords = [matrix_world @ vertex.co for vertex in body_obj.data.vertices]
+    if not coords:
+        raise RuntimeError("Cannot render silhouettes for an empty body mesh")
+
+    mins = Vector((
+        min(point.x for point in coords),
+        min(point.y for point in coords),
+        min(point.z for point in coords),
+    ))
+    maxs = Vector((
+        max(point.x for point in coords),
+        max(point.y for point in coords),
+        max(point.z for point in coords),
+    ))
+    center = (mins + maxs) * 0.5
+    size = maxs - mins
+    height = max(size.z, 1e-4)
+    distance = max(size.x, size.y, size.z) * 2.0
+
+    for obj in bpy.data.objects:
+        try:
+            obj.hide_render = obj is not body_obj
+        except Exception:
+            continue
+
+    scene = bpy.context.scene
+    try:
+        scene.render.engine = "BLENDER_EEVEE_NEXT"
+    except TypeError:
+        scene.render.engine = "BLENDER_EEVEE"
+    scene.render.film_transparent = True
+    scene.render.resolution_x = 480
+    scene.render.resolution_y = 720
+    scene.render.resolution_percentage = 100
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+    scene.render.image_settings.color_depth = "8"
+    scene.render.film_transparent = True
+    scene.view_settings.view_transform = "Standard"
+    scene.world = bpy.data.worlds.new("SilhouetteWorld")
+
+    camera_data = bpy.data.cameras.new("SilhouetteCamera")
+    camera_data.type = "ORTHO"
+    camera_data.sensor_fit = "VERTICAL"
+    camera_data.ortho_scale = height * 1.12
+    camera = bpy.data.objects.new("SilhouetteCamera", camera_data)
+    scene.collection.objects.link(camera)
+    scene.camera = camera
+
+    paths = {}
+    for name, direction in (("front", Vector((0.0, -1.0, 0.0))), ("side", Vector((1.0, 0.0, 0.0)))):
+        camera.location = center + direction.normalized() * distance
+        camera.rotation_euler = (center - camera.location).to_track_quat("-Z", "Y").to_euler()
+        path = f"{out_prefix}_{name}.png"
+        scene.render.filepath = path
+        bpy.ops.render.render(write_still=True)
+        paths[name] = path
+
+    return paths
+
+
 def dynamic_import(absolute_package_str, key):
     """Quirk to get around blender's extension format's requirement that all imports must be relative"""
     for amod in sys.modules:
@@ -166,14 +231,56 @@ def bake_shape_keys_if_any(TargetService, obj):
         TargetService.bake_targets(obj)
 
 
+DETAIL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
+
+
+def read_details(path):
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8-sig") as f:
+        details = json.load(f)
+    if not isinstance(details, dict):
+        raise ValueError("Details must be a JSON object")
+    return details
+
+
+def apply_detail_targets(TargetService, basemesh, details):
+    """Load whitelisted local detail targets after the macro shape is computed."""
+    applied = {}
+    missing = []
+    for name, raw_value in details.items():
+        if not DETAIL_NAME_RE.match(name):
+            raise ValueError(f"Invalid detail target name: {name!r}")
+        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+            raise ValueError(f"Detail target {name} must be a number")
+        value = float(raw_value)
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"Detail target {name} must be between 0.0 and 1.0")
+        if value < 1e-4:
+            continue
+        full_path = TargetService.target_full_path(name)
+        if not full_path:
+            missing.append(name)
+            continue
+        if TargetService.has_target(basemesh, name):
+            TargetService.set_target_value(basemesh, name, value)
+        else:
+            TargetService.load_target(basemesh, full_path, weight=value, name=name)
+        applied[name] = value
+    return applied, missing
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--params", required=True)
+    parser.add_argument("--details", default=None)
+    parser.add_argument("--silhouettes", default=None)
     parser.add_argument("--output", required=True)
     args, _unknown = parser.parse_known_args(sys.argv[sys.argv.index("--") + 1:])
 
     with open(args.params, "r", encoding="utf-8-sig") as f:
         params = json.load(f)
+    details = read_details(args.details)
 
     unknown = [k for k in params if k not in ALLOWED_PARAMS]
     if unknown:
@@ -202,6 +309,7 @@ def main():
         HumanObjectProperties.set_value(key, float(value), entity_reference=basemesh)
         applied[key] = float(value)
     TargetService.reapply_macro_details(basemesh)
+    applied_details, missing_details = apply_detail_targets(TargetService, basemesh, details)
     bpy.context.view_layer.update()
 
     landmarks = read_joint_landmarks(basemesh)
@@ -244,10 +352,17 @@ def main():
     if size <= 0:
         raise RuntimeError("Export produced an empty file")
 
+    silhouette_paths = {}
+    if args.silhouettes:
+        silhouette_paths = render_silhouette_views(export_basemesh, args.silhouettes)
+
     emit({
         "ok": True,
         "params_applied": applied,
+        "details_applied": applied_details,
+        "details_missing": missing_details,
         "output": args.output,
+        "silhouettes": silhouette_paths,
         "bytes": size,
         "metrics": metrics,
     })

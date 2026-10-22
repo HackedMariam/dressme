@@ -2,7 +2,7 @@ import { useState } from "react";
 import AvatarViewer from "./components/AvatarViewer";
 import CustomizeAvatar from "./components/CustomizeAvatar";
 import TryOnStudio from "./components/TryOnStudio";
-import { defaultBodyTargets, type BodyTargets } from "./lib/avatarApi";
+import { defaultBodyTargets, type BodyTargets, type DetailTargets } from "./lib/avatarApi";
 import type { GarmentId } from "./lib/garments";
 import { loadLooks, saveLook, type SavedLook } from "./lib/looks";
 import { wardrobeItems } from "./lib/wardrobe";
@@ -1196,6 +1196,7 @@ function Settings() {
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [avatarParams, setAvatarParams] = useState<BodyTargets>(defaultBodyTargets);
+  const [avatarDetails, setAvatarDetails] = useState<DetailTargets>({});
   const [hasCustomized, setHasCustomized] = useState(false);
   const [tryOnSelection, setTryOnSelection] = useState<GarmentId[]>(["tshirt", "trousers"]);
   const [savedLooks, setSavedLooks] = useState<SavedLook[]>(loadLooks);
@@ -1215,7 +1216,7 @@ export default function App() {
       case "customize-avatar":
         return (
           <CustomizeAvatar
-            onUseParams={(p) => { setAvatarParams(p); setHasCustomized(true); }}
+            onUseParams={(p, d) => { setAvatarParams(p); setAvatarDetails(d); setHasCustomized(true); }}
             onGoToTryOn={() => setPage("try-on")}
           />
         );
@@ -1223,6 +1224,7 @@ export default function App() {
         return (
           <TryOnStudio
             params={avatarParams}
+            details={avatarDetails}
             selection={tryOnSelection}
             onSelectionChange={setTryOnSelection}
             savedLooks={savedLooks}

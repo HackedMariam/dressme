@@ -29,6 +29,15 @@ export type RatioReport = {
   note: string
 }
 
+export type PosePoint = {
+  x: number
+  y: number
+  z: number
+  visibility?: number
+}
+
+export type PoseView = "front" | "side" | "any"
+
 export type PoseAnalysis =
   | {
       ok: true
@@ -40,6 +49,8 @@ export type PoseAnalysis =
       personHeight: number
       reliability: MetricReliability
       frontality: number
+      landmarks: PosePoint[]
+      worldLandmarks: PosePoint[]
     }
   | {
       ok: false
@@ -73,7 +84,7 @@ export function defaultProportions(): Proportions {
 
 let landmarkerPromise: Promise<PoseLandmarker> | null = null
 
-function getLandmarker(): Promise<PoseLandmarker> {
+export function getLandmarker(): Promise<PoseLandmarker> {
   if (!landmarkerPromise) {
     landmarkerPromise = (async () => {
       const fileset = await FilesetResolver.forVisionTasks("/mediapipe/wasm")
@@ -132,12 +143,16 @@ function lineFrontality(
   return dx / (dx + dz + 1e-6)
 }
 
-export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysis> {
+export async function analyzePhoto(
+  image: HTMLImageElement,
+  view: PoseView = "front",
+): Promise<PoseAnalysis> {
   const landmarker = await getLandmarker()
   const result = landmarker.detect(image)
 
   const world = result.worldLandmarks?.[0]
-  if (!world || world.length < 29) {
+  const imageLandmarks = result.landmarks?.[0]
+  if (!world || !imageLandmarks || world.length < 29) {
     return {
       ok: false,
       reason:
@@ -170,11 +185,18 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
   const hipFrontality = lineFrontality(world[L_HIP], world[R_HIP])
   const frontality = (shoulderFrontality + hipFrontality) / 2
 
-  if (frontality < 0.35) {
+  if (view === "front" && frontality < 0.35) {
     return {
       ok: false,
       reason:
-        "The body looks turned sideways. Face the camera straight on with your shoulders and hips square to the lens for a usable proportion estimate.",
+        "The front photo looks turned sideways. Face the camera straight on with your shoulders and hips square to the lens.",
+    }
+  }
+  if (view === "side" && frontality > 0.75) {
+    return {
+      ok: false,
+      reason:
+        "The side photo looks frontal. Stand in profile with your shoulders and hips perpendicular to the lens.",
     }
   }
 
@@ -211,13 +233,15 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
   const completeness = personHeight >= 1.0 && personHeight <= 2.4 ? 1 : clamp01(personHeight / 1.0) * 0.6
   const geo = (shoulderToHipOk ? 0.5 : 0) + (torsoToLegOk ? 0.5 : 0)
   const frontalityScore = clamp01((frontality - 0.4) / 0.5)
+  const sideScore = clamp01((0.75 - frontality) / 0.6)
+  const viewScore = view === "side" ? sideScore : view === "any" ? 0.75 : frontalityScore
   let quality = Math.round(
     100 *
       (0.4 * clamp01(avgVis) +
         0.15 * clamp01(minVis) +
         0.15 * completeness +
         0.1 * geo +
-        0.2 * frontalityScore),
+        0.2 * viewScore),
   )
   if (!allVisible) {
     quality = Math.min(quality, 60)
@@ -278,5 +302,7 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
     personHeight,
     reliability,
     frontality,
+    landmarks: imageLandmarks,
+    worldLandmarks: world,
   }
 }

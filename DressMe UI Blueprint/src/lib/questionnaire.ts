@@ -1,12 +1,10 @@
-import type { CladQuota } from "./avatarApi"
-
-export type CladMeasurementRow = {
+export type MeasurementRow = {
   key: string
   label: string
   unit: string
 }
 
-export const CLAD_MEASUREMENT_ROWS: CladMeasurementRow[] = [
+export const MEASUREMENT_ROWS: MeasurementRow[] = [
   { key: "height_cm", label: "Height", unit: "cm" },
   { key: "bust_cm", label: "Bust", unit: "cm" },
   { key: "underbust_cm", label: "Underbust", unit: "cm" },
@@ -24,15 +22,9 @@ export const CLAD_MEASUREMENT_ROWS: CladMeasurementRow[] = [
 ]
 
 export function measurementRows(measurements: Record<string, number>) {
-  return CLAD_MEASUREMENT_ROWS.filter((row) => Number.isFinite(measurements[row.key])).map(
+  return MEASUREMENT_ROWS.filter((row) => Number.isFinite(measurements[row.key])).map(
     (row) => ({ ...row, value: measurements[row.key] }),
   )
-}
-
-export function quotaRemaining(quota: CladQuota | undefined, bucket: "photo" | "questionnaire"): number | null {
-  const entry = quota?.[bucket]
-  if (!entry) return null
-  return Math.max(0, entry.limit - entry.used_this_week)
 }
 
 export const BODY_SHAPES = [

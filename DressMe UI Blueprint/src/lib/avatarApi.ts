@@ -42,10 +42,13 @@ export const MPFB_NEUTRAL = 0.5
 
 export const DEFAULT_DRESSED_URL = "/models/dressed_avatar.glb"
 
+export type DetailTargets = Partial<Record<string, number>>
+
 export type GenerateResult = {
   jobId: string
   url: string
   params: Record<string, number>
+  details: DetailTargets
   outfit: GarmentId[]
   bytes: number
   elapsedSeconds: number
@@ -60,23 +63,12 @@ export type Health = {
   allowedGarments: string[]
   slots?: string[]
   bodyScanConfigured?: boolean
-}
-
-export type CladQuotaBucket = {
-  limit: number
-  used_this_week: number
-}
-
-export type CladQuota = {
-  photo?: CladQuotaBucket
-  questionnaire?: CladQuotaBucket
-  resets_at?: string
+  visionConfigured?: boolean
 }
 
 export type BodyScanResult = {
   ok: boolean
   source: string
-  cached: boolean
   measurements: Record<string, number>
   targets: Partial<Record<BodyParam, number>>
   ratios: {
@@ -86,12 +78,6 @@ export type BodyScanResult = {
     waistToHip?: number
   }
   notes: string[]
-  quota?: CladQuota
-}
-
-export type BodyScanStatus = {
-  configured: boolean
-  source: string
 }
 
 export type QuestionnairePayload = {
@@ -105,6 +91,42 @@ export type QuestionnairePayload = {
   arms: number
   cupsize?: string
   ancestry?: string
+}
+
+export type VisionObservation = {
+  relative: string
+  confidence: number
+}
+
+export type VisionAnalysis = {
+  ok: boolean
+  model: string
+  analysis: {
+    body_shape: string
+    photo_quality: { front: number; side: number; notes: string[] }
+    posture: Record<string, string>
+    observations: Record<string, VisionObservation>
+    suggested_details: Record<string, number>
+    notes: string[]
+  }
+  createdAt: number
+}
+
+export type MeasurementsPayload = {
+  height_cm: number
+  mass_kg?: number
+  bmi?: number
+  bust_cm?: number
+  underbust_cm?: number
+  waist_cm?: number
+  hip_cm?: number
+  shoulder_width_cm?: number
+  inseam_cm?: number
+  thigh_cm?: number
+  upperarm_cm?: number
+  neck_cm?: number
+  calf_cm?: number
+  wrist_cm?: number
 }
 
 export type MappingPreview = {
@@ -239,6 +261,48 @@ export function mapRatiosToMpbTargets(ratios: Proportions): MappingPreview {
   }
 }
 
+export type OptimizeFit = {
+  iouFront: number
+  iouSide: number
+  profileRmseFront: number
+  profileRmseSide: number
+}
+
+export type OptimizeResult = {
+  ok: boolean
+  jobId: string
+  url: string
+  bytes: number
+  score: number
+  fit: OptimizeFit
+  targets: Record<string, number>
+  details: DetailTargets
+  metrics: Record<string, number>
+  evaluations: number
+  maxEvaluations: number
+  elapsedSeconds: number
+  scipy: {
+    success: boolean
+    message: string
+    iterations: number
+    functionEvaluations: number
+  }
+}
+
+export type OptimizeJob = {
+  jobId: string
+  status: "running" | "done" | "error"
+  progress?: {
+    evaluations?: number
+    maxEvaluations?: number
+    bestScore?: number | null
+    latest?: OptimizeFit
+  }
+  result?: OptimizeResult
+  error?: string
+  createdAt?: number
+}
+
 export type FitOutcome = {
   targets: BodyTargets
   error: number
@@ -299,13 +363,14 @@ export async function generateAvatar(
   targets: BodyTargets | MpbTargets,
   outfit: GarmentId[] = [],
   signal?: AbortSignal,
+  details: DetailTargets = {},
 ): Promise<GenerateResult> {
   let res: Response
   try {
     res = await fetch(`${API_BASE}/api/avatar/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targets, outfit }),
+      body: JSON.stringify({ targets, details, outfit }),
       signal,
     })
   } catch {
@@ -324,7 +389,42 @@ export async function generateAvatar(
     throw new Error(detail)
   }
   const data = (await res.json()) as GenerateResult
-  return { ...data, metrics: data.metrics ?? {} }
+  return { ...data, details: data.details ?? {}, metrics: data.metrics ?? {} }
+}
+
+export async function startAvatarOptimization(
+  targets: BodyTargets | MpbTargets,
+  details: DetailTargets,
+  silhouettes: { front: string; side: string },
+  maxEvaluations = 36,
+  signal?: AbortSignal,
+): Promise<{ jobId: string; status: string; progress: OptimizeJob["progress"] }> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/avatar/optimize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targets, details, silhouettes, maxEvaluations }),
+      signal,
+    })
+  } catch {
+    throw new Error(
+      "Cannot reach the local avatar backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8000",
+    )
+  }
+  if (!res.ok) throw new Error(await readApiError(res))
+  return (await res.json()) as { jobId: string; status: string; progress: OptimizeJob["progress"] }
+}
+
+export async function getAvatarOptimization(jobId: string, signal?: AbortSignal): Promise<OptimizeJob> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/avatar/optimize/${jobId}`, { signal })
+  } catch {
+    throw new Error("Cannot reach the local optimization backend.")
+  }
+  if (!res.ok) throw new Error(await readApiError(res))
+  return (await res.json()) as OptimizeJob
 }
 
 export async function checkAvatarBackend(): Promise<Health> {
@@ -344,26 +444,16 @@ async function readApiError(res: Response): Promise<string> {
   return detail
 }
 
-export async function checkBodyScanStatus(): Promise<BodyScanStatus> {
-  const res = await fetch(`${API_BASE}/api/body/status`)
-  if (!res.ok) throw new Error(await readApiError(res))
-  return (await res.json()) as BodyScanStatus
-}
-
-export async function scanBodyPhoto(
-  file: File,
-  heightCm: number,
+export async function scanBodyQuestionnaire(
+  payload: QuestionnairePayload,
   signal?: AbortSignal,
 ): Promise<BodyScanResult> {
-  const form = new FormData()
-  form.append("photo", file)
-  form.append("height_cm", String(heightCm))
-
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api/body/scan`, {
+    res = await fetch(`${API_BASE}/api/body/questionnaire`, {
       method: "POST",
-      body: form,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
       signal,
     })
   } catch {
@@ -375,13 +465,40 @@ export async function scanBodyPhoto(
   return (await res.json()) as BodyScanResult
 }
 
-export async function scanBodyQuestionnaire(
-  payload: QuestionnairePayload,
+export async function analyzeBodyVision(
+  front: File,
+  side: File,
+  heightCm: number,
+  signal?: AbortSignal,
+): Promise<VisionAnalysis> {
+  const form = new FormData()
+  form.append("front", front)
+  form.append("side", side)
+  form.append("height_cm", String(heightCm))
+
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/body/vision`, {
+      method: "POST",
+      body: form,
+      signal,
+    })
+  } catch {
+    throw new Error(
+      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8000",
+    )
+  }
+  if (!res.ok) throw new Error(await readApiError(res))
+  return (await res.json()) as VisionAnalysis
+}
+
+export async function scanBodyMeasurements(
+  payload: MeasurementsPayload,
   signal?: AbortSignal,
 ): Promise<BodyScanResult> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api/body/questionnaire`, {
+    res = await fetch(`${API_BASE}/api/body/measurements`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

@@ -5,6 +5,7 @@ import {
   checkAvatarBackend,
   generateAvatar,
   type BodyTargets,
+  type DetailTargets,
   type GenerateResult,
   type Health,
 } from "../lib/avatarApi"
@@ -37,6 +38,7 @@ function describeOutfit(ids: GarmentId[]): string {
 
 export default function TryOnStudio({
   params,
+  details,
   selection,
   onSelectionChange,
   savedLooks,
@@ -45,6 +47,7 @@ export default function TryOnStudio({
   hasCustomized,
 }: {
   params: BodyTargets
+  details: DetailTargets
   selection: GarmentId[]
   onSelectionChange: (next: GarmentId[]) => void
   savedLooks: SavedLook[]
@@ -94,7 +97,7 @@ export default function TryOnStudio({
     setGenError(null)
     setSaveMessage(null)
     try {
-      const result = await generateAvatar(params, selection, controller.signal)
+      const result = await generateAvatar(params, selection, controller.signal, details)
       setUrl(`${result.url}?v=${result.jobId}`)
       setLastResult(result)
       setHistory((prev) => [result, ...prev].slice(0, 5))

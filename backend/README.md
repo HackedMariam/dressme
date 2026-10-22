@@ -30,84 +30,129 @@ Keep this terminal open while using "Generate Avatar" in the app.
 ## API
 
 - `GET /api/health` -> `{"ok": true, "blenderExists": true, "blendExists": true, "dressedScriptExists": true, "allowedGarments": [...], "slots": [...]}`
-- `POST /api/avatar/generate` with body `{"targets": {"muscle": 0.7, "legLength": 0.65}, "outfit": ["turtleneck", "jeans", "boots"]}`
+- `POST /api/avatar/generate` with body `{"targets": {"muscle": 0.7, "legLength": 0.65}, "details": {"measure-waist-circ-incr": 0.2}, "outfit": ["turtleneck", "jeans", "boots"]}`
   - Whitelisted params (each a float 0.0-1.0): `gender age muscle weight height proportions cupsize firmness legLength`
+  - Optional `details`: up to 128 whitelisted MPFB detail targets (each 0.0-1.0), e.g. `measure-waist-circ-incr`, `measure-hips-circ-decr`, `torso-scale-depth-incr`, `measure-thigh-circ-incr`. The allowlist lives in `backend/mpfb_targets.json` and is validated in `backend/mpfb_details.py`. Macro names are rejected here; use `targets` for those.
   - `legLength` is applied by the Blender scripts after MPFB shaping (a dedicated post-process, not an MPFB macro).
+  - Detail targets are loaded after the macros and before the export copy, so the GLB and any garments are built from the adjusted body.
   - Optional `outfit`: ordered list of garment ids from the shared catalogue. Omit or send `[]` for a bare body.
   - Slot rules: one item per slot (`top`, `bottom`, `dress`, `outerwear`, `shoes`); a dress cannot be combined with a top or bottom.
   - `409` if a job is already running, `422` for invalid input, `500` for Blender errors (message includes a log tail), `504` on timeout
-  - Response: `{"jobId": "...", "url": "/models/generated/avatar_<jobId>.glb", "params": {...}, "outfit": [...], "bytes": N, "elapsedSeconds": N, "metrics": {"shoulderToHip": 1.31, "torsoToLeg": 0.74, "heightMeters": 1.72}}`
+  - Response: `{"jobId": "...", "url": "/models/generated/avatar_<jobId>.glb", "params": {...}, "details": {...}, "outfit": [...], "bytes": N, "elapsedSeconds": N, "metrics": {"shoulderToHip": 1.31, "torsoToLeg": 0.74, "heightMeters": 1.72}}`
   - With an `outfit`, the dressed generator runs instead of the bare-body one (same request/response shape).
   - Old generated GLBs are deleted after `GENERATED_TTL_HOURS` (default 24h) on the next job; temp files older than 1h are cleaned too.
 
 ## How a job runs
 
-1. Request targets are validated (whitelist + bounds) and written to `temp/params_<id>.json` — values are never interpolated into Python code.
-2. `blender --background avatar.blend --python blender/generate_avatar.py -- --params ... --output ...` runs as a subprocess with a 300 s timeout.
-3. The script sets the whitelisted MPFB `HumanObjectProperties`, runs `TargetService.reapply_macro_details`, stages an export copy, bakes shape keys, and exports GLB.
+1. Request targets and details are validated (whitelist + bounds) and written to `temp/params_<id>.json` and `temp/details_<id>.json` — values are never interpolated into Python code.
+2. `blender --background avatar.blend --python blender/generate_avatar.py -- --params ... --details ... --output ...` runs as a subprocess with a 300 s timeout.
+3. The script sets the whitelisted MPFB `HumanObjectProperties`, runs `TargetService.reapply_macro_details`, loads the detail targets with `TargetService.load_target`, stages an export copy, bakes shape keys, and exports GLB.
 4. Output is validated (non-empty, `glTF` magic bytes) in `temp/`, then moved to `DressMe UI Blueprint/public/models/generated/avatar_<id>.glb` where Vite serves it.
 5. The original `public/models/avatar.glb` is never touched.
 
-## Customize My Avatar -> MPFB parameters (v1)
+## Customize My Avatar -> MPFB parameters (v3)
 
-The Customize page has sliders for all eight whitelisted MPFB parameters, each
-`0.00`-`1.00` with `0.50` as the neutral default:
+The primary capture path is a **front + side photo pair**. Both photos stay in the
+browser: MediaPipe Pose finds the landmarks, MediaPipe Image Segmenter extracts the
+silhouettes, and the user's height scales the pixel measurements to centimetres. The
+questionnaire remains as a local fallback. The measurements are mapped onto the avatar
+like this:
 
-`gender age height weight muscle proportions cupsize firmness`
-
-Only parameters that differ from neutral are listed in the "Will apply" preview, but all
-are sent. Values are pre-filled from the photo pose estimate only when the relevant metric
-passed the reliability checks:
-
-| Photo metric (MediaPipe pose) | Parameter | Rule |
+| Capture signal | Measurement | MPFB control |
 | --- | --- | --- |
-| shoulder / hip widths | `muscle` | `0.5 + (shoulderToHip - 1.3) * 0.6` |
-| torso / leg lengths | `legLength` | `0.5 + (0.75 - torsoToLeg) * 1.25` |
-| leg length / body height | `height` | `0.5 + (legToHeight - 0.53) * 4` |
-| (shoulder + hip width) / body height | `weight` | `0.5 + (widthRatio - 0.35) * 5` |
+| height + front silhouette | shoulder/hip/waist widths, inseam | `height`, `legLength`, `weight`, `proportions` |
+| front silhouette | shoulder, upper arm, thigh | `muscle` |
+| side silhouette | chest/hip depth | `torso-scale-depth`, `hip-scale-depth` detail targets |
+| questionnaire / cup size | bust - underbust | `cupsize` |
 
-The other controls are NOT derived from the photo:
-
-- `gender`, `age` — self-reported via quick-pick buttons on the page.
-- `proportions`, `cupsize`, `firmness` — manual sliders only.
-
-A single uncalibrated 2D photo cannot measure a body, so these are rough shape hints, not
-measurements. The page now shows which values are photo-derived and rejects sideways
-photos where width ratios are unreliable. Estimation constants and the mapping live in
-`DressMe UI Blueprint/src/lib/avatarApi.ts` (`estimatesFromMetrics`); raw metrics and
-reliability flags come from `DressMe UI Blueprint/src/lib/pose.ts`.
+The page has sliders for all eight whitelisted MPFB parameters, each `0.00`-`1.00` with
+`0.50` as the neutral default: `gender age height weight muscle proportions cupsize
+firmness`, plus the advanced detail-target sliders. Only values that differ from
+neutral are listed in the "Will apply" preview, but all are sent. The questionnaire
+estimator lives in `backend/body_scan.py` (`estimate_measurements` +
+`measurements_to_targets`); the frontend photo pipeline lives in
+`DressMe UI Blueprint/src/lib/bodyPhotos.ts`, `pose.ts`, and `silhouette.ts`.
 
 The Customize page also runs one closed-loop correction pass: after generation the
 backend reports the ratios the body actually achieved (`metrics`), the frontend nudges
-`muscle`/`legLength`, and Blender regenerates once so the avatar's proportions track the
-photo more closely.
+`muscle`/`legLength`, and Blender regenerates once so the avatar tracks the captured
+proportions more closely.
+
+## Body capture (local)
+
+The Customize page supports two capture flows:
+
+- **Front + side photos** (primary): `analyzeBodyPhotos` runs MediaPipe Pose and the
+  selfie segmenter locally, converts silhouette widths to centimetres using the entered
+  height, then posts the derived measurements to the backend.
+- **Questionnaire** (fallback): the eight-answer form runs entirely in
+  `backend/body_scan.py`.
+
+Backend measurement endpoints:
+
+- `GET /api/body/status` -> `{"configured": true, "source": "local-questionnaire"}`
+- `POST /api/body/questionnaire` (JSON) -> measurements + MPFB targets
+- `POST /api/body/measurements` (JSON photo-derived measurements) -> MPFB targets
+
+Both `/api/body/*` measurement endpoints return `measurements`, `targets`, `ratios`, and
+`notes`. The photo path notes that mass/BMI are inferred from silhouette width and that
+the side view only nudges torso/hip depth. MediaPipe analysis never leaves the browser.
+
+## Optional GPT-4 Vision second opinion
+
+The photo panel has a separate consent-gated button that sends both photos to the
+OpenAI Chat Completions API. It returns relative observations only (narrow/average/broad,
+short/average/long) plus confidence values and bounded detail-target suggestions. The
+frontend merges those suggestions into the advanced detail sliders; it does not treat
+them as centimetres and does not replace the MediaPipe measurements.
+
+Configuration in the repo-root `.env`:
+
+    OPENAI_API_KEY=sk-...
+    OPENAI_VISION_MODEL=gpt-4o      # optional; falls back to LLM_MODEL
+    LLM_IMAGE_DETAIL=high           # optional
+    OPENAI_TIMEOUT_SECONDS=90       # optional
+
+Endpoint:
+
+- `POST /api/body/vision` (multipart `front`, `side`, `height_cm`) -> body shape,
+  photo quality, posture, observations, suggested detail values, and notes.
+- Returns `503` when `OPENAI_API_KEY` is missing; the local MediaPipe path still works.
+
+## SciPy silhouette fitting
+
+The photo panel can refine the initial avatar against the two photo silhouettes:
+
+- `POST /api/avatar/optimize` starts a background job with `targets`, `details`,
+  normalized front/side PNG data URLs, and `maxEvaluations` (8-96, default 36).
+- `GET /api/avatar/optimize/{jobId}` returns progress, best score, and the final
+  `targets`, `details`, `url`, and IoU/profile metrics.
+
+How it works:
+
+1. The optimizer starts from the current macro + detail sliders.
+2. It runs one bounded `scipy.optimize.minimize` (`Powell`) over 4 macros +
+   11 local body targets.
+3. Every evaluation runs Blender once: it applies the candidate targets, exports the
+   GLB, and renders transparent front/side masks in the same process.
+4. Photo and rendered masks are cropped to their body bbox and normalized to a 512 px
+   tall canvas before comparison, so camera distance does not dominate.
+5. The objective combines front/side IoU, width-profile RMSE, and a regularization term
+   that keeps values close to the starting sliders. Bounds prevent unrealistic bodies.
+6. The best GLB is moved to `public/models/generated/avatar_opt_<id>.glb` and returned to
+   the viewer.
+
+A full 36-evaluation run takes roughly 3-5 minutes on this machine (~7 s per Blender
+evaluation). The optimizer is a coarse fit, not an exact reconstruction: clothing,
+pose, hair, and segmentation noise still limit the result.
+
+The optimized macro targets *and* detail targets are carried into the Try On page, so
+the dressed avatar is regenerated from the same personalized body rather than falling
+back to macros only. The Customize page also exposes a "Download customized GLB" link.
 
 ## Test from a terminal
 
     curl -X POST http://127.0.0.1:8000/api/avatar/generate -H "Content-Type: application/json" -d "{\"targets\": {\"weight\": 0.2}}"
-
-## Clad body scan (optional, hosted API)
-
-The Customize page can use [Clad](https://clad.you/) for a photo-based body scan
-that returns ISO 8559-1 measurements (bust, waist, hip, inseam, shoulder width,
-thigh, upper arm, BMI, ...). The measurements are mapped to MPFB controls
-(`height`, `legLength`, `muscle`, `weight`, `proportions`, `cupsize`).
-
-Add the key to the **repo-root** `.env` (never commit it):
-
-    CLAD_API_KEY=ck_live_...
-
-Restart the backend after changing `.env`. The frontend never sees the key:
-
-- `GET /api/body/status` -> `{"configured": true, "source": "clad"}`
-- `POST /api/body/scan` (multipart `photo`, `height_cm`) -> measurements + MPFB targets
-- `POST /api/body/questionnaire` (8-question JSON flow) -> measurements + MPFB targets
-
-Photo scans are async on Clad's side; the backend polls the job and caches the
-result by image hash + height in `backend/temp/clad_cache/`. Free-tier limits are
-**10 photo calls/week** and **50 questionnaire calls/week** per key. If the photo
-quota is exhausted, use the questionnaire flow or the local MediaPipe estimate.
-The original photo is sent to Clad and is not stored by DressMe.
 
 ## Avatar audit (stable format)
 

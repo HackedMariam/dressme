@@ -2,84 +2,102 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { AvatarCanvas } from "./AvatarViewer"
 import {
   AGE_PRESETS,
-  cmFromHeightParam,
+  analyzeBodyVision,
   defaultMpbTargets,
-  estimatesFromMetrics,
   fitScore,
   fitTargets,
-  generateAvatar,
   GENDER_PRESETS,
-  checkBodyScanStatus,
+  generateAvatar,
+  getAvatarOptimization,
   heightFromCm,
   legLengthFromTorsoToLeg,
   MPFB_NEUTRAL,
   MPFB_PARAMS,
   muscleFromShoulderToHip,
-  PHOTO_ESTIMATED_PARAMS,
-  scanBodyPhoto,
+  scanBodyMeasurements,
   scanBodyQuestionnaire,
+  startAvatarOptimization,
   type BodyScanResult,
   type BodyTargets,
+  type DetailTargets,
   type GenerateResult,
   type MpbParam,
   type MpbParamMeta,
+  type OptimizeResult,
   type QuestionnairePayload,
+  type VisionAnalysis,
 } from "../lib/avatarApi"
-import { BODY_SHAPES, CUP_SIZES, GENDERS, measurementRows, quotaRemaining } from "../lib/clad"
+import { analyzeBodyPhotos, type PhotoPairAnalysis } from "../lib/bodyPhotos"
+import { preloadPoseModel } from "../lib/pose"
+import { preloadSilhouetteModel } from "../lib/silhouette"
+import { BODY_SHAPES, CUP_SIZES, GENDERS, measurementRows } from "../lib/questionnaire"
 import {
-  analyzePhoto,
-  defaultProportions,
-  preloadPoseModel,
-  PROPORTION_LIMITS,
-  type PoseAnalysis,
-  type Proportions,
-} from "../lib/pose"
+  countActiveDetails,
+  DETAIL_CONTROLS,
+  detailTargetsToValues,
+  detailValuesToTargets,
+  type DetailValues,
+} from "../lib/bodyDetails"
 
-type ModelStatus = "idle" | "loading" | "ready" | "error"
+type Proportions = {
+  shoulderToHip: number
+  torsoToLeg: number
+}
+
+const DEFAULT_PROPORTIONS: Proportions = { shoulderToHip: 1.3, torsoToLeg: 0.75 }
+const PROPORTION_LIMITS: Record<keyof Proportions, { min: number; max: number; step: number }> = {
+  shoulderToHip: { min: 0.9, max: 1.8, step: 0.01 },
+  torsoToLeg: { min: 0.5, max: 1.1, step: 0.01 },
+}
 
 const RATIO_LABELS: Record<keyof Proportions, string> = {
   shoulderToHip: "Shoulder-to-hip",
   torsoToLeg: "Torso-to-leg",
 }
 
-function qualityBadgeStyle(label: "Good" | "Fair" | "Low"): string {
-  if (label === "Good") return "bg-[#E8EED6] text-[#3F4E1F]"
-  if (label === "Fair") return "bg-[#F5EDDC] text-[#7A5B1E]"
-  return "bg-[#F5E0E0] text-[#8A2E2E]"
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error("Could not load that photo."))
+    image.src = url
+  })
 }
 
 export default function CustomizeAvatar({
   onUseParams,
   onGoToTryOn,
 }: {
-  onUseParams?: (p: BodyTargets) => void
+  onUseParams?: (p: BodyTargets, details: DetailTargets) => void
   onGoToTryOn?: () => void
 } = {}) {
-  const [fileUrl, setFileUrl] = useState<string | null>(null)
-  const [fileName, setFileName] = useState<string | null>(null)
-  const [modelStatus, setModelStatus] = useState<ModelStatus>("idle")
-  const [analyzing, setAnalyzing] = useState(false)
-  const [analysis, setAnalysis] = useState<Extract<PoseAnalysis, { ok: true }> | null>(null)
-  const [adjusted, setAdjusted] = useState<Proportions>(defaultProportions())
   const [mpfb, setMpb] = useState<Record<MpbParam, number>>(defaultMpbTargets)
-  const [photoKeys, setPhotoKeys] = useState<MpbParam[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [genState, setGenState] = useState<"idle" | "running" | "success" | "error">("idle")
-  const [genError, setGenError] = useState<string | null>(null)
-  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
-  const [lastJob, setLastJob] = useState<string | null>(null)
-  const [lastResult, setLastResult] = useState<GenerateResult | null>(null)
+  const [adjusted, setAdjusted] = useState<Proportions>(DEFAULT_PROPORTIONS)
+  const [legLengthOverride, setLegLengthOverride] = useState<number | null>(null)
   const [linkMuscle, setLinkMuscle] = useState(true)
   const [heightCm, setHeightCm] = useState(170)
-  const [genIteration, setGenIteration] = useState(0)
-  const [fitInfo, setFitInfo] = useState<{ score: number; achieved: Record<string, number> } | null>(null)
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [legLengthOverride, setLegLengthOverride] = useState<number | null>(null)
-  const [cladConsent, setCladConsent] = useState(false)
-  const [cladState, setCladState] = useState<"idle" | "running" | "success" | "error">("idle")
-  const [cladError, setCladError] = useState<string | null>(null)
-  const [cladResult, setCladResult] = useState<BodyScanResult | null>(null)
-  const [cladConfigured, setCladConfigured] = useState<boolean | null>(null)
+  const [detailValues, setDetailValues] = useState<DetailValues>({})
+  const [captureMode, setCaptureMode] = useState<"photos" | "questionnaire">("photos")
+  const [frontFile, setFrontFile] = useState<File | null>(null)
+  const [sideFile, setSideFile] = useState<File | null>(null)
+  const [frontUrl, setFrontUrl] = useState<string | null>(null)
+  const [sideUrl, setSideUrl] = useState<string | null>(null)
+  const [photoAnalysis, setPhotoAnalysis] = useState<Extract<PhotoPairAnalysis, { ok: true }> | null>(null)
+  const [photoState, setPhotoState] = useState<"idle" | "running" | "success" | "error">("idle")
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const [visionConsent, setVisionConsent] = useState(false)
+  const [visionState, setVisionState] = useState<"idle" | "running" | "success" | "error">("idle")
+  const [visionError, setVisionError] = useState<string | null>(null)
+  const [visionResult, setVisionResult] = useState<VisionAnalysis | null>(null)
+  const [optState, setOptState] = useState<"idle" | "running" | "success" | "error">("idle")
+  const [optError, setOptError] = useState<string | null>(null)
+  const [optProgress, setOptProgress] = useState<{
+    evaluations: number
+    maxEvaluations: number
+    bestScore: number | null
+  }>({ evaluations: 0, maxEvaluations: 36, bestScore: null })
+  const [optResult, setOptResult] = useState<OptimizeResult | null>(null)
+
   const [qMass, setQMass] = useState(65)
   const [qGender, setQGender] = useState<"female" | "male">("female")
   const [qShape, setQShape] = useState<QuestionnairePayload["body_shape"]>("hourglass")
@@ -88,38 +106,49 @@ export default function CustomizeAvatar({
   const [qLegs, setQLegs] = useState(2)
   const [qArms, setQArms] = useState(2)
   const [qCup, setQCup] = useState("")
-  const imgRef = useRef<HTMLImageElement | null>(null)
-  const prevUrlRef = useRef<string | null>(null)
+
+  const [scanState, setScanState] = useState<"idle" | "running" | "success" | "error">("idle")
+  const [scanError, setScanError] = useState<string | null>(null)
+  const [scanResult, setScanResult] = useState<BodyScanResult | null>(null)
+
+  const [genState, setGenState] = useState<"idle" | "running" | "success" | "error">("idle")
+  const [genError, setGenError] = useState<string | null>(null)
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
+  const [lastJob, setLastJob] = useState<string | null>(null)
+  const [lastResult, setLastResult] = useState<GenerateResult | null>(null)
+  const [genIteration, setGenIteration] = useState(0)
+  const [fitInfo, setFitInfo] = useState<{ score: number; achieved: Record<string, number> } | null>(null)
   const genAbortRef = useRef<AbortController | null>(null)
-
-  useEffect(() => {
-    if (modelStatus !== "idle") return
-    setModelStatus("loading")
-    preloadPoseModel()
-      .then(() => setModelStatus("ready"))
-      .catch(() => setModelStatus("error"))
-  }, [modelStatus])
+  const optAbortRef = useRef<AbortController | null>(null)
+  const optTimerRef = useRef<number | null>(null)
+  const frontUrlRef = useRef<string | null>(null)
+  const sideUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     return () => {
-      if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current)
       genAbortRef.current?.abort()
+      optAbortRef.current?.abort()
+      if (optTimerRef.current !== null) window.clearTimeout(optTimerRef.current)
+      if (frontUrlRef.current) URL.revokeObjectURL(frontUrlRef.current)
+      if (sideUrlRef.current) URL.revokeObjectURL(sideUrlRef.current)
     }
   }, [])
 
   useEffect(() => {
-    let active = true
-    checkBodyScanStatus()
-      .then((status) => {
-        if (active) setCladConfigured(status.configured)
-      })
-      .catch(() => {
-        if (active) setCladConfigured(false)
-      })
-    return () => {
-      active = false
-    }
+    preloadPoseModel().catch(() => undefined)
+    preloadSilhouetteModel().catch(() => undefined)
   }, [])
+
+  const cancelOptimization = () => {
+    optAbortRef.current?.abort()
+    if (optTimerRef.current !== null) {
+      window.clearTimeout(optTimerRef.current)
+      optTimerRef.current = null
+    }
+    setOptResult(null)
+    setOptState("idle")
+    setOptError(null)
+  }
 
   useEffect(() => {
     if (!linkMuscle) return
@@ -134,176 +163,160 @@ export default function CustomizeAvatar({
     () => (Object.entries(mpfb) as [MpbParam, number][]).filter(([, v]) => Math.abs(v - MPFB_NEUTRAL) > 0.001),
     [mpfb],
   )
+  const activeDetails = countActiveDetails(detailValues)
+  const detailTargets = useMemo(() => detailValuesToTargets(detailValues), [detailValues])
 
-  const cladRows = cladResult ? measurementRows(cladResult.measurements) : []
-  const photoScanRemaining = cladResult ? quotaRemaining(cladResult.quota, "photo") : null
-  const questionnaireRemaining = cladResult ? quotaRemaining(cladResult.quota, "questionnaire") : null
-
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith("image/")) {
-      setError("Please choose an image file (JPG, PNG, WebP...).")
-      return
-    }
-    if (file.size > 20 * 1024 * 1024) {
-      setError("That image is larger than 20 MB. Please pick a smaller photo.")
-      return
-    }
-    if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current)
-    const url = URL.createObjectURL(file)
-    prevUrlRef.current = url
-    setFileUrl(url)
-    setFileName(file.name)
-    setPhotoFile(file)
-    setAnalysis(null)
-    setAdjusted(defaultProportions())
-    setLegLengthOverride(null)
-    setCladResult(null)
-    setCladState("idle")
-    setCladError(null)
-    setCladConsent(false)
-    setMpb((prev) => {
-      const next = { ...prev }
-      for (const k of PHOTO_ESTIMATED_PARAMS) next[k] = MPFB_NEUTRAL
-      return next
-    })
-    setPhotoKeys([])
-    setError(null)
-    setHeightCm(170)
-    setLinkMuscle(true)
-    setGeneratedUrl(null)
-    setLastResult(null)
-    setFitInfo(null)
-    if (modelStatus === "idle") setModelStatus("loading")
-    preloadPoseModel()
-      .then(() => setModelStatus("ready"))
-      .catch(() => setModelStatus("error"))
-    e.target.value = ""
-  }
-
-  const onAnalyze = async () => {
-    const img = imgRef.current
-    if (!img || !fileUrl) {
-      setError("Upload a full-body photo first.")
-      return
-    }
-    if (modelStatus === "error") {
-      setError("The pose engine failed to load. Check your connection once (to fetch it), then reload the page.")
-      return
-    }
-    setAnalyzing(true)
-    setError(null)
-    setCladResult(null)
-    setCladError(null)
-    setCladState("idle")
-    setLegLengthOverride(null)
-    try {
-      if (img.decode) {
-        await img.decode().catch(() => undefined)
-      }
-      const result = await analyzePhoto(img)
-      if (result.ok) {
-        setAnalysis(result)
-        setAdjusted(result.proportions)
-        const estimates = estimatesFromMetrics(result.metrics, result.reliability)
-        setMpb((prev) => {
-          const next = { ...prev }
-          for (const key of PHOTO_ESTIMATED_PARAMS) next[key] = MPFB_NEUTRAL
-          return { ...next, ...estimates.values }
-        })
-        setPhotoKeys(estimates.keys)
-        if (estimates.values.height !== undefined) {
-          setHeightCm(cmFromHeightParam(estimates.values.height))
-        }
-        setFitInfo(null)
-      } else {
-        setAnalysis(null)
-        setError(result.reason)
-      }
-    } catch {
-      setAnalysis(null)
-      setError("Something went wrong while analyzing the photo. Try another image or reload the page.")
-    } finally {
-      setAnalyzing(false)
-    }
-  }
-
-  const onReset = () => {
-    setAdjusted(analysis ? { ...analysis.proportions } : defaultProportions())
-    setLegLengthOverride(null)
-    setFitInfo(null)
-  }
+  const rows = scanResult ? measurementRows(scanResult.measurements) : []
+  const captureState = captureMode === "photos" ? photoState : scanState
 
   const onHeightCmChange = (value: number) => {
     setHeightCm(value)
+    setPhotoAnalysis(null)
+    setPhotoState("idle")
+    setVisionResult(null)
+    setVisionState("idle")
+    cancelOptimization()
     if (!Number.isFinite(value) || value < 140 || value > 220) return
     setMpb((prev) => ({ ...prev, height: heightFromCm(value) }))
-    setPhotoKeys((prev) => prev.filter((k) => k !== "height"))
+  }
+
+  const onPhotoFile = (slot: "front" | "side", file: File | undefined) => {
+    if (!file) return
+    if (!file.type.startsWith("image/")) {
+      setPhotoError("Choose a JPG, PNG, or WebP image.")
+      return
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setPhotoError("That photo is larger than 20 MB. Pick a smaller one.")
+      return
+    }
+
+    const url = URL.createObjectURL(file)
+    if (slot === "front") {
+      if (frontUrlRef.current) URL.revokeObjectURL(frontUrlRef.current)
+      frontUrlRef.current = url
+      setFrontUrl(url)
+      setFrontFile(file)
+    } else {
+      if (sideUrlRef.current) URL.revokeObjectURL(sideUrlRef.current)
+      sideUrlRef.current = url
+      setSideUrl(url)
+      setSideFile(file)
+    }
+    setPhotoAnalysis(null)
+    setPhotoState("idle")
+    setPhotoError(null)
+    setVisionResult(null)
+    setVisionState("idle")
+    setVisionError(null)
+    cancelOptimization()
+  }
+
+  const onAnalyzePhotos = async () => {
+    if (!frontFile || !sideFile || !frontUrl || !sideUrl) {
+      setPhotoError("Add both a front and a side photo.")
+      return
+    }
+    if (!Number.isFinite(heightCm) || heightCm < 140 || heightCm > 220) {
+      setPhotoError("Enter a height between 140 and 220 cm.")
+      return
+    }
+
+    setPhotoState("running")
+    setPhotoError(null)
+    cancelOptimization()
+    try {
+      const [frontImage, sideImage] = await Promise.all([loadImage(frontUrl), loadImage(sideUrl)])
+      const analysis = await analyzeBodyPhotos(frontImage, sideImage, heightCm)
+      if (!analysis.ok) {
+        setPhotoState("error")
+        setPhotoError(analysis.reason)
+        return
+      }
+
+      const result = await scanBodyMeasurements(analysis.measurements)
+      setPhotoAnalysis(analysis)
+      applyBodyScan({ ...result, notes: [...analysis.notes, ...result.notes] })
+      setDetailValues(analysis.detailSuggestions)
+      setPhotoState("success")
+    } catch (e) {
+      setPhotoState("error")
+      setPhotoError(e instanceof Error ? e.message : "Photo analysis failed.")
+    }
+  }
+
+  const onVisionAnalyze = async () => {
+    if (!frontFile || !sideFile) {
+      setVisionError("Add both a front and a side photo first.")
+      return
+    }
+    if (!visionConsent) {
+      setVisionError("Agree to send both photos to OpenAI before requesting the second opinion.")
+      return
+    }
+    setVisionState("running")
+    setVisionError(null)
+    try {
+      const result = await analyzeBodyVision(frontFile, sideFile, heightCm)
+      setVisionResult(result)
+      const allowed = new Set(DETAIL_CONTROLS.map((control) => control.key))
+      setDetailValues((prev) => {
+        const next = { ...prev }
+        for (const [key, value] of Object.entries(result.analysis.suggested_details)) {
+          if (allowed.has(key)) next[key] = Math.max(-1, Math.min(1, value))
+        }
+        return next
+      })
+      setVisionState("success")
+    } catch (e) {
+      setVisionState("error")
+      setVisionError(e instanceof Error ? e.message : "GPT-4 Vision analysis failed.")
+    }
   }
 
   const applyBodyScan = (result: BodyScanResult) => {
-    const targets = result.targets
-    setCladResult(result)
-    setCladState("success")
-    setCladError(null)
+    setScanResult(result)
+    setScanState("success")
+    setScanError(null)
 
     setMpb((prev) => {
       const next = { ...prev }
-      if (targets.height !== undefined) next.height = targets.height
-      if (targets.muscle !== undefined) next.muscle = targets.muscle
-      if (targets.weight !== undefined) next.weight = targets.weight
-      if (targets.proportions !== undefined) next.proportions = targets.proportions
-      if (targets.cupsize !== undefined) next.cupsize = targets.cupsize
+      for (const meta of MPFB_PARAMS) {
+        const value = result.targets[meta.key]
+        if (value !== undefined) next[meta.key] = value
+      }
       return next
     })
 
     if (result.ratios.shoulderToHip !== undefined) {
-      const ratio = result.ratios.shoulderToHip
-      setAdjusted((prev) => ({ ...prev, shoulderToHip: ratio }))
+      setAdjusted((prev) => ({ ...prev, shoulderToHip: result.ratios.shoulderToHip as number }))
     }
-    if (targets.legLength !== undefined) {
-      setLegLengthOverride(targets.legLength)
+    if (result.ratios.torsoToLeg !== undefined) {
+      setAdjusted((prev) => ({ ...prev, torsoToLeg: result.ratios.torsoToLeg as number }))
     }
-
-    setLinkMuscle(false)
-    const keys: MpbParam[] = []
-    if (targets.height !== undefined) keys.push("height")
-    if (targets.muscle !== undefined) keys.push("muscle")
-    if (targets.weight !== undefined) keys.push("weight")
-    if (targets.proportions !== undefined) keys.push("proportions")
-    if (targets.cupsize !== undefined) keys.push("cupsize")
-    setPhotoKeys(keys)
-    setAnalysis(null)
-    setFitInfo(null)
+    if (result.targets.legLength !== undefined) {
+      setLegLengthOverride(result.targets.legLength)
+    }
     if (result.measurements.height_cm) {
       setHeightCm(Math.round(result.measurements.height_cm))
     }
+    setLinkMuscle(false)
+    setDetailValues({})
+    setFitInfo(null)
   }
 
-  const onCladScan = async () => {
-    if (!photoFile) {
-      setCladError("Upload a full-body photo first.")
-      return
-    }
-    if (!cladConsent) {
-      setCladError("Please agree to send this photo to Clad before scanning.")
-      return
-    }
-    setCladState("running")
-    setCladError(null)
-    try {
-      const result = await scanBodyPhoto(photoFile, heightCm)
-      applyBodyScan(result)
-    } catch (e) {
-      setCladState("error")
-      setCladError(e instanceof Error ? e.message : "Body scan failed.")
-    }
+  const applyQuestionnaire = (result: BodyScanResult) => {
+    setPhotoAnalysis(null)
+    setPhotoState("idle")
+    setVisionResult(null)
+    setVisionState("idle")
+    cancelOptimization()
+    applyBodyScan(result)
   }
 
-  const onCladQuestionnaire = async () => {
-    setCladState("running")
-    setCladError(null)
+  const onQuestionnaire = async () => {
+    setScanState("running")
+    setScanError(null)
     const payload: QuestionnairePayload = {
       height_cm: heightCm,
       mass_kg: qMass,
@@ -317,10 +330,10 @@ export default function CustomizeAvatar({
     }
     try {
       const result = await scanBodyQuestionnaire(payload)
-      applyBodyScan(result)
+      applyQuestionnaire(result)
     } catch (e) {
-      setCladState("error")
-      setCladError(e instanceof Error ? e.message : "Questionnaire measurement failed.")
+      setScanState("error")
+      setScanError(e instanceof Error ? e.message : "Questionnaire measurement failed.")
     }
   }
 
@@ -337,17 +350,15 @@ export default function CustomizeAvatar({
     try {
       let current: BodyTargets = { ...mpfb, legLength }
       let last: GenerateResult | null = null
-      // Fit against the sliders the user actually sees, so manual adjustments win.
-      const desired = analysis ? { ...adjusted } : undefined
+      const desired = scanResult ? { ...adjusted } : undefined
       const maxPasses = desired ? 2 : 1
 
       for (let pass = 0; pass < maxPasses; pass++) {
         setGenIteration(pass + 1)
-        last = await generateAvatar(current, [], controller.signal)
+        last = await generateAvatar(current, [], controller.signal, detailTargets)
         if (!desired) break
         const next = fitTargets(current, last.metrics, desired)
         if (!next) break
-        // Respect an explicitly unlinked muscle slider.
         if (!linkMuscle) {
           next.targets.muscle = current.muscle
           if (next.targets.legLength === current.legLength) break
@@ -364,7 +375,7 @@ export default function CustomizeAvatar({
       if (desired && last.metrics) {
         setFitInfo({ score: fitScore(last.metrics, desired), achieved: last.metrics })
       }
-      onUseParams?.(current)
+      onUseParams?.(current, detailTargets)
     } catch (e) {
       const aborted = controller.signal.aborted
       setGenState("error")
@@ -377,6 +388,106 @@ export default function CustomizeAvatar({
       )
     } finally {
       window.clearTimeout(timer)
+    }
+  }
+
+  const applyOptimized = (result: OptimizeResult) => {
+    setMpb((prev) => {
+      const next = { ...prev }
+      for (const meta of MPFB_PARAMS) {
+        const value = result.targets[meta.key]
+        if (value !== undefined) next[meta.key] = value
+      }
+      return next
+    })
+    if (result.targets.legLength !== undefined) {
+      setLegLengthOverride(result.targets.legLength)
+    }
+    setDetailValues(detailTargetsToValues(result.details))
+    setGeneratedUrl(`${result.url}?v=${result.jobId}`)
+    setLastJob(result.jobId)
+    setLastResult({
+      jobId: result.jobId,
+      url: result.url,
+      params: result.targets,
+      details: result.details,
+      outfit: [],
+      bytes: result.bytes,
+      elapsedSeconds: result.elapsedSeconds,
+      metrics: result.metrics,
+    })
+    setGenState("success")
+    setGenError(null)
+    const match = Math.round(100 * (0.5 * result.fit.iouFront + 0.5 * result.fit.iouSide))
+    setFitInfo({ score: match, achieved: result.metrics })
+    onUseParams?.(
+      {
+        ...defaultMpbTargets(),
+        ...(result.targets as Partial<Record<MpbParam, number>>),
+        legLength: result.targets.legLength ?? legLength,
+      } as BodyTargets,
+      result.details,
+    )
+  }
+
+  const onOptimize = async () => {
+    if (!photoAnalysis) {
+      setOptError("Run the front + side analysis first.")
+      return
+    }
+    if (optState === "running") return
+
+    optAbortRef.current?.abort()
+    if (optTimerRef.current !== null) window.clearTimeout(optTimerRef.current)
+    const controller = new AbortController()
+    optAbortRef.current = controller
+    setOptState("running")
+    setOptError(null)
+    setOptResult(null)
+    setOptProgress({ evaluations: 0, maxEvaluations: 36, bestScore: null })
+
+    try {
+      const started = await startAvatarOptimization(
+        { ...mpfb, legLength },
+        detailTargets,
+        photoAnalysis.silhouettes,
+        36,
+        controller.signal,
+      )
+      const jobId = started.jobId
+      const poll = async () => {
+        if (controller.signal.aborted) return
+        try {
+          const job = await getAvatarOptimization(jobId, controller.signal)
+          if (job.progress) {
+            setOptProgress({
+              evaluations: job.progress.evaluations ?? 0,
+              maxEvaluations: job.progress.maxEvaluations ?? 36,
+              bestScore: job.progress.bestScore ?? null,
+            })
+          }
+          if (job.status === "done" && job.result) {
+            setOptResult(job.result)
+            applyOptimized(job.result)
+            setOptState("success")
+            return
+          }
+          if (job.status === "error") {
+            setOptState("error")
+            setOptError(job.error || "Silhouette optimization failed.")
+            return
+          }
+          optTimerRef.current = window.setTimeout(poll, 2000)
+        } catch (e) {
+          if (controller.signal.aborted) return
+          setOptState("error")
+          setOptError(e instanceof Error ? e.message : "Could not read the optimization status.")
+        }
+      }
+      optTimerRef.current = window.setTimeout(poll, 2000)
+    } catch (e) {
+      setOptState("error")
+      setOptError(e instanceof Error ? e.message : "Could not start silhouette optimization.")
     }
   }
 
@@ -412,15 +523,44 @@ export default function CustomizeAvatar({
     )
   }
 
+  const detailSlider = (control: (typeof DETAIL_CONTROLS)[number]) => {
+    const value = detailValues[control.key] ?? 0
+    return (
+      <div key={control.key} className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor={`detail-${control.key}`} className="text-sm font-medium text-[#1C1C1C]">
+            {control.label}
+          </label>
+          <span className="text-sm font-semibold text-[#556B2F] tabular-nums">{value.toFixed(2)}</span>
+        </div>
+        <input
+          id={`detail-${control.key}`}
+          type="range"
+          min={-1}
+          max={1}
+          step={0.05}
+          value={value}
+          onChange={(e) =>
+            setDetailValues((prev) => {
+              const next = { ...prev, [control.key]: Number(e.target.value) }
+              if (Math.abs(next[control.key]) < 0.01) delete next[control.key]
+              return next
+            })
+          }
+          className="w-full accent-[#556B2F]"
+        />
+        <p className="text-xs text-[#8C8A82]">{control.hint}</p>
+      </div>
+    )
+  }
+
   const mpfbSlider = (meta: MpbParamMeta) => {
-    const fromPhoto = photoKeys.includes(meta.key)
     const presets = meta.key === "gender" ? GENDER_PRESETS : meta.key === "age" ? AGE_PRESETS : null
     return (
       <div key={meta.key} className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <label htmlFor={`mpfb-${meta.key}`} className="text-sm font-medium text-[#1C1C1C]">
             {meta.label}
-            {fromPhoto && <span className="ml-2 text-[10px] font-semibold text-[#556B2F]">from photo</span>}
           </label>
           <span className="text-sm font-semibold text-[#556B2F] tabular-nums">{mpfb[meta.key].toFixed(2)}</span>
         </div>
@@ -432,9 +572,7 @@ export default function CustomizeAvatar({
           step={0.01}
           value={mpfb[meta.key]}
           onChange={(e) => {
-            const value = Number(e.target.value)
-            setMpb((prev) => ({ ...prev, [meta.key]: value }))
-            setPhotoKeys((prev) => prev.filter((k) => k !== meta.key))
+            setMpb((prev) => ({ ...prev, [meta.key]: Number(e.target.value) }))
             if (meta.key === "muscle") setLinkMuscle(false)
           }}
           className="w-full accent-[#556B2F]"
@@ -458,10 +596,7 @@ export default function CustomizeAvatar({
               <button
                 key={p.label}
                 type="button"
-                onClick={() => {
-                  setMpb((prev) => ({ ...prev, [meta.key]: p.value }))
-                  setPhotoKeys((prev) => prev.filter((k) => k !== meta.key))
-                }}
+                onClick={() => setMpb((prev) => ({ ...prev, [meta.key]: p.value }))}
                 className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
                   mpfb[meta.key] === p.value
                     ? "bg-[#556B2F] text-white border-[#556B2F]"
@@ -483,41 +618,112 @@ export default function CustomizeAvatar({
       <div>
         <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Customize My Avatar</h1>
         <p className="text-[#8C8A82] text-sm mt-1">
-          Upload a full-body photo to estimate your body proportions — step one of your personalized avatar
+          Use a front and side photo, or fall back to the sizing questionnaire, then generate a matching body
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <div className="space-y-6">
           <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
-            <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Your photo</h3>
-            <div className="flex items-start gap-4">
-              <div className="w-40 h-56 rounded-lg overflow-hidden bg-white border border-[#E2E0D8] flex items-center justify-center shrink-0">
-                {fileUrl ? (
-                  <img ref={imgRef} src={fileUrl} alt="Uploaded full-body photo" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-[#B5B3AA] text-xs px-3 text-center">No photo yet</span>
-                )}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Body capture</h3>
+                <p className="text-xs text-[#8C8A82] mt-0.5">
+                  Two photos are the primary path. The questionnaire stays available as a fallback.
+                </p>
               </div>
-              <div className="space-y-3 min-w-0">
-                <label className="inline-block bg-white hover:bg-[#E2E0D8] border border-[#E2E0D8] text-[#1C1C1C] text-sm font-semibold px-5 py-2.5 rounded-lg cursor-pointer transition-colors">
-                  Choose photo
-                  <input type="file" accept="image/*" className="hidden" onChange={onFileChange} />
-                </label>
-                <p className="text-xs text-[#8C8A82] break-all">{fileName ?? "Stand fully in frame, arms slightly apart, plain background works best."}</p>
-                <button
-                  onClick={onAnalyze}
-                  disabled={!fileUrl || analyzing}
-                  className="block bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {analyzing ? "Analyzing…" : "Estimate proportions"}
-                </button>
-                <div className="flex items-center gap-2 pt-1">
-                  <label htmlFor="height-cm" className="text-xs font-semibold text-[#8C8A82]">
+              <span
+                className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${
+                  captureState === "success"
+                    ? "bg-[#E8EDE0] text-[#556B2F]"
+                    : captureState === "error"
+                      ? "bg-[#F5E0E0] text-[#8A2E2E]"
+                      : "bg-[#E2E0D8] text-[#8C8A82]"
+                }`}
+              >
+                {captureState === "running"
+                  ? "Analyzing…"
+                  : captureState === "success"
+                    ? "Applied"
+                    : captureState === "error"
+                      ? "Failed"
+                      : "Not applied"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setCaptureMode("photos")}
+                className={`text-sm font-semibold py-2 rounded-lg border transition-colors ${
+                  captureMode === "photos"
+                    ? "bg-[#556B2F] text-white border-[#556B2F]"
+                    : "bg-white text-[#1C1C1C] border-[#E2E0D8] hover:bg-[#E2E0D8]"
+                }`}
+              >
+                Front + side photos
+              </button>
+              <button
+                type="button"
+                onClick={() => setCaptureMode("questionnaire")}
+                className={`text-sm font-semibold py-2 rounded-lg border transition-colors ${
+                  captureMode === "questionnaire"
+                    ? "bg-[#556B2F] text-white border-[#556B2F]"
+                    : "bg-white text-[#1C1C1C] border-[#E2E0D8] hover:bg-[#E2E0D8]"
+                }`}
+              >
+                Questionnaire
+              </button>
+            </div>
+
+            {captureMode === "photos" && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block cursor-pointer">
+                    <span className="text-[10px] text-[#8C8A82] uppercase tracking-wide">Front photo</span>
+                    <div className="mt-1 h-48 rounded-lg overflow-hidden bg-white border border-dashed border-[#C9C6BB] flex items-center justify-center">
+                      {frontUrl ? (
+                        <img src={frontUrl} alt="Front body" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[#B5B3AA] text-xs px-3 text-center">Choose a straight-on photo</span>
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        onPhotoFile("front", e.target.files?.[0])
+                        e.target.value = ""
+                      }}
+                    />
+                  </label>
+                  <label className="block cursor-pointer">
+                    <span className="text-[10px] text-[#8C8A82] uppercase tracking-wide">Side photo</span>
+                    <div className="mt-1 h-48 rounded-lg overflow-hidden bg-white border border-dashed border-[#C9C6BB] flex items-center justify-center">
+                      {sideUrl ? (
+                        <img src={sideUrl} alt="Side body" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[#B5B3AA] text-xs px-3 text-center">Choose a profile photo</span>
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        onPhotoFile("side", e.target.files?.[0])
+                        e.target.value = ""
+                      }}
+                    />
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="photo-height" className="text-xs font-semibold text-[#8C8A82]">
                     Your height
                   </label>
                   <input
-                    id="height-cm"
+                    id="photo-height"
                     type="number"
                     min={140}
                     max={220}
@@ -529,361 +735,453 @@ export default function CustomizeAvatar({
                   <span className="text-xs text-[#8C8A82]">cm</span>
                 </div>
                 <p className="text-[11px] text-[#8C8A82]">
-                  Calibrates the MPFB height parameter. Edit it after the photo estimate if you know your height.
+                  Full body in frame, plain background, arms slightly away from the body. Keep the same stance in both
+                  shots.
                 </p>
-                {modelStatus === "loading" && <p className="text-xs text-[#8C8A82]">Preparing pose engine (one-time)…</p>}
-                {modelStatus === "error" && (
-                  <p className="text-xs text-[#8A2E2E]">Pose engine failed to load — reload the page to retry.</p>
+                <button
+                  type="button"
+                  onClick={onAnalyzePhotos}
+                  disabled={!frontFile || !sideFile || photoState === "running"}
+                  className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {photoState === "running" ? "Analyzing photos…" : "Analyze front + side"}
+                </button>
+                {photoError && (
+                  <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{photoError}</div>
                 )}
+                {photoAnalysis && (
+                  <div className="bg-white rounded-lg px-3 py-2.5 text-xs text-[#8C8A82] space-y-1">
+                    <p>
+                      Confidence <span className="font-semibold text-[#1C1C1C]">{photoAnalysis.confidence}/100</span>
+                      {" · "}front {photoAnalysis.frontQuality}/100
+                      {" · "}side {photoAnalysis.sideQuality}/100
+                    </p>
+                    <p>
+                      Side-depth hints applied: torso{" "}
+                      <span className="font-semibold text-[#1C1C1C] tabular-nums">
+                        {photoAnalysis.detailSuggestions.torsoDepth.toFixed(2)}
+                      </span>
+                      {" · "}hips{" "}
+                      <span className="font-semibold text-[#1C1C1C] tabular-nums">
+                        {photoAnalysis.detailSuggestions.hipDepth.toFixed(2)}
+                      </span>
+                    </p>
+                    <p className="text-[11px]">MediaPipe analysis stays in your browser.</p>
+                  </div>
+                )}
+
+                {photoAnalysis && (
+                  <div className="border-t border-[#E2E0D8] pt-3 space-y-2">
+                    <div>
+                      <p className="text-xs font-semibold text-[#1C1C1C]">Silhouette fitting</p>
+                      <p className="text-[11px] text-[#8C8A82] mt-0.5">
+                        Renders your avatar front and side, then uses SciPy to adjust 15 macro and detail controls
+                        until the silhouettes match your photos. Takes roughly 3–5 minutes.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onOptimize}
+                      disabled={optState === "running"}
+                      className="w-full bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {optState === "running" ? "Fitting silhouettes…" : "Refine with silhouette fitting"}
+                    </button>
+                    {optState === "running" && (
+                      <div className="space-y-1">
+                        <div className="h-2 rounded-full bg-[#E2E0D8] overflow-hidden">
+                          <div
+                            className="h-full bg-[#556B2F] transition-all"
+                            style={{
+                              width: `${Math.min(100, (optProgress.evaluations / Math.max(1, optProgress.maxEvaluations)) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-[#8C8A82] tabular-nums">
+                          Evaluation {optProgress.evaluations} / {optProgress.maxEvaluations}
+                          {optProgress.bestScore !== null
+                            ? ` · best error ${optProgress.bestScore.toFixed(4)}`
+                            : ""}
+                        </p>
+                      </div>
+                    )}
+                    {optError && (
+                      <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{optError}</div>
+                    )}
+                    {optState === "success" && optResult && (
+                      <div className="bg-white rounded-lg px-3 py-2.5 text-xs text-[#8C8A82] space-y-1">
+                        <p>
+                          Silhouette match{" "}
+                          <span className="font-semibold text-[#1C1C1C]">
+                            {Math.round(100 * (0.5 * optResult.fit.iouFront + 0.5 * optResult.fit.iouSide))}/100
+                          </span>
+                          {" · "}front IoU {optResult.fit.iouFront.toFixed(3)}
+                          {" · "}side IoU {optResult.fit.iouSide.toFixed(3)}
+                        </p>
+                        <p>
+                          {optResult.evaluations} evaluations in {optResult.elapsedSeconds.toFixed(0)}s. The optimized
+                          body is now in the viewer.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="border-t border-[#E2E0D8] pt-3 space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-[#1C1C1C]">Optional GPT-4 Vision second opinion</p>
+                    <p className="text-[11px] text-[#8C8A82] mt-0.5">
+                      Sends both photos to OpenAI for relative shape observations. It never replaces the MediaPipe
+                      measurements; it only suggests bounded detail-target nudges.
+                    </p>
+                  </div>
+                  <label className="flex items-start gap-2 text-[11px] text-[#8C8A82]">
+                    <input
+                      type="checkbox"
+                      checked={visionConsent}
+                      onChange={(e) => setVisionConsent(e.target.checked)}
+                      className="mt-0.5 accent-[#556B2F]"
+                    />
+                    <span>I agree to send these two photos to OpenAI for this analysis.</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={onVisionAnalyze}
+                    disabled={!frontFile || !sideFile || !visionConsent || visionState === "running"}
+                    className="w-full bg-white border border-[#E2E0D8] hover:bg-[#E2E0D8] text-[#1C1C1C] text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {visionState === "running" ? "Asking GPT-4 Vision…" : "Analyze with GPT-4 Vision"}
+                  </button>
+                  {visionError && (
+                    <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{visionError}</div>
+                  )}
+                  {visionResult && (
+                    <div className="bg-white rounded-lg px-3 py-2.5 text-xs text-[#8C8A82] space-y-1">
+                      <p>
+                        Shape{" "}
+                        <span className="font-semibold text-[#1C1C1C]">
+                          {visionResult.analysis.body_shape.replace("_", " ")}
+                        </span>
+                        {" · "}front quality{" "}
+                        <span className="font-semibold text-[#1C1C1C] tabular-nums">
+                          {Math.round(visionResult.analysis.photo_quality.front * 100)}%
+                        </span>
+                        {" · "}side quality{" "}
+                        <span className="font-semibold text-[#1C1C1C] tabular-nums">
+                          {Math.round(visionResult.analysis.photo_quality.side * 100)}%
+                        </span>
+                      </p>
+                      {Object.entries(visionResult.analysis.observations).length > 0 && (
+                        <p className="text-[11px]">
+                          {Object.entries(visionResult.analysis.observations)
+                            .map(([key, observation]) => `${key}: ${observation.relative}`)
+                            .join(" · ")}
+                        </p>
+                      )}
+                      {visionResult.analysis.notes.length > 0 && (
+                        <ul className="text-[11px] list-disc pl-4 space-y-0.5">
+                          {visionResult.analysis.notes.slice(0, 3).map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="text-[11px]">Relative observations only — not exact measurements.</p>
+                    </div>
+                  )}
+                </div>
               </div>
+            )}
+
+            {captureMode === "questionnaire" && (
+              <>
+              <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-height">
+                  Height (cm)
+                </label>
+                <input
+                  id="q-height"
+                  type="number"
+                  min={140}
+                  max={220}
+                  step={1}
+                  value={heightCm}
+                  onChange={(e) => onHeightCmChange(Number(e.target.value))}
+                  className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-mass">
+                  Mass (kg)
+                </label>
+                <input
+                  id="q-mass"
+                  type="number"
+                  min={30}
+                  max={200}
+                  value={qMass}
+                  onChange={(e) => setQMass(Number(e.target.value))}
+                  className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-gender">
+                  Gender
+                </label>
+                <select
+                  id="q-gender"
+                  value={qGender}
+                  onChange={(e) => setQGender(e.target.value as "female" | "male")}
+                  className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                >
+                  {GENDERS.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-shape">
+                  Body shape
+                </label>
+                <select
+                  id="q-shape"
+                  value={qShape}
+                  onChange={(e) => setQShape(e.target.value as QuestionnairePayload["body_shape"])}
+                  className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                >
+                  {BODY_SHAPES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-cup">
+                  Cup size (optional)
+                </label>
+                <select
+                  id="q-cup"
+                  value={qCup}
+                  onChange={(e) => setQCup(e.target.value)}
+                  className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                >
+                  <option value="">—</option>
+                  {CUP_SIZES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {[
+                { label: "Belly", value: qBelly, set: setQBelly, id: "q-belly" },
+                { label: "Build", value: qBuild, set: setQBuild, id: "q-build" },
+                { label: "Legs", value: qLegs, set: setQLegs, id: "q-legs" },
+                { label: "Arms", value: qArms, set: setQArms, id: "q-arms" },
+              ].map((field) => (
+                <div key={field.id}>
+                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor={field.id}>
+                    {field.label}
+                  </label>
+                  <select
+                    id={field.id}
+                    value={field.value}
+                    onChange={(e) => field.set(Number(e.target.value))}
+                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
+                  >
+                    {[1, 2, 3].map((n) => (
+                      <option key={n} value={n}>
+                        {n === 1 ? "Low" : n === 2 ? "Average" : "High"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
             </div>
-            {error && (
-              <div className="bg-[#F5E0E0] text-[#8A2E2E] text-sm rounded-lg px-4 py-3">{error}</div>
+
+            <button
+              type="button"
+              onClick={onQuestionnaire}
+              disabled={scanState === "running"}
+              className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {scanState === "running" ? "Measuring…" : "Apply questionnaire to avatar"}
+            </button>
+
+            {scanError && (
+              <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{scanError}</div>
+            )}
+              </>
             )}
           </div>
 
-          <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Body scan (Clad)</h3>
-                <p className="text-xs text-[#8C8A82] mt-0.5">
-                  Photo + height → 24 ISO 8559-1 measurements. This sends the photo to Clad.
-                </p>
-              </div>
-              <span
-                className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${
-                  cladState === "success"
-                    ? "bg-[#E8EDE0] text-[#556B2F]"
-                    : cladState === "error"
-                      ? "bg-[#F5E0E0] text-[#8A2E2E]"
-                      : "bg-[#E2E0D8] text-[#8C8A82]"
-                }`}
-              >
-                {cladState === "running"
-                  ? "Scanning…"
-                  : cladState === "success"
-                    ? "Measurements ready"
-                    : cladState === "error"
-                      ? "Scan failed"
-                      : "Optional"}
-              </span>
-            </div>
-
-            {cladConfigured === false && (
-              <div className="bg-[#F5EDDC] text-[#7A5B1E] text-xs rounded-lg px-3 py-2.5">
-                Clad is not configured. Add <code className="font-mono">CLAD_API_KEY</code> to the repo-root{" "}
-                <code className="font-mono">.env</code> and restart the backend.
-              </div>
-            )}
-
-            <label className="flex items-start gap-2 text-xs text-[#8C8A82]">
-              <input
-                type="checkbox"
-                checked={cladConsent}
-                onChange={(e) => setCladConsent(e.target.checked)}
-                className="mt-0.5 accent-[#556B2F]"
-              />
-              <span>
-                I agree to send this photo to Clad for body measurement. DressMe does not store the original image.
-              </span>
-            </label>
-
-            <button
-              onClick={onCladScan}
-              disabled={!photoFile || !cladConsent || cladState === "running" || cladConfigured === false}
-              className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {cladState === "running" ? "Measuring…" : "Measure with Clad"}
-            </button>
-
-            {cladError && (
-              <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{cladError}</div>
-            )}
-
-            {cladResult && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  {cladRows.map((row) => (
-                    <div key={row.key} className="bg-white rounded-lg px-3 py-2">
-                      <p className="text-[10px] text-[#8C8A82] uppercase tracking-wide">{row.label}</p>
-                      <p className="text-sm font-semibold text-[#1C1C1C] tabular-nums">
-                        {row.value.toFixed(1)}
-                        {row.unit ? (
-                          <span className="ml-1 text-[10px] font-normal text-[#8C8A82]">{row.unit}</span>
-                        ) : null}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+          {scanResult && (
+            <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-3">
+              <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Estimated measurements</h3>
+              {photoAnalysis && (
                 <p className="text-xs text-[#556B2F]">
-                  Applied to the sliders: height, leg length, muscle, weight, proportions
-                  {cladResult.targets.cupsize !== undefined ? ", cup size" : ""}.
+                  From the front + side photos · confidence {photoAnalysis.confidence}/100. Edit any value below before
+                  generating.
                 </p>
-                {cladResult.cached && (
-                  <p className="text-[11px] text-[#8C8A82]">Cached result — no new API call was used.</p>
-                )}
-                {(photoScanRemaining !== null || questionnaireRemaining !== null) && (
-                  <p className="text-[11px] text-[#8C8A82]">
-                    {photoScanRemaining !== null
-                      ? `Photo scans left this week: ${photoScanRemaining}. `
-                      : ""}
-                    {questionnaireRemaining !== null
-                      ? `Questionnaire calls left: ${questionnaireRemaining}.`
-                      : ""}
-                  </p>
-                )}
-                {cladResult.notes.length > 0 && (
-                  <ul className="text-[11px] text-[#8C8A82] list-disc pl-4 space-y-1">
-                    {cladResult.notes.map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            <details className="border-t border-[#E2E0D8] pt-3">
-              <summary className="text-xs font-semibold text-[#1C1C1C] cursor-pointer">
-                No photo? Use the 8-question sizing flow
-              </summary>
-              <div className="grid grid-cols-2 gap-3 pt-3">
-                <div>
-                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-mass">
-                    Mass (kg)
-                  </label>
-                  <input
-                    id="q-mass"
-                    type="number"
-                    min={30}
-                    max={200}
-                    value={qMass}
-                    onChange={(e) => setQMass(Number(e.target.value))}
-                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-gender">
-                    Gender
-                  </label>
-                  <select
-                    id="q-gender"
-                    value={qGender}
-                    onChange={(e) => setQGender(e.target.value as "female" | "male")}
-                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
-                  >
-                    {GENDERS.map((g) => (
-                      <option key={g.value} value={g.value}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-shape">
-                    Body shape
-                  </label>
-                  <select
-                    id="q-shape"
-                    value={qShape}
-                    onChange={(e) => setQShape(e.target.value as QuestionnairePayload["body_shape"])}
-                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
-                  >
-                    {BODY_SHAPES.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor="q-cup">
-                    Cup size (optional)
-                  </label>
-                  <select
-                    id="q-cup"
-                    value={qCup}
-                    onChange={(e) => setQCup(e.target.value)}
-                    className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
-                  >
-                    <option value="">—</option>
-                    {CUP_SIZES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {[
-                  { label: "Belly", value: qBelly, set: setQBelly, id: "q-belly" },
-                  { label: "Build", value: qBuild, set: setQBuild, id: "q-build" },
-                  { label: "Legs", value: qLegs, set: setQLegs, id: "q-legs" },
-                  { label: "Arms", value: qArms, set: setQArms, id: "q-arms" },
-                ].map((field) => (
-                  <div key={field.id}>
-                    <label className="text-[10px] text-[#8C8A82] uppercase tracking-wide" htmlFor={field.id}>
-                      {field.label}
-                    </label>
-                    <select
-                      id={field.id}
-                      value={field.value}
-                      onChange={(e) => field.set(Number(e.target.value))}
-                      className="w-full mt-1 bg-white border border-[#E2E0D8] rounded-lg text-sm px-2.5 py-2 outline-none focus:border-[#556B2F]"
-                    >
-                      {[1, 2, 3].map((n) => (
-                        <option key={n} value={n}>
-                          {n === 1 ? "Low" : n === 2 ? "Average" : "High"}
-                        </option>
-                      ))}
-                    </select>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                {rows.map((row) => (
+                  <div key={row.key} className="bg-white rounded-lg px-3 py-2">
+                    <p className="text-[10px] text-[#8C8A82] uppercase tracking-wide">{row.label}</p>
+                    <p className="text-sm font-semibold text-[#1C1C1C] tabular-nums">
+                      {row.value.toFixed(1)}
+                      {row.unit ? (
+                        <span className="ml-1 text-[10px] font-normal text-[#8C8A82]">{row.unit}</span>
+                      ) : null}
+                    </p>
                   </div>
                 ))}
+              </div>
+              <p className="text-xs text-[#556B2F]">
+                Applied to the avatar: height, leg length, muscle, weight, proportions
+                {scanResult.targets.cupsize !== undefined ? ", cup size" : ""}.
+              </p>
+              {scanResult.notes.length > 0 && (
+                <ul className="text-[11px] text-[#8C8A82] list-disc pl-4 space-y-1">
+                  {scanResult.notes.map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
+            <div>
+              <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Body shape parameters</h3>
+              <p className="text-xs text-[#8C8A82] mt-0.5">
+                Direct MPFB2 controls sent to Blender. 0.50 is neutral. The photo or questionnaire capture pre-fills
+                the ones it can estimate; you can still refine every value by hand.
+              </p>
+            </div>
+            {MPFB_PARAMS.map((meta) => mpfbSlider(meta))}
+          </div>
+
+          <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Advanced body details</h3>
+                <p className="text-xs text-[#8C8A82] mt-0.5">
+                  19 local MPFB targets that the macros cannot isolate. 0.00 is the current body; move left or right
+                  to shrink or grow that region. Values are limited to ±1.00.
+                </p>
               </div>
               <button
                 type="button"
-                onClick={onCladQuestionnaire}
-                disabled={cladState === "running" || cladConfigured === false}
-                className="mt-3 w-full bg-white border border-[#E2E0D8] hover:bg-[#E2E0D8] text-[#1C1C1C] text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40"
+                onClick={() => setDetailValues({})}
+                disabled={activeDetails === 0}
+                className="text-xs font-semibold text-[#556B2F] hover:underline disabled:opacity-40 disabled:no-underline shrink-0"
               >
-                {cladState === "running" ? "Measuring…" : "Measure from questionnaire"}
+                Reset
               </button>
-            </details>
+            </div>
+            {DETAIL_CONTROLS.map((control) => detailSlider(control))}
           </div>
 
           <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Estimated proportions</h3>
-              {analysis && (
-                <span className={`text-xs font-semibold px-3 py-1 rounded-full ${qualityBadgeStyle(analysis.qualityLabel)}`}>
-                  {analysis.qualityLabel} confidence · {analysis.quality}/100
-                </span>
-              )}
-            </div>
-
-            {cladResult && (
-              <p className="text-xs text-[#556B2F]">
-                Clad scan applied. Running “Estimate proportions” will replace these values with local pose estimates.
-              </p>
-            )}
-
-            {!analysis && !error && (
-              <p className="text-sm text-[#8C8A82]">
-                Upload a photo and run the estimate. You can still set the proportions by hand with the sliders below.
-              </p>
-            )}
-
-            {analysis && (
-              <div className="space-y-3">
-                {analysis.reports.map((report) => (
-                  <div key={report.label} className="bg-white rounded-lg px-4 py-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-[#1C1C1C]">{report.label}</p>
-                      <p className="text-xs text-[#8C8A82]">{report.note}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-semibold text-[#1C1C1C] tabular-nums">
-                        {report.value !== null && report.reliable ? report.value.toFixed(2) : "—"}
-                      </p>
-                      <p className={`text-xs ${report.reliable ? "text-[#556B2F]" : "text-[#8A2E2E]"}`}>
-                        {report.reliable ? "estimate" : "unreliable"}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="bg-white rounded-lg px-4 py-3 text-xs text-[#8C8A82] leading-relaxed">
-              A single photo cannot reveal exact body measurements or depth. These ratios come from 2D landmark
-              positions: posture, camera angle, lens distortion and clothing all shift them. Treat them as rough
-              shape hints for styling — not centimeters, and not an exact likeness of you.
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-[#1C1C1C]">Adjust manually</h4>
-                <button
-                  onClick={onReset}
-                  disabled={!analysis}
-                  className="text-xs font-semibold text-[#556B2F] hover:underline disabled:opacity-40 disabled:no-underline"
-                >
-                  Reset to detected values
-                </button>
-              </div>
-              {slider("shoulderToHip")}
-              {slider("torsoToLeg")}
-            </div>
-
-            <div className="space-y-4 border-t border-[#E2E0D8] pt-4">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <h4 className="text-sm font-semibold text-[#1C1C1C]">Body shape parameters</h4>
-                <p className="text-xs text-[#8C8A82]">
-                  Direct MPFB2 controls sent to Blender. 0.50 is the neutral default. Weight, muscle and height are
-                  pre-filled from your photo when reliable; torso-to-leg drives the Blender leg-length post-process.
-                  Gender and age are self-reported, and cup size / firmness are manual — a pose photo cannot reveal
-                  those.
+                <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Adjust manually</h3>
+                <p className="text-xs text-[#8C8A82] mt-0.5">
+                  These two ratios drive MPFB muscle and the Blender leg-length post-process.
                 </p>
               </div>
-              {MPFB_PARAMS.map((meta) => mpfbSlider(meta))}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!scanResult) return
+                  const next = {
+                    shoulderToHip: scanResult.ratios.shoulderToHip ?? DEFAULT_PROPORTIONS.shoulderToHip,
+                    torsoToLeg: scanResult.ratios.torsoToLeg ?? DEFAULT_PROPORTIONS.torsoToLeg,
+                  }
+                  setAdjusted(next)
+                  setLegLengthOverride(scanResult.targets.legLength ?? null)
+                }}
+                disabled={!scanResult}
+                className="text-xs font-semibold text-[#556B2F] hover:underline disabled:opacity-40 disabled:no-underline shrink-0"
+              >
+                Reset to questionnaire
+              </button>
             </div>
+            {slider("shoulderToHip")}
+            {slider("torsoToLeg")}
+          </div>
 
-            <div className="bg-white rounded-lg px-4 py-4 space-y-3 border border-[#E2E0D8]">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-[#1C1C1C]">Generate Avatar</p>
-                  <p className="text-xs text-[#8C8A82]">Runs Blender + MPFB2 locally (~5 s per job)</p>
-                </div>
-                <button
-                  onClick={onGenerate}
-                  disabled={genState === "running"}
-                  className="bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                >
-                  {genState === "running" ? "Generating…" : "Generate Avatar"}
-                </button>
+          <div className="bg-white rounded-lg px-4 py-4 space-y-3 border border-[#E2E0D8]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[#1C1C1C]">Generate Avatar</p>
+                <p className="text-xs text-[#8C8A82]">Runs Blender + MPFB2 locally (~5 s per job)</p>
               </div>
-              <div className="text-xs text-[#8C8A82] space-y-1">
-                <p className="font-medium text-[#1C1C1C]">
-                  Will apply:{" "}
-                  {activeTargets.length
-                    ? activeTargets.map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")
-                    : "default body (all parameters neutral)"}
-                </p>
-                <p>· Leg length {legLength.toFixed(2)} from torso-to-leg — applied in Blender after MPFB shaping</p>
-                <p>· Muscle {linkMuscle ? "is linked to the shoulder-to-hip slider" : "is unlinked and set manually"}</p>
-                <p>· Every value is 0.00–1.00 with 0.50 as the neutral default</p>
-              </div>
-              {genState === "running" && (
-                <p className="text-xs text-[#556B2F]">
-                  Blender is regenerating your avatar
-                  {analysis ? ` — proportion pass ${genIteration} of 2` : ""}… the original file is never overwritten.
-                </p>
-              )}
-              {genState === "success" && (
-                <div className="space-y-1">
-                  <p className="text-xs text-[#556B2F]">
-                    Done — the viewer now shows your generated avatar (job {lastJob}). The original avatar.glb is unchanged.
-                  </p>
-                  {fitInfo && (
-                    <p className="text-xs text-[#556B2F]">
-                      Proportion match: <span className="font-semibold">{fitInfo.score}/100</span>
-                      {lastResult?.metrics?.heightMeters
-                        ? ` · generated height ${Number(lastResult.metrics.heightMeters).toFixed(2)} m`
-                        : ""}
-                    </p>
-                  )}
-                </div>
-              )}
-              {genState === "success" && onGoToTryOn && (
-                <button
-                  onClick={onGoToTryOn}
-                  className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
-                >
-                  Try on outfits →
-                </button>
-              )}
-              {genState === "error" && genError && (
-                <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{genError}</div>
-              )}
+              <button
+                onClick={onGenerate}
+                disabled={genState === "running"}
+                className="bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              >
+                {genState === "running" ? "Generating…" : "Generate Avatar"}
+              </button>
             </div>
+            <div className="text-xs text-[#8C8A82] space-y-1">
+              <p className="font-medium text-[#1C1C1C]">
+                Will apply:{" "}
+                {activeTargets.length
+                  ? activeTargets.map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")
+                  : "default body (all parameters neutral)"}
+                {activeDetails > 0 ? ` + ${activeDetails} detail target${activeDetails === 1 ? "" : "s"}` : ""}
+              </p>
+              <p>· Leg length {legLength.toFixed(2)} from torso-to-leg — applied in Blender after MPFB shaping</p>
+              <p>· Muscle {linkMuscle ? "is linked to the shoulder-to-hip slider" : "is unlinked and set manually"}</p>
+              <p>· Every value is 0.00–1.00 with 0.50 as the neutral default</p>
+            </div>
+            {genState === "running" && (
+              <p className="text-xs text-[#556B2F]">
+                Blender is regenerating your avatar
+                {scanResult ? ` — proportion pass ${genIteration} of 2` : ""}… the original file is never overwritten.
+              </p>
+            )}
+            {genState === "success" && (
+              <div className="space-y-1">
+                <p className="text-xs text-[#556B2F]">
+                  Done — the viewer now shows your generated avatar (job {lastJob}). The original avatar.glb is unchanged.
+                </p>
+                {fitInfo && (
+                  <p className="text-xs text-[#556B2F]">
+                    Proportion match: <span className="font-semibold">{fitInfo.score}/100</span>
+                    {lastResult?.metrics?.heightMeters
+                      ? ` · generated height ${Number(lastResult.metrics.heightMeters).toFixed(2)} m`
+                      : ""}
+                  </p>
+                )}
+              </div>
+            )}
+            {genState === "success" && generatedUrl && (
+              <a
+                href={generatedUrl}
+                download
+                className="block text-center w-full bg-white border border-[#E2E0D8] hover:bg-[#E2E0D8] text-[#1C1C1C] text-sm font-semibold py-2.5 rounded-lg transition-colors"
+              >
+                Download customized GLB
+              </a>
+            )}
+            {genState === "success" && onGoToTryOn && (
+              <button
+                onClick={onGoToTryOn}
+                className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+              >
+                Try on outfits →
+              </button>
+            )}
+            {genState === "error" && genError && (
+              <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{genError}</div>
+            )}
           </div>
         </div>
 
@@ -892,19 +1190,15 @@ export default function CustomizeAvatar({
           <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-3">
             <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Current targets</h3>
             <div className="grid grid-cols-3 gap-3">
-              {(["shoulderToHip", "torsoToLeg"] as const).map((key) => {
-                const report = analysis?.reports.find((r) => r.key === key)
-                const fromPhoto = report?.reliable === true
-                return (
-                  <div key={key} className="bg-white rounded-lg px-4 py-3">
-                    <p className="text-xs text-[#8C8A82]">{RATIO_LABELS[key]}</p>
-                    <p className="text-lg font-semibold text-[#1C1C1C] tabular-nums">{adjusted[key].toFixed(2)}</p>
-                    <p className={`text-[10px] ${fromPhoto ? "text-[#556B2F]" : "text-[#B5B3AA]"}`}>
-                      {fromPhoto ? "from photo estimate" : "default — set manually"}
-                    </p>
-                  </div>
-                )
-              })}
+              {(["shoulderToHip", "torsoToLeg"] as const).map((key) => (
+                <div key={key} className="bg-white rounded-lg px-4 py-3">
+                  <p className="text-xs text-[#8C8A82]">{RATIO_LABELS[key]}</p>
+                  <p className="text-lg font-semibold text-[#1C1C1C] tabular-nums">{adjusted[key].toFixed(2)}</p>
+                  <p className={`text-[10px] ${scanResult ? "text-[#556B2F]" : "text-[#B5B3AA]"}`}>
+                    {scanResult ? "from questionnaire" : "default — set manually"}
+                  </p>
+                </div>
+              ))}
               <div className="bg-white rounded-lg px-4 py-3">
                 <p className="text-xs text-[#8C8A82]">Leg length</p>
                 <p className="text-lg font-semibold text-[#1C1C1C] tabular-nums">{legLength.toFixed(2)}</p>

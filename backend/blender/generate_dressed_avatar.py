@@ -30,6 +30,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 import sys
 import traceback
 from functools import partial
@@ -48,8 +49,46 @@ ALLOWED_PARAMS = {
 CATALOG_PATH = Path(__file__).resolve().parents[2] / "DressMe UI Blueprint" / "src" / "lib" / "garments.json"
 
 
+DETAIL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
+
+
 def clamp01(value: float) -> float:
     return min(1.0, max(0.0, value))
+
+
+def read_details(path):
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8-sig") as f:
+        details = json.load(f)
+    if not isinstance(details, dict):
+        raise ValueError("Details must be a JSON object")
+    return details
+
+
+def apply_detail_targets(TargetService, basemesh, details):
+    applied = {}
+    missing = []
+    for name, raw_value in details.items():
+        if not DETAIL_NAME_RE.match(name):
+            raise ValueError(f"Invalid detail target name: {name!r}")
+        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+            raise ValueError(f"Detail target {name} must be a number")
+        value = float(raw_value)
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"Detail target {name} must be between 0.0 and 1.0")
+        if value < 1e-4:
+            continue
+        full_path = TargetService.target_full_path(name)
+        if not full_path:
+            missing.append(name)
+            continue
+        if TargetService.has_target(basemesh, name):
+            TargetService.set_target_value(basemesh, name, value)
+        else:
+            TargetService.load_target(basemesh, full_path, weight=value, name=name)
+        applied[name] = value
+    return applied, missing
 
 
 def _anchor_z(landmarks, anchor: str) -> float:
@@ -392,12 +431,14 @@ def build_garment(body_obj, landmarks, garment_id):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--params", required=True)
+    parser.add_argument("--details", default=None)
     parser.add_argument("--outfit", default="tshirt")
     parser.add_argument("--output", required=True)
     args, _unknown = parser.parse_known_args(sys.argv[sys.argv.index("--") + 1:])
 
     with open(args.params, "r", encoding="utf-8-sig") as f:
         params = json.load(f)
+    details = read_details(args.details)
 
     unknown = [k for k in params if k not in ALLOWED_PARAMS]
     if unknown:
@@ -438,6 +479,7 @@ def main():
         HumanObjectProperties.set_value(key, float(value), entity_reference=basemesh)
         applied[key] = float(value)
     TargetService.reapply_macro_details(basemesh)
+    applied_details, missing_details = apply_detail_targets(TargetService, basemesh, details)
     bpy.context.view_layer.update()
 
     landmarks = read_landmarks(basemesh)
@@ -501,6 +543,8 @@ def main():
     emit({
         "ok": True,
         "params_applied": applied,
+        "details_applied": applied_details,
+        "details_missing": missing_details,
         "outfit": outfit,
         "output": args.output,
         "bytes": size,
