@@ -2,14 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { AvatarCanvas } from "./AvatarViewer"
 import {
   AGE_PRESETS,
+  cmFromHeightParam,
   defaultMpbTargets,
   estimatesFromMetrics,
+  fitScore,
+  fitTargets,
   generateAvatar,
   GENDER_PRESETS,
-  mapRatiosToMpbTargets,
+  heightFromCm,
+  legLengthFromTorsoToLeg,
   MPFB_NEUTRAL,
   MPFB_PARAMS,
+  muscleFromShoulderToHip,
   PHOTO_ESTIMATED_PARAMS,
+  type BodyTargets,
+  type GenerateResult,
   type MpbParam,
   type MpbParamMeta,
 } from "../lib/avatarApi"
@@ -39,7 +46,7 @@ export default function CustomizeAvatar({
   onUseParams,
   onGoToTryOn,
 }: {
-  onUseParams?: (p: Record<MpbParam, number>) => void
+  onUseParams?: (p: BodyTargets) => void
   onGoToTryOn?: () => void
 } = {}) {
   const [fileUrl, setFileUrl] = useState<string | null>(null)
@@ -55,6 +62,11 @@ export default function CustomizeAvatar({
   const [genError, setGenError] = useState<string | null>(null)
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
   const [lastJob, setLastJob] = useState<string | null>(null)
+  const [lastResult, setLastResult] = useState<GenerateResult | null>(null)
+  const [linkMuscle, setLinkMuscle] = useState(true)
+  const [heightCm, setHeightCm] = useState(170)
+  const [genIteration, setGenIteration] = useState(0)
+  const [fitInfo, setFitInfo] = useState<{ score: number; achieved: Record<string, number> } | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const prevUrlRef = useRef<string | null>(null)
   const genAbortRef = useRef<AbortController | null>(null)
@@ -74,13 +86,13 @@ export default function CustomizeAvatar({
     }
   }, [])
 
-  const mapping = useMemo(() => mapRatiosToMpbTargets(adjusted), [adjusted])
-
   useEffect(() => {
-    const linked = mapping.targets.muscle
-    if (linked === undefined) return
+    if (!linkMuscle) return
+    const linked = muscleFromShoulderToHip(adjusted.shoulderToHip)
     setMpb((prev) => (prev.muscle === linked ? prev : { ...prev, muscle: linked }))
-  }, [mapping])
+  }, [adjusted.shoulderToHip, linkMuscle])
+
+  const legLength = useMemo(() => legLengthFromTorsoToLeg(adjusted.torsoToLeg), [adjusted.torsoToLeg])
 
   const activeTargets = useMemo(
     () => (Object.entries(mpfb) as [MpbParam, number][]).filter(([, v]) => Math.abs(v - MPFB_NEUTRAL) > 0.001),
@@ -112,6 +124,11 @@ export default function CustomizeAvatar({
     })
     setPhotoKeys([])
     setError(null)
+    setHeightCm(170)
+    setLinkMuscle(true)
+    setGeneratedUrl(null)
+    setLastResult(null)
+    setFitInfo(null)
     if (modelStatus === "idle") setModelStatus("loading")
     preloadPoseModel()
       .then(() => setModelStatus("ready"))
@@ -139,8 +156,17 @@ export default function CustomizeAvatar({
       if (result.ok) {
         setAnalysis(result)
         setAdjusted(result.proportions)
-        setMpb((prev) => ({ ...prev, ...estimatesFromMetrics(result.metrics) }))
-        setPhotoKeys([...PHOTO_ESTIMATED_PARAMS])
+        const estimates = estimatesFromMetrics(result.metrics, result.reliability)
+        setMpb((prev) => {
+          const next = { ...prev }
+          for (const key of PHOTO_ESTIMATED_PARAMS) next[key] = MPFB_NEUTRAL
+          return { ...next, ...estimates.values }
+        })
+        setPhotoKeys(estimates.keys)
+        if (estimates.values.height !== undefined) {
+          setHeightCm(cmFromHeightParam(estimates.values.height))
+        }
+        setFitInfo(null)
       } else {
         setAnalysis(null)
         setError(result.reason)
@@ -155,6 +181,14 @@ export default function CustomizeAvatar({
 
   const onReset = () => {
     setAdjusted(analysis ? { ...analysis.proportions } : defaultProportions())
+    setFitInfo(null)
+  }
+
+  const onHeightCmChange = (value: number) => {
+    setHeightCm(value)
+    if (!Number.isFinite(value) || value < 130 || value > 220) return
+    setMpb((prev) => ({ ...prev, height: heightFromCm(value) }))
+    setPhotoKeys((prev) => prev.filter((k) => k !== "height"))
   }
 
   const onGenerate = async () => {
@@ -165,12 +199,38 @@ export default function CustomizeAvatar({
     const timer = window.setTimeout(() => controller.abort(), 320_000)
     setGenState("running")
     setGenError(null)
+    setFitInfo(null)
+    setGenIteration(0)
     try {
-      const result = await generateAvatar(mpfb, [], controller.signal)
-      setGeneratedUrl(`${result.url}?v=${result.jobId}`)
-      setLastJob(result.jobId)
+      let current: BodyTargets = { ...mpfb, legLength }
+      let last: GenerateResult | null = null
+      // Fit against the sliders the user actually sees, so manual adjustments win.
+      const desired = analysis ? { ...adjusted } : undefined
+      const maxPasses = desired ? 2 : 1
+
+      for (let pass = 0; pass < maxPasses; pass++) {
+        setGenIteration(pass + 1)
+        last = await generateAvatar(current, [], controller.signal)
+        if (!desired) break
+        const next = fitTargets(current, last.metrics, desired)
+        if (!next) break
+        // Respect an explicitly unlinked muscle slider.
+        if (!linkMuscle) {
+          next.targets.muscle = current.muscle
+          if (next.targets.legLength === current.legLength) break
+        }
+        current = next.targets
+      }
+
+      if (!last) throw new Error("Generation produced no result")
+      setGeneratedUrl(`${last.url}?v=${last.jobId}`)
+      setLastJob(last.jobId)
+      setLastResult(last)
       setGenState("success")
-      onUseParams?.(mpfb)
+      if (desired && last.metrics) {
+        setFitInfo({ score: fitScore(last.metrics, desired), achieved: last.metrics })
+      }
+      onUseParams?.(current)
     } catch (e) {
       const aborted = controller.signal.aborted
       setGenState("error")
@@ -206,6 +266,11 @@ export default function CustomizeAvatar({
           onChange={(e) => setAdjusted((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
           className="w-full accent-[#556B2F]"
         />
+        {key === "torsoToLeg" && (
+          <p className="text-[11px] text-[#8C8A82]">
+            Blender leg-length target: <span className="font-semibold text-[#556B2F] tabular-nums">{legLength.toFixed(2)}</span>
+          </p>
+        )}
       </div>
     )
   }
@@ -233,9 +298,23 @@ export default function CustomizeAvatar({
             const value = Number(e.target.value)
             setMpb((prev) => ({ ...prev, [meta.key]: value }))
             setPhotoKeys((prev) => prev.filter((k) => k !== meta.key))
+            if (meta.key === "muscle") setLinkMuscle(false)
           }}
           className="w-full accent-[#556B2F]"
         />
+        {meta.key === "muscle" && (
+          <button
+            type="button"
+            onClick={() => setLinkMuscle((value) => !value)}
+            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+              linkMuscle
+                ? "bg-[#E8EDE0] text-[#556B2F] border-[#556B2F]/30"
+                : "bg-white text-[#8C8A82] border-[#E2E0D8] hover:bg-[#E2E0D8]"
+            }`}
+          >
+            {linkMuscle ? "Linked to shoulder-to-hip" : "Manual (unlinked)"}
+          </button>
+        )}
         {presets && (
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {presets.map((p) => (
@@ -296,6 +375,25 @@ export default function CustomizeAvatar({
                 >
                   {analyzing ? "Analyzing…" : "Estimate proportions"}
                 </button>
+                <div className="flex items-center gap-2 pt-1">
+                  <label htmlFor="height-cm" className="text-xs font-semibold text-[#8C8A82]">
+                    Your height
+                  </label>
+                  <input
+                    id="height-cm"
+                    type="number"
+                    min={130}
+                    max={220}
+                    step={1}
+                    value={heightCm}
+                    onChange={(e) => onHeightCmChange(Number(e.target.value))}
+                    className="w-20 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] px-2.5 py-1.5 outline-none focus:border-[#556B2F]"
+                  />
+                  <span className="text-xs text-[#8C8A82]">cm</span>
+                </div>
+                <p className="text-[11px] text-[#8C8A82]">
+                  Calibrates the MPFB height parameter. Edit it after the photo estimate if you know your height.
+                </p>
                 {modelStatus === "loading" && <p className="text-xs text-[#8C8A82]">Preparing pose engine (one-time)…</p>}
                 {modelStatus === "error" && (
                   <p className="text-xs text-[#8A2E2E]">Pose engine failed to load — reload the page to retry.</p>
@@ -369,9 +467,10 @@ export default function CustomizeAvatar({
               <div>
                 <h4 className="text-sm font-semibold text-[#1C1C1C]">Body shape parameters</h4>
                 <p className="text-xs text-[#8C8A82]">
-                  Direct MPFB2 controls sent to Blender. 0.50 is the neutral default. Weight, muscle, height and
-                  proportions are pre-filled from your photo; gender and age are self-reported, and cup size /
-                  firmness are manual — a pose photo cannot reveal those.
+                  Direct MPFB2 controls sent to Blender. 0.50 is the neutral default. Weight, muscle and height are
+                  pre-filled from your photo when reliable; torso-to-leg drives the Blender leg-length post-process.
+                  Gender and age are self-reported, and cup size / firmness are manual — a pose photo cannot reveal
+                  those.
                 </p>
               </div>
               {MPFB_PARAMS.map((meta) => mpfbSlider(meta))}
@@ -398,16 +497,30 @@ export default function CustomizeAvatar({
                     ? activeTargets.map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")
                     : "default body (all parameters neutral)"}
                 </p>
-                <p>· Muscle is linked to the shoulder-to-hip ratio slider; torso-to-leg has no MPFB parameter</p>
+                <p>· Leg length {legLength.toFixed(2)} from torso-to-leg — applied in Blender after MPFB shaping</p>
+                <p>· Muscle {linkMuscle ? "is linked to the shoulder-to-hip slider" : "is unlinked and set manually"}</p>
                 <p>· Every value is 0.00–1.00 with 0.50 as the neutral default</p>
               </div>
               {genState === "running" && (
-                <p className="text-xs text-[#556B2F]">Blender is regenerating your avatar… the original file is never overwritten.</p>
+                <p className="text-xs text-[#556B2F]">
+                  Blender is regenerating your avatar
+                  {analysis ? ` — proportion pass ${genIteration} of 2` : ""}… the original file is never overwritten.
+                </p>
               )}
               {genState === "success" && (
-                <p className="text-xs text-[#556B2F]">
-                  Done — the viewer now shows your generated avatar (job {lastJob}). The original avatar.glb is unchanged.
-                </p>
+                <div className="space-y-1">
+                  <p className="text-xs text-[#556B2F]">
+                    Done — the viewer now shows your generated avatar (job {lastJob}). The original avatar.glb is unchanged.
+                  </p>
+                  {fitInfo && (
+                    <p className="text-xs text-[#556B2F]">
+                      Proportion match: <span className="font-semibold">{fitInfo.score}/100</span>
+                      {lastResult?.metrics?.heightMeters
+                        ? ` · generated height ${Number(lastResult.metrics.heightMeters).toFixed(2)} m`
+                        : ""}
+                    </p>
+                  )}
+                </div>
               )}
               {genState === "success" && onGoToTryOn && (
                 <button
@@ -428,7 +541,7 @@ export default function CustomizeAvatar({
           <AvatarCanvas url={generatedUrl ?? undefined} />
           <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-3">
             <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Current targets</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {(["shoulderToHip", "torsoToLeg"] as const).map((key) => {
                 const report = analysis?.reports.find((r) => r.key === key)
                 const fromPhoto = report?.reliable === true
@@ -442,7 +555,27 @@ export default function CustomizeAvatar({
                   </div>
                 )
               })}
+              <div className="bg-white rounded-lg px-4 py-3">
+                <p className="text-xs text-[#8C8A82]">Leg length</p>
+                <p className="text-lg font-semibold text-[#1C1C1C] tabular-nums">{legLength.toFixed(2)}</p>
+                <p className="text-[10px] text-[#556B2F]">Blender post-process</p>
+              </div>
             </div>
+            {fitInfo && (
+              <div className="bg-white rounded-lg px-4 py-3 text-xs text-[#8C8A82]">
+                <p className="font-semibold text-[#1C1C1C]">Last generated body</p>
+                <p>
+                  Shoulder-to-hip{" "}
+                  <span className="font-semibold text-[#1C1C1C] tabular-nums">
+                    {Number(fitInfo.achieved.shoulderToHip ?? 0).toFixed(2)}
+                  </span>
+                  {" · "}Torso-to-leg{" "}
+                  <span className="font-semibold text-[#1C1C1C] tabular-nums">
+                    {Number(fitInfo.achieved.torsoToLeg ?? 0).toFixed(2)}
+                  </span>
+                </p>
+              </div>
+            )}
             <p className="text-xs text-[#8C8A82]">
               Generate Avatar applies these targets via local Blender + MPFB2 into a new file under
               public/models/generated/ — your original avatar.glb is never overwritten.

@@ -13,6 +13,14 @@ export type BodyMetrics = {
   legToHeight: number
 }
 
+export type MetricReliability = {
+  shoulderToHip: boolean
+  torsoToLeg: boolean
+  shoulderToHeight: boolean
+  hipToHeight: boolean
+  legToHeight: boolean
+}
+
 export type RatioReport = {
   key: keyof Proportions
   label: string
@@ -30,6 +38,8 @@ export type PoseAnalysis =
       qualityLabel: "Good" | "Fair" | "Low"
       reports: RatioReport[]
       personHeight: number
+      reliability: MetricReliability
+      frontality: number
     }
   | {
       ok: false
@@ -111,6 +121,17 @@ function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n))
 }
 
+// A frontal body has most of its shoulder/hip separation along x; a body
+// turned sideways has most of it along z. 1 = facing camera, 0 = profile.
+function lineFrontality(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+): number {
+  const dx = Math.abs(a.x - b.x)
+  const dz = Math.abs(a.z - b.z)
+  return dx / (dx + dz + 1e-6)
+}
+
 export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysis> {
   const landmarker = await getLandmarker()
   const result = landmarker.detect(image)
@@ -145,6 +166,18 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
   const hipVisOk = vis(L_HIP) >= MIN_VISIBILITY && vis(R_HIP) >= MIN_VISIBILITY
   const ankleVisOk = vis(L_ANKLE) >= MIN_VISIBILITY && vis(R_ANKLE) >= MIN_VISIBILITY
 
+  const shoulderFrontality = lineFrontality(world[L_SHOULDER], world[R_SHOULDER])
+  const hipFrontality = lineFrontality(world[L_HIP], world[R_HIP])
+  const frontality = (shoulderFrontality + hipFrontality) / 2
+
+  if (frontality < 0.35) {
+    return {
+      ok: false,
+      reason:
+        "The body looks turned sideways. Face the camera straight on with your shoulders and hips square to the lens for a usable proportion estimate.",
+    }
+  }
+
   const shoulderToHip =
     shoulderVisOk && hipVisOk && shoulderWidth > 1e-4 && hipWidth > 1e-4
       ? shoulderWidth / hipWidth
@@ -157,6 +190,12 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
   const shoulderToHipOk =
     shoulderToHip !== null && shoulderToHip >= 0.5 && shoulderToHip <= 2.8
   const torsoToLegOk = torsoToLeg !== null && torsoToLeg >= 0.2 && torsoToLeg <= 1.8
+  const shoulderToHeightOk =
+    shoulderVisOk && shoulderToHeight !== null && shoulderToHeight >= 0.12 && shoulderToHeight <= 0.6
+  const hipToHeightOk =
+    hipVisOk && hipToHeight !== null && hipToHeight >= 0.12 && hipToHeight <= 0.6
+  const legToHeightOk =
+    hipVisOk && ankleVisOk && legToHeight !== null && legToHeight >= 0.3 && legToHeight <= 0.7
 
   if (shoulderToHip === null && torsoToLeg === null) {
     return {
@@ -171,7 +210,15 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
   const minVis = Math.min(...used.map(vis))
   const completeness = personHeight >= 1.0 && personHeight <= 2.4 ? 1 : clamp01(personHeight / 1.0) * 0.6
   const geo = (shoulderToHipOk ? 0.5 : 0) + (torsoToLegOk ? 0.5 : 0)
-  let quality = Math.round(100 * (0.5 * clamp01(avgVis) + 0.2 * clamp01(minVis) + 0.2 * completeness + 0.1 * geo))
+  const frontalityScore = clamp01((frontality - 0.4) / 0.5)
+  let quality = Math.round(
+    100 *
+      (0.4 * clamp01(avgVis) +
+        0.15 * clamp01(minVis) +
+        0.15 * completeness +
+        0.1 * geo +
+        0.2 * frontalityScore),
+  )
   if (!allVisible) {
     quality = Math.min(quality, 60)
   }
@@ -202,6 +249,14 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
     },
   ]
 
+  const reliability: MetricReliability = {
+    shoulderToHip: shoulderToHipOk,
+    torsoToLeg: torsoToLegOk,
+    shoulderToHeight: shoulderToHeightOk,
+    hipToHeight: hipToHeightOk,
+    legToHeight: legToHeightOk,
+  }
+
   return {
     ok: true,
     proportions: {
@@ -212,14 +267,16 @@ export async function analyzePhoto(image: HTMLImageElement): Promise<PoseAnalysi
       shoulderToHip: shoulderToHipOk && shoulderToHip !== null ? shoulderToHip : DEFAULT_METRICS.shoulderToHip,
       torsoToLeg: torsoToLegOk && torsoToLeg !== null ? torsoToLeg : DEFAULT_METRICS.torsoToLeg,
       shoulderToHeight:
-        shoulderVisOk && shoulderToHeight !== null ? shoulderToHeight : DEFAULT_METRICS.shoulderToHeight,
-      hipToHeight: hipVisOk && hipToHeight !== null ? hipToHeight : DEFAULT_METRICS.hipToHeight,
+        shoulderToHeightOk && shoulderToHeight !== null ? shoulderToHeight : DEFAULT_METRICS.shoulderToHeight,
+      hipToHeight: hipToHeightOk && hipToHeight !== null ? hipToHeight : DEFAULT_METRICS.hipToHeight,
       legToHeight:
-        hipVisOk && ankleVisOk && legToHeight !== null ? legToHeight : DEFAULT_METRICS.legToHeight,
+        legToHeightOk && legToHeight !== null ? legToHeight : DEFAULT_METRICS.legToHeight,
     },
     quality,
     qualityLabel,
     reports,
     personHeight,
+    reliability,
+    frontality,
   }
 }

@@ -1,4 +1,4 @@
-"""
+r"""
 Local DressMe avatar-generation backend.
 
 Runs Blender 5.4 headless with the MPFB2 extension to regenerate a body-shaped
@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -44,21 +45,40 @@ GENERATED_DIR = Path(
 )
 TEMP_DIR = BACKEND_DIR / "temp"
 JOB_TIMEOUT_SECONDS = int(os.environ.get("JOB_TIMEOUT_SECONDS", "300"))
+GENERATED_TTL_HOURS = float(os.environ.get("GENERATED_TTL_HOURS", "24"))
+CATALOG_PATH = BACKEND_DIR.parent / "DressMe UI Blueprint" / "src" / "lib" / "garments.json"
+
+
+def load_garment_catalog() -> tuple[dict[str, dict], list[str]]:
+    with open(CATALOG_PATH, "r", encoding="utf-8-sig") as f:
+        data = json.load(f)
+    garments = {g["id"]: g for g in data["garments"]}
+    slots = list(data.get("slots", []))
+    return garments, slots
+
+
+GARMENT_CATALOG, GARMENT_SLOTS = load_garment_catalog()
 
 ALLOWED_PARAMS = {
     "gender", "age", "muscle", "weight",
     "height", "proportions", "cupsize", "firmness",
+    "legLength",
 }
 MAX_TARGETS = len(ALLOWED_PARAMS)
 
-ALLOWED_GARMENTS = ["tshirt", "trousers", "jacket"]
-MAX_GARMENTS = len(ALLOWED_GARMENTS)
+ALLOWED_GARMENTS = list(GARMENT_CATALOG)
+MAX_GARMENTS = len(GARMENT_SLOTS)
 
 _job_lock = threading.Lock()
 app = FastAPI(title="DressMe avatar backend", version="1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8443", "http://127.0.0.1:8443"],
+    allow_origins=[
+        "http://localhost:8443",
+        "http://127.0.0.1:8443",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )
@@ -76,6 +96,7 @@ class GenerateResponse(BaseModel):
     outfit: list[str]
     bytes: int
     elapsedSeconds: float
+    metrics: dict[str, float] = Field(default_factory=dict)
 
 
 def validate_targets(targets: dict[str, float]) -> dict[str, float]:
@@ -102,15 +123,34 @@ def validate_targets(targets: dict[str, float]) -> dict[str, float]:
 def validate_outfit(outfit: list[str]) -> list[str]:
     if len(outfit) > MAX_GARMENTS:
         raise HTTPException(status_code=422, detail=f"at most {MAX_GARMENTS} garments allowed")
+
     cleaned: list[str] = []
     for g in outfit:
-        if g not in ALLOWED_GARMENTS:
+        if g not in GARMENT_CATALOG:
             raise HTTPException(
                 status_code=422,
                 detail=f"unsupported garment '{g}'. Allowed: {ALLOWED_GARMENTS}",
             )
         if g not in cleaned:
             cleaned.append(g)
+
+    slots = [GARMENT_CATALOG[g]["slot"] for g in cleaned]
+    if "dress" in slots and ("top" in slots or "bottom" in slots):
+        raise HTTPException(
+            status_code=422,
+            detail="A dress replaces the top and bottom. Choose a dress or a top + bottom, not both.",
+        )
+
+    seen: set[str] = set()
+    for garment in cleaned:
+        slot = GARMENT_CATALOG[garment]["slot"]
+        if slot in seen:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Only one '{slot}' garment can be worn at a time.",
+            )
+        seen.add(slot)
+
     return cleaned
 
 
@@ -133,6 +173,31 @@ def extract_result_line(output: str) -> dict | None:
         return None
 
 
+def cleanup_generated(max_age_hours: float = GENERATED_TTL_HOURS) -> None:
+    """Remove old generated GLBs so public/models/generated does not grow forever."""
+    if max_age_hours <= 0 or not GENERATED_DIR.is_dir():
+        return
+    cutoff = time.time() - max_age_hours * 3600
+    for path in GENERATED_DIR.glob("avatar_*.glb"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
+
+
+def cleanup_temp(max_age_hours: float = 1.0) -> None:
+    if not TEMP_DIR.is_dir():
+        return
+    cutoff = time.time() - max_age_hours * 3600
+    for path in TEMP_DIR.glob("*"):
+        try:
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
@@ -141,13 +206,12 @@ def health() -> dict:
         "blendExists": Path(AVATAR_BLEND).is_file(),
         "dressedScriptExists": DRESSED_BLENDER_SCRIPT.is_file(),
         "allowedGarments": ALLOWED_GARMENTS,
+        "slots": GARMENT_SLOTS,
     }
 
 
 @app.post("/api/avatar/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest) -> GenerateResponse:
-    import time
-
     targets = validate_targets(req.targets)
     outfit = validate_outfit(req.outfit)
     script = DRESSED_BLENDER_SCRIPT if outfit else BLENDER_SCRIPT
@@ -165,6 +229,8 @@ def generate(req: GenerateRequest) -> GenerateResponse:
         job_id = uuid.uuid4().hex[:12]
         TEMP_DIR.mkdir(parents=True, exist_ok=True)
         GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+        cleanup_generated()
+        cleanup_temp()
 
         params_path = TEMP_DIR / f"params_{job_id}.json"
         temp_glb = TEMP_DIR / f"avatar_{job_id}.glb"
@@ -220,6 +286,9 @@ def generate(req: GenerateRequest) -> GenerateResponse:
         final_path = GENERATED_DIR / final_name
         shutil.move(str(temp_glb), str(final_path))
 
+        metrics = result.get("metrics") or {}
+        metrics = {k: float(v) for k, v in metrics.items() if isinstance(v, (int, float))}
+
         return GenerateResponse(
             jobId=job_id,
             url=f"/models/generated/{final_name}",
@@ -227,6 +296,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             outfit=outfit,
             bytes=final_path.stat().st_size,
             elapsedSeconds=elapsed,
+            metrics=metrics,
         )
     finally:
         _job_lock.release()

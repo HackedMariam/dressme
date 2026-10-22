@@ -2,7 +2,10 @@ import { useState } from "react";
 import AvatarViewer from "./components/AvatarViewer";
 import CustomizeAvatar from "./components/CustomizeAvatar";
 import TryOnStudio from "./components/TryOnStudio";
-import { defaultMpbTargets, type MpbParam } from "./lib/avatarApi";
+import { defaultBodyTargets, type BodyTargets } from "./lib/avatarApi";
+import type { GarmentId } from "./lib/garments";
+import { loadLooks, saveLook, type SavedLook } from "./lib/looks";
+import { wardrobeItems } from "./lib/wardrobe";
 
 type Page =
   | "dashboard"
@@ -24,17 +27,6 @@ const WARDROBE_IMG = "https://images.unsplash.com/photo-1490481651871-ab68de25d4
 const EDITORIAL_IMG = "https://images.unsplash.com/photo-1683392969197-17547ac3e06e?w=600&h=800&fit=crop&auto=format";
 const FLATLAY_IMG = "https://images.unsplash.com/photo-1467043237213-65f2da53396f?w=400&h=500&fit=crop&auto=format";
 const RACK_IMG = "https://images.unsplash.com/photo-1532453288672-3a27e9be9efd?w=400&h=500&fit=crop&auto=format";
-
-const wardrobeItems = [
-  { id: 1, name: "Merino Wool Turtleneck", category: "Tops", color: "Ivory", season: "Winter", img: "https://images.unsplash.com/photo-1603805752838-aa579d77da72?w=300&h=380&fit=crop&auto=format", tags: ["Casual", "Layering"], wear: 12, cost: 89 },
-  { id: 2, name: "High-Rise Straight Jeans", category: "Bottoms", color: "Indigo", season: "All Season", img: "https://images.unsplash.com/photo-1617178388553-a9d022974a5c?w=300&h=380&fit=crop&auto=format", tags: ["Casual", "Versatile"], wear: 28, cost: 120 },
-  { id: 3, name: "Camel Blazer", category: "Outerwear", color: "Camel", season: "Fall", img: "https://images.unsplash.com/photo-1551232864-3f0890e580d9?w=300&h=380&fit=crop&auto=format", tags: ["Work", "Smart Casual"], wear: 9, cost: 245 },
-  { id: 4, name: "Silk Slip Dress", category: "Dresses", color: "Champagne", season: "Spring/Summer", img: "https://images.unsplash.com/photo-1644094751419-cc8ae49dd26d?w=300&h=380&fit=crop&auto=format", tags: ["Evening", "Date Night"], wear: 4, cost: 195 },
-  { id: 5, name: "White Oxford Shirt", category: "Tops", color: "White", season: "All Season", img: "https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=300&h=380&fit=crop&auto=format", tags: ["Work", "Versatile"], wear: 22, cost: 68 },
-  { id: 6, name: "Suede Chelsea Boots", category: "Shoes", color: "Tan", season: "Fall/Winter", img: "https://images.unsplash.com/photo-1614676471928-2ed0ad1061a4?w=300&h=380&fit=crop&auto=format", tags: ["Versatile", "Smart Casual"], wear: 31, cost: 310 },
-  { id: 7, name: "Cashmere Cardigan", category: "Tops", color: "Oatmeal", season: "Fall/Winter", img: "https://images.unsplash.com/photo-1516762689617-e1cffcef479d?w=300&h=380&fit=crop&auto=format", tags: ["Cozy", "Layering"], wear: 17, cost: 185 },
-  { id: 8, name: "Wide-Leg Trousers", category: "Bottoms", color: "Charcoal", season: "All Season", img: "https://images.unsplash.com/photo-1479064555552-3ef4979f8908?w=300&h=380&fit=crop&auto=format", tags: ["Work", "Evening"], wear: 14, cost: 145 },
-];
 
 const navItems: { label: string; page: Page; icon: string }[] = [
   { label: "Dashboard", page: "dashboard", icon: "⊞" },
@@ -324,9 +316,22 @@ function MyWardrobe() {
   );
 }
 
-function OutfitStudio() {
+function OutfitStudio({ savedLooks }: { savedLooks: SavedLook[] }) {
   const [canvas, setCanvas] = useState<typeof wardrobeItems>([]);
   const [score, setScore] = useState(0);
+
+  const loadLook = (look: SavedLook) => {
+    const seen = new Set<number>();
+    const items = look.garmentIds
+      .map((garmentId) => wardrobeItems.find((item) => item.garmentId === garmentId))
+      .filter((item): item is (typeof wardrobeItems)[0] => {
+        if (!item || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+    setCanvas(items);
+    setScore(items.length ? Math.min(98, 40 + items.length * 15) : 0);
+  };
 
   const addToCanvas = (item: (typeof wardrobeItems)[0]) => {
     if (!canvas.find((c) => c.id === item.id)) {
@@ -379,6 +384,25 @@ function OutfitStudio() {
               );
             })}
           </div>
+          {savedLooks.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-[#E2E0D8] shrink-0">
+              <p className="text-[10px] font-semibold text-[#8C8A82] uppercase tracking-widest mb-2">
+                Saved try-on looks
+              </p>
+              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                {savedLooks.slice(0, 5).map((look) => (
+                  <button
+                    key={look.id}
+                    onClick={() => loadLook(look)}
+                    className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white/70 border border-[#E2E0D8] hover:bg-white transition-colors text-left"
+                  >
+                    <span className="text-[10px] font-semibold text-[#1C1C1C] truncate">{look.label}</span>
+                    <span className="text-[9px] text-[#8C8A82] shrink-0">Load</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Canvas */}
@@ -1171,14 +1195,16 @@ function Settings() {
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
-  const [avatarParams, setAvatarParams] = useState<Record<MpbParam, number>>(defaultMpbTargets);
+  const [avatarParams, setAvatarParams] = useState<BodyTargets>(defaultBodyTargets);
   const [hasCustomized, setHasCustomized] = useState(false);
+  const [tryOnSelection, setTryOnSelection] = useState<GarmentId[]>(["tshirt", "trousers"]);
+  const [savedLooks, setSavedLooks] = useState<SavedLook[]>(loadLooks);
 
   const renderPage = () => {
     switch (page) {
       case "dashboard": return <Dashboard />;
       case "wardrobe": return <MyWardrobe />;
-      case "outfit-studio": return <OutfitStudio />;
+      case "outfit-studio": return <OutfitStudio savedLooks={savedLooks} />;
       case "help-me-pack": return <HelpMePack />;
       case "weather": return <WeatherPage />;
       case "should-i-buy": return <ShouldIBuy />;
@@ -1197,6 +1223,10 @@ export default function App() {
         return (
           <TryOnStudio
             params={avatarParams}
+            selection={tryOnSelection}
+            onSelectionChange={setTryOnSelection}
+            savedLooks={savedLooks}
+            onSaveLook={(look) => setSavedLooks(saveLook(look))}
             hasCustomized={hasCustomized}
             onBack={() => setPage("customize-avatar")}
           />

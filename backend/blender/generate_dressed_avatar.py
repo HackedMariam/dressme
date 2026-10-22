@@ -32,6 +32,8 @@ import json
 import os
 import sys
 import traceback
+from functools import partial
+from pathlib import Path
 
 import bmesh
 import bpy
@@ -40,56 +42,66 @@ from mathutils import Vector
 ALLOWED_PARAMS = {
     "gender", "age", "muscle", "weight",
     "height", "proportions", "cupsize", "firmness",
+    "legLength",
 }
 
-# ---------------------------------------------------------------------------
-# Garment catalogue. Colors are linear-ish sRGB approximations; each garment is
-# a body-derived shell. `offset` is how far the shell floats off the skin (m).
-# ---------------------------------------------------------------------------
-GARMENTS = {
-    "tshirt": {
-        "label": "T-Shirt",
-        "color": (0.20, 0.33, 0.55),     # steel blue
-        "offset": 0.010,
-        "thickness": 0.004,
-        "region": lambda z, p: {
-            "hips", "spine_low", "spine_mid", "spine_up", "chest",
-            "shoulder_L", "shoulder_R", "upperarm_L", "upperarm_R",
-        },
-        "fill": {"thigh_L", "thigh_R"},   # close the hem ring at hip height
-        "hem_z": lambda p: p["pelvis"].z,
-        "min_z": lambda p: p["pelvis"].z,
-        "roughness": 0.85,
-    },
-    "trousers": {
-        "label": "Trousers",
-        "color": (0.16, 0.16, 0.20),     # charcoal
-        "offset": 0.012,
-        "thickness": 0.005,
-        "region": lambda z, p: {
-            "hips", "thigh_L", "thigh_R", "shin_L", "shin_R",
-        },
-        "fill": set(),
-        "hem_z": lambda p: p["pelvis"].z,
-        "min_z": lambda p: 0.0,
-        "roughness": 0.9,
-    },
-    "jacket": {
-        "label": "Jacket",
-        "color": (0.55, 0.34, 0.20),     # camel
-        "offset": 0.026,
-        "thickness": 0.006,
-        "region": lambda z, p: {
-            "hips", "spine_low", "spine_mid", "spine_up", "chest",
-            "shoulder_L", "shoulder_R", "upperarm_L", "upperarm_R",
-            "forearm_L", "forearm_R",
-        },
-        "fill": set(),
-        "hem_z": lambda p: p["pelvis"].z,
-        "min_z": lambda p: p["pelvis"].z - 0.02,
-        "roughness": 0.7,
-    },
-}
+CATALOG_PATH = Path(__file__).resolve().parents[2] / "DressMe UI Blueprint" / "src" / "lib" / "garments.json"
+
+
+def clamp01(value: float) -> float:
+    return min(1.0, max(0.0, value))
+
+
+def _anchor_z(landmarks, anchor: str) -> float:
+    if anchor == "ground":
+        return 0.0
+    if anchor == "pelvis":
+        return _lm(landmarks, "pelvis").z
+    if anchor == "knee":
+        return min(_lm(landmarks, "l-knee").z, _lm(landmarks, "r-knee").z)
+    if anchor == "ankle":
+        return min(_lm(landmarks, "l-ankle").z, _lm(landmarks, "r-ankle").z)
+    raise RuntimeError(f"Unsupported garment anchor: {anchor}")
+
+
+def _anchor_offset(landmarks, anchor: str, offset: float) -> float:
+    return _anchor_z(landmarks, anchor) + offset
+
+
+def load_garment_configs() -> dict:
+    """The frontend catalogue is the single source of truth for garment ids and geometry hints."""
+    with open(CATALOG_PATH, "r", encoding="utf-8-sig") as f:
+        data = json.load(f)
+
+    configs = {}
+    for garment in data["garments"]:
+        hem = garment.get("hem", {"anchor": "pelvis", "offset": 0.0})
+        minimum = garment.get("min", {"anchor": "pelvis", "offset": 0.0})
+        maximum = garment.get("max")
+        configs[garment["id"]] = {
+            "label": garment["label"],
+            "color": tuple(garment["color"]),
+            "offset": float(garment["offset"]),
+            "thickness": float(garment["thickness"]),
+            "region": set(garment["region"]),
+            "fill": set(garment.get("fill", [])),
+            "hem_z": partial(_anchor_offset, anchor=hem["anchor"], offset=float(hem["offset"])),
+            "min_z": partial(
+                _anchor_offset, anchor=minimum["anchor"], offset=float(minimum["offset"])
+            ),
+            "max_z": (
+                partial(_anchor_offset, anchor=maximum["anchor"], offset=float(maximum["offset"]))
+                if maximum
+                else None
+            ),
+            "enclose": float(garment.get("enclose", 1.0)),
+            "hull": bool(garment.get("hull", False)),
+            "roughness": float(garment.get("roughness", 0.8)),
+        }
+    return configs
+
+
+GARMENTS = load_garment_configs()
 
 
 def dynamic_import(absolute_package_str, key):
@@ -180,6 +192,71 @@ def point_segment_distance(p, a, b):
     return (p - (a + ab * t)).length
 
 
+def apply_leg_length(body_obj, leg_length: float, hip_z: float) -> float:
+    """Scale the body below the hip joint to change the torso-to-leg ratio."""
+    factor = 0.85 + 0.30 * clamp01(leg_length)
+    if abs(factor - 1.0) < 1e-4:
+        return factor
+
+    matrix_world = body_obj.matrix_world
+    inverse = matrix_world.inverted()
+    for vertex in body_obj.data.vertices:
+        world = matrix_world @ vertex.co
+        if world.z >= hip_z:
+            continue
+        blend = min(1.0, max(0.0, (hip_z - world.z) / 0.12))
+        world.z = world.z + (hip_z - world.z) * (1.0 - factor) * blend
+        vertex.co = inverse @ world
+    body_obj.data.update()
+    return factor
+
+
+def scale_landmarks_for_legs(landmarks, hip_z: float, factor: float) -> dict:
+    """Mirror apply_leg_length on the landmarks used to classify garment vertices."""
+    if abs(factor - 1.0) < 1e-4:
+        return landmarks
+    scaled = {}
+    for name, point in landmarks.items():
+        result = point.copy()
+        if result.z < hip_z:
+            blend = min(1.0, max(0.0, (hip_z - result.z) / 0.12))
+            result.z = result.z + (hip_z - result.z) * (1.0 - factor) * blend
+        scaled[name] = result
+    return scaled
+
+
+def compute_metrics(landmarks, leg_factor: float = 1.0) -> dict:
+    l_shoulder = _lm(landmarks, "l-shoulder")
+    r_shoulder = _lm(landmarks, "r-shoulder")
+    l_hip = _lm(landmarks, "l-upper-leg")
+    r_hip = _lm(landmarks, "r-upper-leg")
+    l_ankle = _lm(landmarks, "l-ankle")
+    r_ankle = _lm(landmarks, "r-ankle")
+
+    shoulder_width = (l_shoulder - r_shoulder).length
+    hip_width = (l_hip - r_hip).length
+    shoulder_mid = (l_shoulder + r_shoulder) * 0.5
+    hip_mid = (l_hip + r_hip) * 0.5
+    ankle_mid = (l_ankle + r_ankle) * 0.5
+    torso_length = (shoulder_mid - hip_mid).length
+    leg_length = (hip_mid - ankle_mid).length * leg_factor
+
+    return {
+        "shoulderToHip": shoulder_width / hip_width if hip_width > 1e-6 else 0.0,
+        "torsoToLeg": torso_length / leg_length if leg_length > 1e-6 else 0.0,
+        "shoulderWidth": shoulder_width,
+        "hipWidth": hip_width,
+        "torsoLength": torso_length,
+        "legLength": leg_length,
+    }
+
+
+def mesh_height(body_obj) -> float:
+    matrix_world = body_obj.matrix_world
+    zs = [(matrix_world @ vertex.co).z for vertex in body_obj.data.vertices]
+    return max(zs) - min(zs) if zs else 0.0
+
+
 def classify_vertices(points, segments):
     labels = []
     for p in points:
@@ -225,16 +302,19 @@ def build_garment(body_obj, landmarks, garment_id):
     points = [(body_obj.matrix_world @ v.co) for v in bm.verts]
     labels = classify_vertices(points, segments)
 
-    region = cfg["region"](0.0, landmarks)
+    region = cfg["region"]
     fill = cfg["fill"]
     hem_z = cfg["hem_z"](landmarks)
     min_z = cfg["min_z"](landmarks)
+    max_z = cfg["max_z"](landmarks) if cfg["max_z"] else None
 
     keep = []
     for i, v in enumerate(bm.verts):
         label = labels[i]
         world_z = points[i].z
         include = (label in region or (label in fill and world_z > hem_z)) and world_z >= min_z
+        if include and max_z is not None:
+            include = world_z <= max_z
         keep.append(include)
         v.select = include
 
@@ -245,10 +325,42 @@ def build_garment(body_obj, landmarks, garment_id):
     if len(bm.verts) == 0:
         raise RuntimeError(f"Garment '{garment_id}' selected no vertices")
 
+    if cfg.get("hull"):
+        # Hull each side separately, otherwise the hull spans between both feet.
+        groups = [
+            [v for v in bm.verts if v.co.x < 0.0],
+            [v for v in bm.verts if v.co.x >= 0.0],
+        ]
+        for group in groups:
+            if len(group) < 4:
+                continue
+            hull = bmesh.ops.convex_hull(bm, input=group)
+            for key, context in (
+                ("geom_interior", "VERTS"),
+                ("geom_unused", "VERTS"),
+                ("geom_holes", "FACES"),
+            ):
+                geom = hull.get(key, [])
+                if geom:
+                    bmesh.ops.delete(bm, geom=geom, context=context)
+        bm.verts.ensure_lookup_table()
+
     bm.normal_update()
     offset = cfg["offset"]
     for v in bm.verts:
         v.co = v.co + v.normal * offset
+
+    # Some shells (boots) are hard to cover by normal offset alone because the
+    # toes are a tight, highly curved surface. Scaling the shell away from its
+    # own centre guarantees the body is enclosed.
+    enclose = cfg.get("enclose", 1.0)
+    if enclose != 1.0:
+        centre = Vector((0.0, 0.0, 0.0))
+        for v in bm.verts:
+            centre += v.co
+        centre /= len(bm.verts)
+        for v in bm.verts:
+            v.co = centre + (v.co - centre) * enclose
 
     new_mesh = bpy.data.meshes.new(f"garment_{garment_id}")
     bm.to_mesh(new_mesh)
@@ -284,7 +396,7 @@ def main():
     parser.add_argument("--output", required=True)
     args, _unknown = parser.parse_known_args(sys.argv[sys.argv.index("--") + 1:])
 
-    with open(args.params, "r", encoding="utf-8") as f:
+    with open(args.params, "r", encoding="utf-8-sig") as f:
         params = json.load(f)
 
     unknown = [k for k in params if k not in ALLOWED_PARAMS]
@@ -319,13 +431,19 @@ def main():
     if basemesh is None:
         raise RuntimeError("No MPFB basemesh found in the loaded scene")
 
+    applied = {}
     for key, value in params.items():
+        if key == "legLength":
+            continue
         HumanObjectProperties.set_value(key, float(value), entity_reference=basemesh)
+        applied[key] = float(value)
     TargetService.reapply_macro_details(basemesh)
     bpy.context.view_layer.update()
 
     landmarks = read_landmarks(basemesh)
     landmarks = {name.replace("joint-", ""): p for name, p in landmarks.items()}
+    if "pelvis" not in landmarks:
+        raise RuntimeError("Missing pelvis landmark on the avatar rig")
 
     export_root = ExportService.create_character_copy(basemesh, name_suffix="_gen")
     export_basemesh = ObjectService.find_object_of_type_amongst_nearest_relatives(export_root, "Basemesh")
@@ -345,11 +463,16 @@ def main():
     for child in ObjectService.get_list_of_children(export_root):
         bake_keys(child)
 
+    leg_factor = apply_leg_length(export_basemesh, float(params.get("legLength", 0.5)), landmarks["pelvis"].z)
+    metrics = compute_metrics(landmarks, leg_factor)
+    metrics["heightMeters"] = round(mesh_height(export_basemesh), 4)
+
     skin_mat = make_material("mat_skin", (0.82, 0.66, 0.54), 0.75)
     export_basemesh.data.materials.clear()
     export_basemesh.data.materials.append(skin_mat)
 
-    garments = [build_garment(export_basemesh, landmarks, g) for g in outfit]
+    garment_landmarks = scale_landmarks_for_legs(landmarks, landmarks["pelvis"].z, leg_factor)
+    garments = [build_garment(export_basemesh, garment_landmarks, g) for g in outfit]
 
     bpy.ops.object.select_all(action="DESELECT")
     export_root.select_set(True)
@@ -377,10 +500,11 @@ def main():
 
     emit({
         "ok": True,
-        "params_applied": {k: float(v) for k, v in params.items()},
+        "params_applied": applied,
         "outfit": outfit,
         "output": args.output,
         "bytes": size,
+        "metrics": metrics,
     })
 
 

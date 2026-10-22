@@ -1,0 +1,412 @@
+{
+  "slots": [
+    "dress",
+    "bottom",
+    "top",
+    "outerwear",
+    "shoes"
+  ],
+  "garments": [
+    {
+      "id": "tshirt",
+      "label": "T-Shirt",
+      "slot": "top",
+      "swatch": "#34538C",
+      "hint": "Short-sleeve top, neckline to hip",
+      "wardrobeIds": [],
+      "color": [
+        0.2,
+        0.33,
+        0.55
+      ],
+      "offset": 0.01,
+      "thickness": 0.004,
+      "roughness": 0.85,
+      "region": [
+        "hips",
+        "spine_low",
+        "spine_mid",
+        "spine_up",
+        "chest",
+        "shoulder_L",
+        "shoulder_R",
+        "upperarm_L",
+        "upperarm_R"
+      ],
+      "fill": [
+        "thigh_L",
+        "thigh_R"
+      ],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": 0.0
+      },
+      "min": {
+        "anchor": "pelvis",
+        "offset": -0.06
+      }
+    },
+    {
+      "id": "oxford",
+      "label": "Oxford Shirt",
+      "slot": "top",
+      "swatch": "#F4F2EC",
+      "hint": "Long-sleeve button-down, hip length",
+      "wardrobeIds": [
+        5
+      ],
+      "color": [
+        0.9,
+        0.89,
+        0.85
+      ],
+      "offset": 0.012,
+      "thickness": 0.004,
+      "roughness": 0.8,
+      "region": [
+        "hips",
+        "spine_low",
+        "spine_mid",
+        "spine_up",
+        "chest",
+        "shoulder_L",
+        "shoulder_R",
+        "upperarm_L",
+        "upperarm_R",
+        "forearm_L",
+        "forearm_R"
+      ],
+      "fill": [
+        "thigh_L",
+        "thigh_R"
+      ],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": 0.0
+      },
+      "min": {
+        "anchor": "pelvis",
+        "offset": -0.06
+      }
+    },
+    {
+      "id": "turtleneck",
+      "label": "Merino Turtleneck",
+      "slot": "top",
+      "swatch": "#EDE7D9",
+      "hint": "Long-sleeve knit with a high neck",
+      "wardrobeIds": [
+        1
+      ],
+      "color": [
+        0.82,
+        0.78,
+        0.7
+      ],
+      "offset": 0.014,
+      "thickness": 0.005,
+      "roughness": 0.9,
+      "region": [
+        "hips",
+        "spine_low",
+        "spine_mid",
+        "spine_up",
+        "chest",
+        "neck",
+        "shoulder_L",
+        "shoulder_R",
+        "upperarm_L",
+        "upperarm_R",
+        "forearm_L",
+        "forearm_R"
+      ],
+      "fill": [
+        "thigh_L",
+        "thigh_R"
+      ],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": 0.0
+      },
+      "min": {
+        "anchor": "pelvis",
+        "offset": -0.06
+      }
+    },
+    {
+      "id": "trousers",
+      "label": "Wide-Leg Trousers",
+      "slot": "bottom",
+      "swatch": "#3A3A40",
+      "hint": "Waist to ankle, split legs",
+      "wardrobeIds": [
+        8
+      ],
+      "color": [
+        0.16,
+        0.16,
+        0.2
+      ],
+      "offset": 0.012,
+      "thickness": 0.005,
+      "roughness": 0.9,
+      "region": [
+        "hips",
+        "thigh_L",
+        "thigh_R",
+        "shin_L",
+        "shin_R"
+      ],
+      "fill": [],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": 0.0
+      },
+      "min": {
+        "anchor": "ground",
+        "offset": 0.0
+      }
+    },
+    {
+      "id": "jeans",
+      "label": "High-Rise Jeans",
+      "slot": "bottom",
+      "swatch": "#2B3C5A",
+      "hint": "Straight-leg denim, waist to ankle",
+      "wardrobeIds": [
+        2
+      ],
+      "color": [
+        0.1,
+        0.16,
+        0.3
+      ],
+      "offset": 0.013,
+      "thickness": 0.005,
+      "roughness": 0.85,
+      "region": [
+        "hips",
+        "thigh_L",
+        "thigh_R",
+        "shin_L",
+        "shin_R"
+      ],
+      "fill": [],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": 0.0
+      },
+      "min": {
+        "anchor": "ground",
+        "offset": 0.0
+      }
+    },
+    {
+      "id": "dress",
+      "label": "Silk Slip Dress",
+      "slot": "dress",
+      "swatch": "#C9B18A",
+      "hint": "Torso to knee, replaces top and bottom",
+      "wardrobeIds": [
+        4
+      ],
+      "color": [
+        0.63,
+        0.52,
+        0.36
+      ],
+      "offset": 0.012,
+      "thickness": 0.004,
+      "roughness": 0.55,
+      "region": [
+        "hips",
+        "spine_low",
+        "spine_mid",
+        "spine_up",
+        "chest",
+        "shoulder_L",
+        "shoulder_R",
+        "upperarm_L",
+        "upperarm_R"
+      ],
+      "fill": [
+        "thigh_L",
+        "thigh_R"
+      ],
+      "hem": {
+        "anchor": "knee",
+        "offset": 0.12
+      },
+      "min": {
+        "anchor": "knee",
+        "offset": 0.12
+      }
+    },
+    {
+      "id": "cardigan",
+      "label": "Cashmere Cardigan",
+      "slot": "outerwear",
+      "swatch": "#C8B79E",
+      "hint": "Soft open-front layer over a top",
+      "wardrobeIds": [
+        7
+      ],
+      "color": [
+        0.72,
+        0.65,
+        0.55
+      ],
+      "offset": 0.022,
+      "thickness": 0.005,
+      "roughness": 0.85,
+      "region": [
+        "hips",
+        "spine_low",
+        "spine_mid",
+        "spine_up",
+        "chest",
+        "shoulder_L",
+        "shoulder_R",
+        "upperarm_L",
+        "upperarm_R",
+        "forearm_L",
+        "forearm_R"
+      ],
+      "fill": [
+        "thigh_L",
+        "thigh_R"
+      ],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": -0.02
+      },
+      "min": {
+        "anchor": "pelvis",
+        "offset": -0.1
+      }
+    },
+    {
+      "id": "jacket",
+      "label": "Light Jacket",
+      "slot": "outerwear",
+      "swatch": "#8C5733",
+      "hint": "Long sleeves, layered over the top",
+      "wardrobeIds": [],
+      "color": [
+        0.55,
+        0.34,
+        0.2
+      ],
+      "offset": 0.026,
+      "thickness": 0.006,
+      "roughness": 0.7,
+      "region": [
+        "hips",
+        "spine_low",
+        "spine_mid",
+        "spine_up",
+        "chest",
+        "shoulder_L",
+        "shoulder_R",
+        "upperarm_L",
+        "upperarm_R",
+        "forearm_L",
+        "forearm_R"
+      ],
+      "fill": [
+        "thigh_L",
+        "thigh_R"
+      ],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": -0.02
+      },
+      "min": {
+        "anchor": "pelvis",
+        "offset": -0.1
+      }
+    },
+    {
+      "id": "blazer",
+      "label": "Camel Blazer",
+      "slot": "outerwear",
+      "swatch": "#A0764A",
+      "hint": "Structured layer, hip length",
+      "wardrobeIds": [
+        3
+      ],
+      "color": [
+        0.45,
+        0.3,
+        0.18
+      ],
+      "offset": 0.032,
+      "thickness": 0.007,
+      "roughness": 0.6,
+      "region": [
+        "hips",
+        "spine_low",
+        "spine_mid",
+        "spine_up",
+        "chest",
+        "shoulder_L",
+        "shoulder_R",
+        "upperarm_L",
+        "upperarm_R",
+        "forearm_L",
+        "forearm_R"
+      ],
+      "fill": [
+        "thigh_L",
+        "thigh_R"
+      ],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": -0.02
+      },
+      "min": {
+        "anchor": "pelvis",
+        "offset": -0.1
+      }
+    },
+    {
+      "id": "boots",
+      "label": "Chelsea Boots",
+      "slot": "shoes",
+      "swatch": "#8A5A36",
+      "hint": "Ankle boots, tan suede",
+      "wardrobeIds": [
+        6
+      ],
+      "color": [
+        0.35,
+        0.22,
+        0.12
+      ],
+      "offset": 0.008,
+      "thickness": 0.009,
+      "roughness": 0.8,
+      "region": [
+        "foot_L",
+        "foot_R",
+        "shin_L",
+        "shin_R"
+      ],
+      "fill": [],
+      "hem": {
+        "anchor": "ground",
+        "offset": 0.0
+      },
+      "min": {
+        "anchor": "ground",
+        "offset": -0.05
+      },
+      "max": {
+        "anchor": "ankle",
+        "offset": 0.14
+      },
+      "enclose": 1.0,
+      "hull": true
+    }
+  ]
+}

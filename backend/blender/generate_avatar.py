@@ -20,7 +20,10 @@ The dynamic_import quirk below is mandatory for ALL MPFB scripts (Blender
 extensions live at unknown module paths).
 
 Parameters (0.0 - 1.0 each; only whitelisted names are accepted):
-  gender age muscle weight height proportions cupsize firmness
+  gender age muscle weight height proportions cupsize firmness legLength
+
+`legLength` is not an MPFB property: it scales the body below the hip landmark
+after MPFB shaping, then reports the achieved body ratios in AVATAR_RESULT.
 """
 
 import argparse
@@ -31,6 +34,98 @@ import sys
 import traceback
 
 import bpy
+from mathutils import Vector
+
+
+def clamp01(value: float) -> float:
+    return min(1.0, max(0.0, value))
+
+
+def read_joint_landmarks(basemesh):
+    """Average the joint-cube vertex groups into anatomical landmark positions."""
+    saved = [(m, m.show_viewport, m.show_render) for m in basemesh.modifiers]
+    for m, _vp, _rn in saved:
+        m.show_viewport = False
+        m.show_render = False
+
+    index_to_name = {vg.index: vg.name for vg in basemesh.vertex_groups}
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = basemesh.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+
+    accumulated = {}
+    for vertex in mesh.vertices:
+        for group in basemesh.data.vertices[vertex.index].groups:
+            name = index_to_name.get(group.group)
+            if name and name.startswith("joint-") and group.weight > 0.3:
+                accumulated.setdefault(name, []).append(evaluated.matrix_world @ vertex.co)
+    evaluated.to_mesh_clear()
+
+    for m, show_viewport, show_render in saved:
+        m.show_viewport = show_viewport
+        m.show_render = show_render
+
+    landmarks = {}
+    for name, points in accumulated.items():
+        total = Vector((0.0, 0.0, 0.0))
+        for point in points:
+            total += point
+        landmarks[name.replace("joint-", "")] = total / len(points)
+    return landmarks
+
+
+def apply_leg_length(body_obj, leg_length: float, hip_z: float) -> float:
+    """Scale the body below the hip joint to change the torso-to-leg ratio."""
+    factor = 0.85 + 0.30 * clamp01(leg_length)
+    if abs(factor - 1.0) < 1e-4:
+        return factor
+
+    matrix_world = body_obj.matrix_world
+    inverse = matrix_world.inverted()
+    for vertex in body_obj.data.vertices:
+        world = matrix_world @ vertex.co
+        if world.z >= hip_z:
+            continue
+        blend = min(1.0, max(0.0, (hip_z - world.z) / 0.12))
+        world.z = world.z + (hip_z - world.z) * (1.0 - factor) * blend
+        vertex.co = inverse @ world
+    body_obj.data.update()
+    return factor
+
+
+def compute_metrics(landmarks, leg_factor: float = 1.0) -> dict:
+    def landmark(name):
+        return landmarks[name]
+
+    l_shoulder = landmark("l-shoulder")
+    r_shoulder = landmark("r-shoulder")
+    l_hip = landmark("l-upper-leg")
+    r_hip = landmark("r-upper-leg")
+    l_ankle = landmark("l-ankle")
+    r_ankle = landmark("r-ankle")
+
+    shoulder_width = (l_shoulder - r_shoulder).length
+    hip_width = (l_hip - r_hip).length
+    shoulder_mid = (l_shoulder + r_shoulder) * 0.5
+    hip_mid = (l_hip + r_hip) * 0.5
+    ankle_mid = (l_ankle + r_ankle) * 0.5
+    torso_length = (shoulder_mid - hip_mid).length
+    leg_length = (hip_mid - ankle_mid).length * leg_factor
+
+    return {
+        "shoulderToHip": shoulder_width / hip_width if hip_width > 1e-6 else 0.0,
+        "torsoToLeg": torso_length / leg_length if leg_length > 1e-6 else 0.0,
+        "shoulderWidth": shoulder_width,
+        "hipWidth": hip_width,
+        "torsoLength": torso_length,
+        "legLength": leg_length,
+    }
+
+
+def mesh_height(body_obj) -> float:
+    matrix_world = body_obj.matrix_world
+    zs = [(matrix_world @ vertex.co).z for vertex in body_obj.data.vertices]
+    return max(zs) - min(zs) if zs else 0.0
 
 
 def dynamic_import(absolute_package_str, key):
@@ -47,6 +142,7 @@ def dynamic_import(absolute_package_str, key):
 ALLOWED_PARAMS = {
     "gender", "age", "muscle", "weight",
     "height", "proportions", "cupsize", "firmness",
+    "legLength",
 }
 
 
@@ -76,7 +172,7 @@ def main():
     parser.add_argument("--output", required=True)
     args, _unknown = parser.parse_known_args(sys.argv[sys.argv.index("--") + 1:])
 
-    with open(args.params, "r", encoding="utf-8") as f:
+    with open(args.params, "r", encoding="utf-8-sig") as f:
         params = json.load(f)
 
     unknown = [k for k in params if k not in ALLOWED_PARAMS]
@@ -101,9 +197,16 @@ def main():
 
     applied = {}
     for key, value in params.items():
+        if key == "legLength":
+            continue
         HumanObjectProperties.set_value(key, float(value), entity_reference=basemesh)
         applied[key] = float(value)
     TargetService.reapply_macro_details(basemesh)
+    bpy.context.view_layer.update()
+
+    landmarks = read_joint_landmarks(basemesh)
+    if "pelvis" not in landmarks:
+        raise RuntimeError("Missing pelvis landmark on the avatar rig")
 
     export_root = ExportService.create_character_copy(basemesh, name_suffix="_gen")
     export_basemesh = ObjectService.find_object_of_type_amongst_nearest_relatives(export_root, "Basemesh")
@@ -117,6 +220,10 @@ def main():
     bake_shape_keys_if_any(TargetService, export_basemesh)
     for child in ObjectService.get_list_of_children(export_root):
         bake_shape_keys_if_any(TargetService, child)
+
+    leg_factor = apply_leg_length(export_basemesh, float(params.get("legLength", 0.5)), landmarks["pelvis"].z)
+    metrics = compute_metrics(landmarks, leg_factor)
+    metrics["heightMeters"] = round(mesh_height(export_basemesh), 4)
 
     bpy.ops.object.select_all(action="DESELECT")
     export_root.select_set(True)
@@ -137,7 +244,13 @@ def main():
     if size <= 0:
         raise RuntimeError("Export produced an empty file")
 
-    emit({"ok": True, "params_applied": applied, "output": args.output, "bytes": size})
+    emit({
+        "ok": True,
+        "params_applied": applied,
+        "output": args.output,
+        "bytes": size,
+        "metrics": metrics,
+    })
 
 
 try:
