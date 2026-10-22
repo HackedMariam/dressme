@@ -5,7 +5,7 @@
 DressMe is a smart wardrobe ecosystem designed primarily for the **Tunisian market**. The idea is simple: most people own more clothes than they wear, forget what they already own, and end up buying duplicates. DressMe turns a physical wardrobe into a structured, queryable digital one, then uses that understanding to help with everyday decisions — what to wear, what to pack, what to buy, and what to let go.
 
 > **Project status — please read first.**
-> This repository currently contains the **UI / Figma prototype** of DressMe. It is the visual and UX reference for the future application, not the application itself. Product, architectural, and AI decisions are still under discussion and are **not finalized**. Nothing described in the roadmap or AI sections below is implemented yet.
+> This repository contains the **UI / Figma prototype** of DressMe and one implemented vertical slice: the **Help Me Pack (BO7) Trip Agent**, backed by a deterministic CP-SAT optimizer and a FastAPI service. The remaining business objectives, the full eight-agent architecture, and the production data model are still under discussion and are **not implemented**. See [Implemented: Help Me Pack (BO7)](#implemented-help-me-pack-bo7) and [Current Status](#current-status).
 
 ---
 
@@ -16,6 +16,7 @@ DressMe is a smart wardrobe ecosystem designed primarily for the **Tunisian mark
 - [Business Objectives](#business-objectives)
 - [AI & Multi-Agent Architecture](#ai--multi-agent-architecture)
 - [Prototype](#prototype)
+- [Implemented: Help Me Pack (BO7)](#implemented-help-me-pack-bo7)
 - [Screens](#screens)
 - [Current Status](#current-status)
 - [Roadmap](#roadmap)
@@ -156,7 +157,7 @@ The end goal is an assistant that *understands* the user's wardrobe and preferen
 
 The target context is the Tunisian market: local climate ranges, a retail landscape that differs from Europe/North America, purchasing power constraints, and a fashion reality that is practical rather than trend-driven. Those constraints are a product requirement, not an afterthought.
 
-**What this repository is:** the Figma-derived UI prototype that will serve as the reference implementation of the future frontend. The interface is already navigable and covers the main flows described below.
+**What this repository is:** the Figma-derived UI prototype that will serve as the reference implementation of the future frontend, plus one implemented backend vertical — Help Me Pack — that the prototype already calls. The remaining screens are still sample-data mockups.
 
 ---
 
@@ -251,7 +252,7 @@ The prototype is used to:
 - **Demonstrate the 7 BOs** — give concrete form to each objective.
 - **Provide a foundation for the technical implementation** — act as the visual and UX reference the real frontend is built against.
 
-The prototype is interactive but **not connected to any backend, AI model, or data source**. Scores, weather, wardrobe items, recommendations, and chat replies are all hard-coded sample data for illustration. The prototype will keep evolving as product and technical decisions are refined.
+The prototype is interactive. Most screens are still **not connected to a backend, AI model, or data source** — scores, weather, wardrobe items, recommendations, and chat replies are hard-coded sample data for illustration. The exception is **Help Me Pack**, which is wired to the FastAPI Trip Agent described in [Implemented: Help Me Pack (BO7)](#implemented-help-me-pack-bo7). The prototype will keep evolving as product and technical decisions are refined.
 
 ### Prototype screens
 
@@ -269,6 +270,47 @@ Each screen maps to the BOs it is meant to demonstrate:
 | **AI Stylist** | Conversational interface with an active-context panel (weather, occasion, style, wardrobe size) | BO4, BO5 |
 | **Style Profile** | Aesthetic affinities, colour palette, preferred occasions, size profile | BO1, BO4 |
 | **Settings** | Account, regional preferences (currency, units, size system), AI and notification toggles | — |
+
+---
+
+## Implemented: Help Me Pack (BO7)
+
+Help Me Pack is the only feature implemented end to end. The prototype screen is wired to a real backend:
+
+| Layer | Location |
+| --- | --- |
+| UI | `DressMe UI Blueprint/src/features/helpmepack/HelpMePack.tsx` — manual trip form and natural-language "AI description" mode |
+| API client | `DressMe UI Blueprint/src/api/tripAgent.ts` |
+| Service | `backend/main.py` — FastAPI app, in-memory sessions and REST endpoints |
+| Agent | `packing_backend/trip_agent/` — agent loop, tools, extraction, weather, requirements and optimizer adapter |
+| Optimizer | `packing_backend/optimizer.py` — OR-Tools CP-SAT packing optimizer |
+
+What the agent does:
+
+1. Extracts trip details from free text or a structured form; asks one clarification question instead of inventing missing fields.
+2. Fetches daily weather from Open-Meteo, with an explicitly labeled synthetic fallback.
+3. Converts weather, activities, occasions and dress code into optimizer requirements.
+4. Solves the packing problem with CP-SAT, producing a minimal, maximally combinable capsule.
+5. Returns daily outfits and a packing checklist (`packed: false` initially).
+6. Diagnoses `INFEASIBLE` results and suggests alternatives without silently relaxing hard constraints.
+7. Supports trip updates/reoptimization and checklist updates without rerunning the optimizer.
+
+Technical shape:
+
+- **LLM** — GPT-4o via native function calling at `temperature=0`, with a deterministic regex/dependency-completion fallback when the LLM or network is unavailable.
+- **Tools** — 10 validated tools: `get_trip_details`, `get_weather`, `get_wardrobe`, `get_activity_requirements`, `optimize_trip`, `generate_checklist`, `suggest_alternatives`, `update_trip`, `update_checklist`, `check_gaps`.
+- **Optimization** — OR-Tools CP-SAT; the LLM never computes or fabricates the packing result.
+- **Persistence** — sessions are in memory and are lost on backend restart; there is no authentication or persistent user profile yet.
+- **Data** — the wardrobe, compatibility data and preferences are synthetic.
+- **Tests** — offline agent tests plus API integration tests: `python -m pytest backend packing_backend/trip_agent/tests -q`.
+
+Endpoints, the session model and the full architecture are documented in [`packing_backend/trip_agent/README.md`](packing_backend/trip_agent/README.md) and [`docs/agent-description.md`](docs/agent-description.md). The pipeline diagram is in [`docs/agent-pipeline.png`](docs/agent-pipeline.png).
+
+### RAG knowledge layer
+
+A separate retrieval layer was built over 38 fashion PDFs (about 6,600 pages, ~10.7M characters): chunking, category/topic tagging, `all-MiniLM-L6-v2` embeddings, query rewriting, top-5 retrieval and grounded answer generation. Reported evaluation on 12 questions: **Hit@5 = 0.9167, MRR = 0.8542, context precision = 0.7167**.
+
+The RAG layer is **not wired into the Trip Agent** and is not part of the running Help Me Pack flow. Its source modules are not present in this working tree — only generated artifacts under `rag_backend/data/` remain; the implementation lives on the `rag/try1` branch. Treat it as an evaluated prototype, not a shipped service.
 
 ---
 
@@ -296,18 +338,21 @@ Each screen maps to the BOs it is meant to demonstrate:
 
 ## Current Status
 
-**Done / in progress**
+**Implemented**
 
 - Product ideation completed around the 7 business objectives.
-- UI/UX prototype under development from the Figma design.
-- Core navigation and the main feature flows implemented as interactive prototype screens.
+- UI/UX prototype built from the Figma design, with the main flows navigable.
+- **Help Me Pack (BO7)** implemented end to end: Trip Agent, 10 tools, CP-SAT optimizer, Open-Meteo weather with fallback, FastAPI service, React UI and offline/API tests.
+- A RAG knowledge layer was built and evaluated (retrieval metrics, generated artifacts), but its source is not on this branch and it is not wired into the agent.
 
 **Still open**
 
-- The technical architecture is not yet defined.
-- The multi-agent approach is planned but not finalized — agent boundaries, models, and orchestration are unresolved.
-- Feature scope, CV models, external APIs, data model, and implementation choices remain under evaluation.
-- No AI pipeline, backend, or persistence layer exists yet.
+- BO1–BO6 and the computer-vision pipeline are not implemented.
+- The production architecture, data model, authentication and persistent storage are not defined.
+- The multi-agent approach is planned but not finalized — only the Trip Agent is realized; agent boundaries, models and orchestration are unresolved.
+- Sessions are in memory, the wardrobe data is synthetic, and there is no user profile or wear history.
+- Screens other than Help Me Pack remain hard-coded prototype mockups.
+- No production deployment, monitoring or CI pipeline exists yet.
 
 **This is not a finished or production-ready product.**
 
@@ -319,52 +364,54 @@ Indicative only — the order and content may change as decisions are made.
 
 1. **UI / Figma prototype** — *(current)*
 2. **UX validation and refinement** — user testing, flow fixes, design system consolidation
-3. **Frontend implementation** — production app, real routing, state management, API layer, split into the feature folders described in the GitHub rules
-4. **Backend and data architecture** — wardrobe/item schema, user accounts, wear logs, storage for images
-5. **Wardrobe computer vision pipeline** — detection, segmentation, background removal, classification, attribute extraction (BO1)
-6. **Recommendation and contextual intelligence** — compatibility scoring, occasion/weather conditioning, ranking (BO4), gap and redundancy analysis (BO2, BO3)
-7. **Multi-agent architecture integration** — agent definitions, orchestration, shared memory, RAG, explanation layer (BO5)
-8. **Testing and evaluation** — CV accuracy, recommendation quality, agent task evaluation, user studies
+3. **Frontend implementation** — production app, real routing, state management, API layer, split into the feature folders described in the GitHub rules *(partial: Help Me Pack only)*
+4. **Backend and data architecture** — wardrobe/item schema, user accounts, wear logs, storage for images *(partial: in-memory Help Me Pack API only)*
+5. **Wardrobe computer vision pipeline** — detection, segmentation, background removal, classification, attribute extraction (BO1) *(not started)*
+6. **Recommendation and contextual intelligence** — compatibility scoring, occasion/weather conditioning, ranking (BO4), gap and redundancy analysis (BO2, BO3) *(partial: Help Me Pack requirements and CP-SAT optimization only)*
+7. **Multi-agent architecture integration** — agent definitions, orchestration, shared memory, RAG, explanation layer (BO5) *(partial: Trip Agent implemented; RAG standalone)*
+8. **Testing and evaluation** — CV accuracy, recommendation quality, agent task evaluation, user studies *(partial: Help Me Pack offline/API tests and RAG retrieval metrics)*
 9. **Iterative refinement** — feedback-driven improvement across the pipeline
 
 ---
 
 ## Repository Structure
 
-The structure below is **indicative and will change** as the prototype transitions into the full application:
+The structure below reflects what is actually in the repository. Production folders (`frontend/`, a vision pipeline, persistent storage) are still to be created.
 
 ```text
 DressMe/
-├── UI / prototype/   # Current Figma-derived prototype (this repository today)
-├── frontend/         # Production frontend (planned)
-│   └── src/features/ # One folder per feature — see the GitHub rules above
-├── backend/          # Services, APIs, persistence (planned)
-├── ai/               # Vision pipeline, agents, orchestration (planned)
-└── docs/             # Product, architecture, and evaluation notes (planned)
+├── DressMe UI Blueprint/       # React + Vite + Tailwind prototype
+│   └── src/
+│       ├── App.tsx             # Prototype screens and navigation
+│       ├── api/tripAgent.ts    # Help Me Pack API client
+│       └── features/
+│           └── helpmepack/HelpMePack.tsx
+├── backend/                    # FastAPI service (Trip Agent API, in-memory sessions)
+│   ├── main.py
+│   └── test_api.py
+├── packing_backend/            # CP-SAT optimizer + Trip Agent
+│   ├── optimizer.py
+│   ├── data/                   # Synthetic wardrobe, compatibility and trip data
+│   └── trip_agent/             # Agent loop, tools, extraction, weather, requirements
+│       └── tests/
+├── rag_backend/                # RAG knowledge layer (generated artifacts only on this branch)
+├── docs/                       # Agent description and pipeline diagram
+├── scripts/                    # dev-all launcher
+├── supabase/                   # Linked project metadata (no migrations tracked)
+├── requirements.txt
+├── package.json
+└── README.md
 ```
 
-Today the repository holds the prototype application and screenshots:
+### Documentation
 
-```text
-DressMe/
-├── README.md
-├── dashboard.png
-├── wardrobe.png
-├── helpmepack.png
-└── DressMe UI Blueprint/          # React + Vite + Tailwind prototype
-    ├── index.html
-    ├── package.json
-    ├── vite.config.ts
-    ├── tsconfig.json
-    └── src/
-        ├── main.tsx
-        ├── App.tsx                # All prototype screens and navigation
-        ├── index.css
-        └── features/              # Created as features are split out
-            ├── helpmepack/form/
-            ├── wardrobe/grid/
-            └── ...
-```
+| Document | Contents |
+| --- | --- |
+| [`docs/agent-description.md`](docs/agent-description.md) | Trip Agent: LLM choice, memory, actions, tools, pipeline, techniques, limitations |
+| [`docs/agent-pipeline.png`](docs/agent-pipeline.png) | Rendered end-to-end pipeline diagram |
+| [`docs/agent-pipeline.mmd`](docs/agent-pipeline.mmd) | Editable Mermaid source for the diagram |
+| [`packing_backend/trip_agent/README.md`](packing_backend/trip_agent/README.md) | Trip Agent setup, CLI, endpoints, session model and safety notes |
+| `http://127.0.0.1:8000/docs` | Interactive OpenAPI reference (when the backend is running) |
 
 ### Running the prototype
 
@@ -385,8 +432,23 @@ python -m pip install -r requirements.txt
 pnpm --dir "DressMe UI Blueprint" install
 ```
 
-Make sure the root `.env` contains `OPENAI_API_KEY` and `LLM_MODEL`.
-The frontend uses `VITE_API_URL` (defaults to `http://localhost:8000`).
+Copy the example files and fill in the values you need:
+
+```bash
+cp .env.example .env
+cp "DressMe UI Blueprint/.env.example" "DressMe UI Blueprint/.env"
+```
+
+| Variable | File | Purpose | Default |
+| --- | --- | --- | --- |
+| `OPENAI_API_KEY` | root `.env` | OpenAI key for extraction, tool calling and explanations | none — the deterministic fallback is used |
+| `LLM_MODEL` | root `.env` | Chat model used by the Trip Agent | `gpt-4o` |
+| `TRIP_AGENT_USE_LLM` | root `.env` | Set to `0` to force the no-LLM fallback | `1` |
+| `TRIP_AGENT_ALLOW_WEATHER` | root `.env` | Set to `0` to disable live weather calls | `1` |
+| `CORS_ORIGINS` | root `.env` | Extra comma-separated origins allowed by the API | `localhost:8443`, `localhost:5173` |
+| `BACKEND_HOST` / `BACKEND_PORT` | root `.env` | FastAPI bind address | `127.0.0.1` / `8000` |
+| `VITE_API_URL` | `DressMe UI Blueprint/.env` | Backend base URL used by the frontend | `http://localhost:8000` (the launcher uses `127.0.0.1`) |
+| `FRONTEND_PORT`, `PYTHON`, `FRONTEND_PM` | shell | Overrides for `scripts/dev-all.mjs` | `8443`, `python`/`python3`, `pnpm` |
 
 Start the FastAPI backend and the existing Vite frontend together:
 
@@ -399,8 +461,7 @@ npm run dev:all
 - Health check: `http://127.0.0.1:8000/api/health`
 
 The launcher reuses ports that are already running and stops both services when
-you press `Ctrl+C`. Optional overrides: `BACKEND_PORT`, `FRONTEND_PORT`,
-`VITE_API_URL`, `PYTHON`, `FRONTEND_PM`.
+you press `Ctrl+C`.
 
 Backend tests, frontend typecheck, and production build:
 
@@ -419,4 +480,4 @@ Trip Agent architecture.
 
 ## Disclaimer / Project Status
 
-DressMe is **under active development**. The prototype, architecture, AI components, and feature scope may change as the project progresses. The seven business objectives and the multi-agent direction described above represent the current understanding of the product and are subject to revision — they should not be read as committed technical decisions or as evidence of implemented functionality.
+DressMe is **under active development**. The prototype, architecture, AI components, and feature scope may change as the project progresses. The seven business objectives and the multi-agent direction described above represent the current understanding of the product and are subject to revision. Only the Help Me Pack (BO7) flow described in [Implemented: Help Me Pack (BO7)](#implemented-help-me-pack-bo7) is implemented end to end; everything else is design intent, not evidence of shipped functionality.
