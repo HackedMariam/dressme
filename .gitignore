@@ -16,6 +16,7 @@ backend/temp/
 
 # Blender backups
 *.blend1
+DressMe UI Blueprint/public/models/avatar_original_backup.glb
 
 # Generated avatar models (should not be committed)
 public/models/generated/
