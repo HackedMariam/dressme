@@ -10,11 +10,11 @@ This report documents three implemented prototypes in the DressMe repository:
 | 02 | Trip Agent / Help Me Pack | `helpmepack/try1` (`8d90269`) | `packing_backend/trip_agent/`, HelpMePack UI |
 | 03 | Avatar & Try-On | `avatar/try1` (`22eebcb`) + current working tree | `backend/`, Blender/MPFB2, MediaPipe, Three.js |
 
-The third section also covers the uncommitted two-photo capture, SciPy silhouette-fitting, MPFB detail-target, and optional GPT-4o Vision work currently present in the working tree (`backend/vision.py`, `backend/optimizer.py`, `backend/mpfb_details.py`, `backend/mpfb_targets.json`, `backend/body_scan.py`, `pose.ts`, `bodyPhotos.ts`, `silhouette.ts`, `bodyDetails.ts`, `questionnaire.ts`, and their tests). That work is explicitly labelled as current, uncommitted prototype work.
+The third section also covers the uncommitted GPT-4o Vision avatar-estimation flow, optional MediaPipe/SciPy refinement, and MPFB detail-target work currently present in the working tree (`backend/vision.py`, `backend/optimizer.py`, `backend/mpfb_details.py`, `backend/mpfb_targets.json`, `backend/body_scan.py`, `pose.ts`, `bodyPhotos.ts`, `silhouette.ts`, `bodyDetails.ts`, `questionnaire.ts`, and their tests). That work is explicitly labelled as current, uncommitted prototype work.
 
 > **What is real.** Each section is based on code and artifacts that exist in the repository. The report separates implemented behaviour from limitations and future work. No API keys or secrets are included.
 
-**Companion deck:** [`agent-report.pptx`](agent-report.pptx) - 27 slides, 16:9, matching the DressMe design language.  
+**Companion deck:** [`agent-report.pptx`](agent-report.pptx) - 30 slides, 16:9, matching the DressMe design language. The first three slides are the LLM agent overview, restyled to match the report theme without changing their structure or wording.  
 **Pipeline assets:** [`agents-report-assets/`](agents-report-assets/).
 
 ---
@@ -25,9 +25,9 @@ DressMe is a smart-wardrobe ecosystem for the Tunisian market. The repository co
 
 1. **A grounded knowledge agent.** The RAG AI Stylist answers fashion questions from a curated book corpus and returns inline citations. It uses hybrid retrieval over 14,574 chunks.
 2. **A task-oriented planning agent.** The Trip Agent interprets a trip request, calls deterministic tools, fetches weather, runs a CP-SAT packing optimizer, and produces a trip capsule and checklist.
-3. **A visual body and try-on agent.** The Avatar pipeline estimates body shape from a front/side photo pair or questionnaire, optionally asks GPT-4o Vision for a relative second opinion, can refine the body with a SciPy silhouette-fitting optimizer, regenerates a body-shaped avatar in Blender, and builds garments from the generated body surface for 3D try-on.
+3. **A visual body and try-on agent.** The Avatar pipeline sends a front/side photo pair to GPT-4o Vision, which chooses the MPFB body parameters; optional MediaPipe and SciPy fitting can refine the result. Blender regenerates the body-shaped avatar and builds garments from the generated surface for 3D try-on.
 
-The three prototypes deliberately use different intelligence strategies. The RAG agent is language-and-retrieval centric. The Trip Agent is neuro-symbolic: the LLM orchestrates, while Python and OR-Tools compute. The Avatar pipeline is deterministic computer vision and geometry by default, with an optional GPT-4o Vision second opinion that never replaces the measurements.
+The three prototypes deliberately use different intelligence strategies. The RAG agent is language-and-retrieval centric. The Trip Agent is neuro-symbolic: the LLM orchestrates, while Python and OR-Tools compute. The Avatar pipeline uses GPT-4o Vision for parameter selection, deterministic geometry for generation, and optional local vision/SciPy refinement.
 
 ---
 
@@ -302,76 +302,81 @@ Failure branches:
 
 **Branch:** `avatar/try1` plus current working tree  
 **Role in DressMe:** body-aware visual try-on and outfit preview.  
-**Primary entry points:** `backend/main.py`, `backend/blender/generate_avatar.py`, `backend/blender/generate_dressed_avatar.py`, `CustomizeAvatar.tsx`, `TryOnStudio.tsx`.
+**Primary entry points:** `backend/main.py`, `backend/vision.py`, `backend/blender/generate_avatar.py`, `backend/blender/generate_dressed_avatar.py`, `CustomizeAvatar.tsx`, `TryOnStudio.tsx`.
 
 ### 3.1 LLM used
 
-The **measurement and geometry path does not use an LLM**. Body measurements come from local MediaPipe pose and silhouette analysis; avatar geometry comes from MPFB2 and Blender. That part is deterministic and runs in the browser plus the local backend.
+The primary avatar-estimation path is **GPT-4o Vision** through `backend/vision.py`, exposed as `POST /api/body/vision`. The user uploads a front photo, a side photo, and a height, ticks the consent box, and presses **Create my avatar**. The backend sends both photos to the OpenAI Chat Completions API and asks the model to choose MPFB avatar parameters from the relative body shape it sees.
 
-The current working tree adds one **optional LLM second opinion**: GPT-4o Vision through `backend/vision.py`, exposed as `POST /api/body/vision`. It is consent-gated, sends the front and side photos to the OpenAI Chat Completions API, and returns:
+The model returns a JSON object with:
 
-- relative observations (`narrow` / `average` / `broad`, `short` / `average` / `long`),
-- confidence values and photo-quality notes,
-- bounded detail-target suggestions in `[-1, 1]`.
+- `body_shape` and `confidence`,
+- photo-quality notes and posture observations,
+- `targets` for the eight MPFB macro parameters (`gender`, `age`, `muscle`, `weight`, `proportions`, `cupsize`, `firmness`, `legLength`),
+- `detail_values` for the 19 advanced detail controls,
+- short caveats about clothing, pose, camera angle, or lighting.
 
-It is explicitly **not a tape measure**. The prompt forbids centimetres, the response is cleaned and clamped, and its suggestions are merged into the advanced detail sliders rather than replacing the local measurements. The local MediaPipe path continues to work when `OPENAI_API_KEY` is missing; the vision route then returns `503`.
+The backend clamps every value, rejects unknown keys, and returns the cleaned result. The frontend applies the targets and detail values, then calls `POST /api/avatar/generate`. The prompt explicitly forbids centimetres, identity claims, and sensitive attributes; `0.5` is neutral for targets and `0.0` is neutral for details. This makes the model a **parameter chooser**, not a tape measure.
 
-Model selection is `OPENAI_VISION_MODEL`, falling back to `LLM_MODEL`, then `gpt-4o`. The request uses temperature `0.2`, JSON-object output, and a 90 s timeout.
+Model selection is `OPENAI_VISION_MODEL`, falling back to `LLM_MODEL`, then `gpt-4o`. The request uses temperature `0.2`, JSON-object output, high image detail, and a 90 s timeout.
 
-The current working tree also includes an optional **SciPy silhouette-fitting optimizer** (`backend/optimizer.py`). It is not an LLM. It runs a Powell search over 15 controls (4 macro controls and 11 detail pairs), renders front/side body masks in Blender for each evaluation, and minimizes a combination of silhouette IoU loss and width-profile RMSE. The default budget is 36 evaluations, it takes roughly 3-5 minutes, and it returns optimized targets, details, fit metrics, and the best GLB.
+The current working tree still contains two optional advanced paths:
 
-| Path | Intelligence | Network |
+- **Local MediaPipe analysis** (pose + silhouette) behind ?Advanced photo tools (optional)?.
+- **SciPy silhouette fitting** behind ?Refine with silhouette fitting?, which runs a Powell search over 15 macro/detail controls and scores rendered masks with IoU and width-profile error.
+
+The questionnaire remains a local fallback. No fine-tuning is used.
+
+| Path | Role | Network |
 |---|---|---|
-| Front + side photos | MediaPipe Pose + Image Segmenter, height-scaled measurements | None; photos stay in the browser |
-| Questionnaire fallback | Deterministic anthropometric estimator in `body_scan.py` | None |
-| Optional second opinion | GPT-4o Vision relative observations + detail hints | OpenAI, only after consent |
-| Optional silhouette fitting | SciPy Powell search over 15 controls, Blender mask loop | Local backend |
+| GPT-4o Vision | Primary body-parameter estimation from front + side photos | OpenAI, after explicit consent |
+| Local MediaPipe | Optional pose + silhouette measurements | None; photos stay in the browser |
+| SciPy fitting | Optional silhouette refinement after local analysis | Local backend + Blender |
+| Questionnaire | Deterministic anthropometric fallback | None |
 | Avatar generation | Blender 5.4 + MPFB2 macro and detail targets | Local backend |
 | Garment generation | Procedural geometry from the actual body mesh | Local backend |
-
-**Why this split.** A vision-language model is useful for relative visual judgments that are hard to encode as a formula, such as ?shoulders look broad? or ?the waist is not very defined.? It is not reliable for centimetres. The architecture therefore keeps precise measurement and mesh construction deterministic, and uses the VLM only as an optional, bounded second opinion. No fine-tuning is used.
 
 ### 3.2 Memory
 
 | Memory type | What is stored | Where | Lifetime |
 |---|---|---|---|
-| UI working memory | Front/side photos, pose and silhouette analysis, measurements, detail sliders, generated URL, history | React state | Page session |
+| UI working memory | Front/side photos, vision result, targets, detail sliders, generated URL, history | React state | Page session |
 | Photo pair | Front and side images as browser object URLs | Browser memory | Until replaced or page closed |
+| Vision result | Body shape, confidence, observations, targets, detail values, notes | React state; not persisted server-side | Request |
 | Saved looks | Up to 24 looks with label, garment IDs, wardrobe IDs, timestamp | Browser `localStorage` (`dressme.savedLooks.v1`) | Persistent |
 | Backend job state | One active Blender job, parameter JSON, details JSON, temp GLB, job lock | `backend/main.py`, `backend/temp/` | Process / job |
 | Optimizer job state | Async job, evaluation progress, best score, fitted targets/details | In-memory `_opt_jobs`, `backend/temp/opt_<id>/` | Process / job cleanup |
 | Generated assets | `avatar_<jobId>.glb` files | `public/models/generated/` | 24 h TTL |
 | Detail manifest | 128 whitelisted MPFB detail targets across torso, legs, arms, hips, stomach, etc. | `backend/mpfb_targets.json` | Versioned in repo |
 | Garment catalog | 10 garments, 5 slots, geometry hints | `garments.json` shared by frontend and Blender | Versioned in repo |
-| Optional vision result | Body shape, observations, quality, suggested details | Returned to the client; not persisted server-side | Request |
 
-There is no user account, no durable body profile, and no cross-session wear history. The local photo path never uploads images. The optional GPT-4 Vision path sends the two photos to OpenAI only when the user explicitly consents; DressMe does not store them server-side. Generated GLBs are cleaned after 24 hours.
+There is no user account, no durable body profile, and no cross-session wear history. The primary GPT-4o Vision path sends the two photos to OpenAI only after explicit consent; DressMe does not store them server-side. The local MediaPipe path never uploads images. Generated GLBs are cleaned after 24 hours.
 
 ### 3.3 Actions
 
 The avatar/try-on agent can:
 
-1. Accept a front photo, a side photo, and a declared height.
-2. Validate photo type and size, then run MediaPipe Pose locally.
-3. Reject unreliable captures: missing person, low visibility, frontal photo in the side slot, or sideways photo in the front slot.
-4. Run MediaPipe Image Segmenter to extract the body silhouette.
-5. Convert silhouette widths to centimetres using the entered height.
-6. Estimate shoulder, chest, waist, hip, thigh, calf, inseam, mass, and BMI.
-7. Optionally request a consent-gated GPT-4o Vision analysis for relative observations and detail hints.
-8. Fall back to the eight-question local estimator when photos are not available.
-9. Map measurements to macro controls: `height`, `legLength`, `muscle`, `weight`, `proportions`, `cupsize`.
-10. Map advanced controls to up to 128 whitelisted MPFB detail targets (waist, hips, torso depth, belly, thigh, calf, arm length, and others).
-11. Submit a validated generation request to FastAPI.
-12. Run Blender headless with MPFB2 to shape the body.
-13. Apply detail targets after the macro shape, then apply the torso/leg post-process.
-14. Build fitted garments from the generated body surface.
-15. Export avatar + garments as one GLB and validate its magic bytes and size.
-16. Serve the GLB from the Vite public folder.
-17. Render the 3D result with rotate and zoom.
-18. Compare the previous look, reuse a selection, and save a look.
-19. Run one closed-loop correction pass: compare achieved body ratios with the captured target, nudge `muscle`/`legLength`, and regenerate once.
+**Primary flow**
 
-In addition, the current working tree can run an optional **SciPy silhouette-fitting job** (`POST /api/avatar/optimize`): it polls progress, adopts the fitted 15-control target set, and can use the best GLB directly. The fitting step is optional; the normal generate path remains available.
+1. Accept a front photo, a side photo, and a declared height.
+2. Require explicit consent before sending the photos to OpenAI.
+3. Call GPT-4o Vision and receive body shape, confidence, observations, 8 macro targets, and 19 detail values.
+4. Clamp and apply the returned MPFB targets and detail sliders.
+5. Submit a validated generation request to FastAPI.
+6. Run Blender headless with MPFB2 to shape the body.
+7. Apply detail targets after the macro shape, then apply the torso/leg post-process.
+8. Build fitted garments from the generated body surface.
+9. Export avatar + garments as one GLB and validate its magic bytes and size.
+10. Serve the GLB from the Vite public folder.
+11. Render the 3D result with rotate and zoom.
+12. Compare the previous look, reuse a selection, and save a look.
+
+**Optional advanced flow**
+
+13. Run local MediaPipe pose + silhouette analysis for measurements and side-depth hints.
+14. Run the SciPy silhouette-fitting job: Powell search over 15 controls, Blender mask rendering, IoU + width-profile scoring, up to 36 evaluations.
+15. Use the eight-question local estimator when photos are unavailable.
+16. Run one closed-loop correction pass: compare achieved ratios with the target, nudge `muscle`/`legLength`, and regenerate once.
 
 The garment catalogue is slot-based: one item per slot, a dress replaces top + bottom, and outerwear layers over a top.
 
@@ -379,19 +384,18 @@ The garment catalogue is slot-based: one item per slot, a dress replaces top + b
 
 | Tool / service | Purpose |
 |---|---|
-| MediaPipe Pose Landmarker | Pose landmarks, visibility, frontality, quality |
-| MediaPipe Image Segmenter | Person silhouette from `selfie_segmenter.tflite` |
-| OpenAI Vision (optional) | GPT-4o relative body observations and detail hints |
+| OpenAI GPT-4o Vision (primary) | Body-shape observations and MPFB parameter selection |
+| MediaPipe Pose Landmarker (optional) | Pose landmarks, visibility, frontality, quality |
+| MediaPipe Image Segmenter (optional) | Person silhouette from `selfie_segmenter.tflite` |
+| SciPy + NumPy + Pillow (optional) | Silhouette fitting: Powell search, mask I/O, IoU, width profiles |
 | FastAPI | `/api/health`, `/api/body/status`, `/api/body/questionnaire`, `/api/body/measurements`, `/api/body/vision`, `/api/avatar/generate`, `/api/avatar/optimize` |
 | Pydantic | Request validation and bounds |
-| Blender 5.4 headless | Runs the avatar and dressed-avatar scripts |
+| Blender 5.4 headless | Runs the avatar and dressed-avatar scripts; renders optimizer masks |
 | MPFB2 | Macro body parameters, detail targets, shape-key baking, GLB export |
 | `bpy` / `bmesh` | Mesh manipulation, vertex classification, garment shells |
 | Three.js + react-three-fiber + drei | 3D preview, lighting, shadows, orbit controls |
 | React + Vite | Customize and Try-On UI |
 | `httpx` | OpenAI Vision client with timeout handling |
-| SciPy + NumPy + Pillow | Silhouette fitting: Powell search, mask I/O, IoU, width profiles |
-| Blender silhouette rendering | Transparent front/side masks for each optimizer evaluation |
 | Pytest | Validation, GLB, body-scan, vision, detail-target, and optimizer tests |
 
 The frontend and Blender share `garments.json`, so ids, slots, labels, colours, and geometry hints cannot drift apart. The detail manifest is validated by `mpfb_details.py`, which rejects arbitrary target names and caps details at 128.
@@ -402,21 +406,24 @@ The frontend and Blender share `garments.json`, so ids, slots, labels, colours, 
 
 *Pipeline diagram generated from the current implementation in `backend/` and the working tree.*
 
-The complete path is:
+**Primary path**
 
-1. **Input.** Front + side photos with a declared height, the questionnaire, or manual sliders.
-2. **Local pose analysis.** MediaPipe returns landmarks. The app checks visibility and view-specific frontality, so a side photo cannot masquerade as a front photo.
-3. **Local silhouette.** MediaPipe Image Segmenter extracts the body mask; row widths become centimetres after height scaling.
-4. **Measurements.** The browser derives shoulder, chest, waist, hip, thigh, calf, inseam, mass, and BMI. These are estimates, not tape measurements.
-5. **Optional second opinion.** With consent, `POST /api/body/vision` sends both photos to GPT-4o Vision. Its relative observations and bounded detail suggestions are merged into the advanced sliders.
-6. **Optional silhouette fitting.** SciPy Powell search adjusts 15 macro/detail controls. Each evaluation runs Blender, renders front/side masks, and scores IoU plus width-profile error. It returns the best targets, details, fit metrics, and GLB.
-7. **Mapping.** Measurements and fitted controls become MPFB macro targets and whitelisted detail targets.
-8. **API validation.** FastAPI validates both dictionaries, validates the outfit against slot rules, and acquires a single-job lock.
-9. **Blender body generation.** `generate_avatar.py` sets MPFB macros, reapplies macro details, loads detail targets, applies `legLength`, bakes shape keys, and exports a GLB.
-10. **Dressed generation.** `generate_dressed_avatar.py` reads joint-cube landmarks, classifies skin vertices to anatomical segments, builds garment shells from the body surface, offsets them along normals, solidifies them, assigns materials, and exports one GLB.
-11. **Validation and serving.** The backend checks GLB magic bytes and size, moves it into `public/models/generated/`, and returns the URL, applied details, and achieved metrics.
-12. **3D preview.** Three.js loads the GLB, normalizes only implausible scales, and shows height in metres.
-13. **Closed-loop correction.** The frontend compares desired and achieved ratios and triggers one regeneration if needed.
+1. **Input.** Front + side photos with a declared height.
+2. **Consent and API.** The UI requires consent; FastAPI validates photo type/size and accepts the vision request.
+3. **GPT-4o Vision.** The model reads both photos and returns body shape, confidence, observations, 8 macro targets, and 19 detail values.
+4. **Targets and details.** The frontend clamps the values and applies them to the MPFB sliders and advanced detail controls.
+5. **API validation.** FastAPI validates targets, details, and outfit slot rules, and acquires a single-job lock.
+6. **Blender body generation.** `generate_avatar.py` sets MPFB macros, reapplies macro details, loads detail targets, applies `legLength`, bakes shape keys, and exports a GLB.
+7. **Dressed generation.** `generate_dressed_avatar.py` reads joint-cube landmarks, classifies skin vertices to anatomical segments, builds garment shells from the body surface, offsets them along normals, solidifies them, assigns materials, and exports one GLB.
+8. **Validation and serving.** The backend checks GLB magic bytes and size, moves it into `public/models/generated/`, and returns the URL, applied details, and achieved metrics.
+9. **3D preview.** Three.js loads the GLB, normalizes only implausible scales, and shows height in metres.
+10. **Closed-loop correction.** The frontend compares desired and achieved ratios and triggers one regeneration if needed.
+
+**Optional refinement path**
+
+- MediaPipe Pose + Image Segmenter extract local measurements and side-depth hints.
+- SciPy Powell fitting adjusts 15 controls, rendering front/side masks for each evaluation and scoring IoU + width-profile error.
+- The questionnaire provides a deterministic fallback when photos are unavailable.
 
 Actual rendered prototype output:
 
@@ -428,24 +435,22 @@ Actual rendered prototype output:
 
 | Technique | How it is used |
 |---|---|
-| **Pose estimation** | MediaPipe landmarks, visibility and view-specific frontality checks reject bad photos. |
-| **Image segmentation** | MediaPipe selfie segmenter extracts the body silhouette used for width/depth measurements. |
-| **Height-scaled anthropometry** | Silhouette widths in pixels are converted to centimetres using the user?s height. |
-| **Measurement-to-parameter mapping** | Measurements drive macro controls; side-view depth drives torso/hip detail targets. |
-| **Vision-language second opinion** | Optional GPT-4o Vision returns relative observations and bounded detail hints, never centimetres. |
-| **Silhouette fitting optimization** | Optional SciPy Powell search over 15 controls; each evaluation renders masks and scores IoU + width-profile error. |
+| **Vision-language parameter selection** | GPT-4o Vision reads front + side photos and chooses MPFB macro targets plus detail values. |
+| **Structured output and schema validation** | The model returns JSON; the backend clamps values, rejects unknown keys, and enforces bounds. |
+| **Pose estimation (optional)** | MediaPipe landmarks, visibility, and view-specific frontality checks support local measurements. |
+| **Image segmentation (optional)** | MediaPipe selfie segmenter extracts the silhouette used for width/depth measurements. |
+| **Silhouette fitting optimization (optional)** | SciPy Powell search over 15 controls; each evaluation renders masks and scores IoU + width-profile error. |
 | **Procedural garment generation** | Garments are built from the actual body mesh, not imported assets. Vertices are classified to anatomical segments, kept by region, offset along normals, and solidified. |
-| **Closed-loop correction** | Achieved body ratios are compared with the capture target; `muscle` and `legLength` are nudged and the avatar is regenerated once. |
-| **Guardrails** | Sideways/frontal photo checks, invalid garment combinations, oversized uploads, invalid detail names, and invalid GLBs are rejected. |
+| **Closed-loop correction** | Achieved body ratios are compared with the target; `muscle` and `legLength` are nudged and the avatar is regenerated once. |
+| **Guardrails** | Consent gating, photo validation, value clamping, invalid garment combinations, oversized uploads, invalid detail names, and invalid GLBs are rejected. |
 
 **Not used for geometry:** fine-tuning, skeletal skinning, morph targets, cloth simulation, and persistent body profiles. The exported GLB is a static mesh with baked shape keys and shared topology.
 
 ### 3.7 Limitations
 
-- A single uncalibrated 2D photo cannot measure a body; photo-derived values are estimates, not tape measurements.
-- Silhouette quality depends on clothing, pose, lighting, and background.
-- Mass and BMI are inferred from width-to-height ratios unless the user edits them.
-- The optional GPT-4 Vision path sends photos to OpenAI and depends on an API key, network, and quota.
+- GPT-4o Vision produces relative parameter estimates, not measurements; clothing, pose, lighting, and camera angle affect the result.
+- The primary photo path depends on an OpenAI API key, network, consent, and quota.
+- Local MediaPipe and SciPy fitting are optional and operate as a second pass.
 - Silhouette fitting runs Blender many times, takes roughly 3-5 minutes, and defaults to 36 evaluations.
 - The exported avatar has no skeleton, no morph targets, and no runtime skinning.
 - Garments are procedural shells, not production cloth simulation.
@@ -457,14 +462,14 @@ Actual rendered prototype output:
 
 | Dimension | RAG AI Stylist | Trip Agent | Avatar / Try-On |
 |---|---|---|---|
-| Primary intelligence | Retrieval + grounded generation | LLM orchestration + CP-SAT | Computer vision + procedural geometry |
-| LLM | GPT-4o (configurable) | GPT-4o (configurable) | Optional GPT-4o Vision second opinion |
+| Primary intelligence | Retrieval + grounded generation | LLM orchestration + CP-SAT | Vision-language selection + geometry |
+| LLM | GPT-4o (configurable) | GPT-4o (configurable) | GPT-4o Vision (primary) |
 | Core memory | SQLite conversations + pgvector corpus | AgentState + in-memory sessions | React state + localStorage + file cache |
-| Main external service | Supabase / OpenAI | OpenAI / Open-Meteo | MediaPipe / OpenAI (optional) / Blender |
-| Key AI technique | Hybrid RAG with citations | Native tool calling + neuro-symbolic optimization | Pose + silhouette + SciPy fitting |
+| Main external service | Supabase / OpenAI | OpenAI / Open-Meteo | OpenAI / Blender (+ MediaPipe optional) |
+| Key AI technique | Hybrid RAG with citations | Native tool calling + neuro-symbolic optimization | VLM parameter selection + procedural garments |
 | Output | Cited answer + sources | Trip capsule + checklist | Body-shaped GLB + 3D try-on |
 | Evaluation | Golden-set retrieval metrics | Offline tool/optimizer tests | Validation tests + rendered previews |
-| Status | Implemented | Implemented | Implemented; two-photo capture work is uncommitted |
+| Status | Implemented | Implemented | Implemented; GPT-4V flow uncommitted |
 
 ### Why the differences are intentional
 
@@ -487,7 +492,7 @@ Using an LLM for all three would make the system less reliable. The architecture
 | RAG | `rag_backend/app.py`, `rag/rag_service.py`, `rag/retriever.py`, `evaluation/`, `tests/`, Supabase migrations |
 | Trip Agent | `packing_backend/trip_agent/`, `packing_backend/optimizer.py`, `backend/main.py`, `HelpMePack.tsx`, `docs/agent-pipeline.png` |
 | Avatar | `backend/main.py`, `backend/blender/`, `pose.ts`, `silhouette.ts`, `bodyPhotos.ts`, `avatarApi.ts`, `CustomizeAvatar.tsx`, `TryOnStudio.tsx`, `garments.json` |
-| Current uncommitted capture work | `backend/vision.py`, `backend/mpfb_details.py`, `backend/mpfb_targets.json`, `backend/tests/test_vision.py`, `backend/tests/test_mpfb_details.py`, `bodyPhotos.ts`, `silhouette.ts`, `bodyDetails.ts`, `questionnaire.ts` |
+| Current uncommitted GPT-4V capture work | `backend/vision.py`, `backend/optimizer.py`, `backend/mpfb_details.py`, `backend/mpfb_targets.json`, `backend/tests/test_vision.py`, `backend/tests/test_mpfb_details.py`, `bodyPhotos.ts`, `silhouette.ts`, `bodyDetails.ts`, `questionnaire.ts` |
 
 ### 5.2 How to run
 
@@ -514,7 +519,7 @@ cd backend
 uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-The avatar generator needs the Blender path and `avatar.blend` configured in `backend/README.md`. The optional GPT-4 Vision route uses `OPENAI_API_KEY` (and optionally `OPENAI_VISION_MODEL`); without it, the local MediaPipe path still works. The optional silhouette fit is `POST /api/avatar/optimize` followed by `GET /api/avatar/optimize/{job_id}`.
+The avatar generator needs the Blender path and `avatar.blend` configured in `backend/README.md`. The GPT-4 Vision route is the primary avatar-estimation path and uses `OPENAI_API_KEY` (and optionally `OPENAI_VISION_MODEL`). The optional local MediaPipe and silhouette-fit paths remain available as advanced tools; the fit is `POST /api/avatar/optimize` followed by `GET /api/avatar/optimize/{job_id}`.
 
 **UI**
 
@@ -547,6 +552,6 @@ The repository contains three working prototypes, not three theoretical architec
 
 - **RAG** is a real grounded question-answering service with a 14,574-chunk index, hybrid retrieval, citations, streaming, and measured retrieval quality.
 - **Trip Agent** is a real tool-using planner with ten tools, weather integration, a CP-SAT optimizer, a capsule, a checklist, and deterministic fallbacks.
-- **Avatar / Try-On** is a real body-generation and garment-fitting pipeline, with local two-photo capture, optional GPT-4o Vision second opinions, SciPy silhouette fitting, MPFB macro/detail targets, procedural garments, a 3D viewer, and actual rendered output.
+- **Avatar / Try-On** is a real body-generation and garment-fitting pipeline, with GPT-4o Vision parameter selection, optional MediaPipe/SciPy refinement, MPFB macro/detail targets, procedural garments, a 3D viewer, and actual rendered output.
 
-The main lesson is architectural: use the LLM for language and relative visual judgment, use retrieval for evidence, use solvers for constraints, and use geometry for bodies. The next steps are to connect the RAG layer to personal wardrobe data, connect the Trip Agent to the RAG and Gap Agent, replace synthetic wardrobe data with real user data, and add persistent profiles and production hardening.
+The main lesson is architectural: use the LLM for language and visual parameter selection, use retrieval for evidence, use solvers for fitting and constraints, and use geometry for bodies. The next steps are to connect the RAG layer to personal wardrobe data, connect the Trip Agent to the RAG and Gap Agent, replace synthetic wardrobe data with real user data, and add persistent profiles and production hardening.

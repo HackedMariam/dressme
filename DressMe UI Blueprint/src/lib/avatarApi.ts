@@ -103,10 +103,13 @@ export type VisionAnalysis = {
   model: string
   analysis: {
     body_shape: string
+    confidence: number
+    targets: Partial<Record<MpbParam | "legLength", number>>
+    detail_values: Record<string, number>
+    suggested_details?: Record<string, number>
     photo_quality: { front: number; side: number; notes: string[] }
     posture: Record<string, string>
     observations: Record<string, VisionObservation>
-    suggested_details: Record<string, number>
     notes: string[]
   }
   createdAt: number

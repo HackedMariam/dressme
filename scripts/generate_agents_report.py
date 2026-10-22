@@ -18,8 +18,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -122,20 +123,24 @@ def step_box(
     box: tuple[int, int, int, int],
     accent: str,
     number_fill: str = GREEN,
+    title_size: int = 23,
+    body_size: int = 18,
+    number_size: int = 20,
+    max_lines: int = 4,
 ) -> None:
     x0, y0, x1, y1 = box
     rounded_box(draw, box, WHITE, LINE)
     draw.rounded_rectangle((x0 + 15, y0 + 15, x0 + 51, y0 + 51), radius=10, fill=number_fill)
-    nf = font(ARIAL_BOLD, 20)
+    nf = font(ARIAL_BOLD, number_size)
     draw.text((x0 + 25, y0 + 20), f"{number:02d}", font=nf, fill=WHITE)
-    tf = font(GEORGIA_BOLD, 23)
+    tf = font(GEORGIA_BOLD, title_size)
     draw.text((x0 + 64, y0 + 15), title, font=tf, fill=INK)
-    bf = font(ARIAL, 18)
+    bf = font(ARIAL, body_size)
     lines = wrap(draw, body, bf, x1 - x0 - 44)
     y = y0 + 64
-    for line in lines[:4]:
+    for line in lines[:max_lines]:
         draw.text((x0 + 22, y), line, font=bf, fill=MUTED)
-        y += 23
+        y += body_size + 5
     draw.line((x0 + 22, y1 - 20, x1 - 22, y1 - 20), fill=accent, width=3)
 
 
@@ -483,6 +488,32 @@ def add_picture(slide, path: Path, left: float, top: float, width: float, height
     return picture
 
 
+def add_runs(slide, runs: list[tuple[str, bool, RGBColor]], left: float, top: float, width: float, height: float, *, size: float = 9.3):
+    box = textbox(slide, left, top, width, height)
+    p = box.text_frame.paragraphs[0]
+    for text, bold, color in runs:
+        run = p.add_run()
+        run.text = text
+        pfont(run, "Arial", size, color, bold)
+    return box
+
+
+def add_arrow(slide, x1: float, y1: float, x2: float, y2: float, color: RGBColor = P_TAN, width: float = 1.1):
+    shape = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x1), Inches(y1), Inches(x2), Inches(y2))
+    shape.line.color.rgb = color
+    shape.line.width = Pt(width)
+    ln = shape.line._get_or_add_ln()
+    tail = ln.makeelement(qn("a:tailEnd"), {"type": "triangle", "w": "sm", "len": "sm"})
+    ln.append(tail)
+    return shape
+
+
+def external_header(slide, title: str, subtitle: str):
+    add_text(slide, title, 0.55, 0.58, 11.9, 0.62, font="Georgia", size=28, color=P_INK, bold=True)
+    add_text(slide, subtitle, 0.55, 1.2, 11.9, 0.4, size=12.5, color=P_MUTED)
+    add_rule(slide, 0.55, 1.72, 12.23)
+
+
 def add_pill(slide, text: str, left: float, top: float, color: RGBColor = P_GREEN, fill: RGBColor = P_GREEN_SOFT, width: float | None = None):
     label = text.upper()
     width = width or max(1.35, 0.095 * len(label) + 0.42)
@@ -503,18 +534,21 @@ def add_pill(slide, text: str, left: float, top: float, color: RGBColor = P_GREE
     return shape
 
 
-def add_footer(slide, label: str, page: int, total: int = 27) -> None:
+def add_footer(slide, label: str, page: int, total: int = 30) -> None:
     add_rule(slide, 0.55, 7.04, 12.23)
     add_text(slide, "DressMe  /  Agent implementation report", 0.55, 7.12, 7.0, 0.22, size=8.5, color=P_MUTED)
     add_text(slide, f"{label}   {page:02d} / {total:02d}", 8.7, 7.12, 4.08, 0.22, size=8.5, color=P_MUTED, align=PP_ALIGN.RIGHT)
 
 
-def new_slide(prs, page: int, label: str):
+def new_slide(prs, page: int, label: str, offset: int = 3, total: int = 30, footer: bool = True):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = P_BG
     add_rect(slide, 0, 0, 13.333, 0.06, P_GREEN, None, radius=0.0)
-    add_footer(slide, label, page)
+    if footer:
+        add_footer(slide, label, page + offset, total)
+    else:
+        add_text(slide, str(page), 12.2, 7.12, 0.6, 0.22, size=8.5, color=P_MUTED, align=PP_ALIGN.RIGHT)
     return slide
 
 
@@ -581,11 +615,198 @@ def add_table(slide, rows: list[list[str]], left: float, top: float, width: floa
     return table
 
 
+def build_llm_agents_slides(prs) -> None:
+    # Slide 1 - LLM agents: the model and its memory
+    slide = new_slide(prs, 1, "LLM AGENTS", offset=0, footer=False)
+    external_header(slide, "LLM agents: the model and its memory", "My part of DressMe: the LLM that powers the agents, and how it remembers")
+    add_text(slide, "The LLM: OpenAI GPT-4o", 0.55, 1.95, 5.9, 0.3, font="Georgia", size=15, color=P_INK, bold=True)
+    llm_cards = [
+        ("Sees images", "judges pattern, material and style", P_TERRA),
+        ("Calls tools", "decides when to search the wardrobe", P_GREEN),
+        ("Strict JSON", "always answers in a fixed format", P_GREEN),
+        ("Easy to switch", "gpt-4o-mini with one variable", P_TAN),
+    ]
+    positions = [(0.55, 2.4), (3.55, 2.4), (0.55, 3.95), (3.55, 3.95)]
+    for (title, body, accent), (x, y) in zip(llm_cards, positions):
+        add_card(slide, x, y, 2.85, 1.35, P_WHITE, P_LINE, accent)
+        add_text(slide, title, x + 0.22, y + 0.2, 2.45, 0.28, font="Georgia", size=13, color=P_INK, bold=True)
+        add_text(slide, body, x + 0.22, y + 0.6, 2.45, 0.55, size=9.5, color=P_MUTED)
+    stats = [("2", "agents", P_GREEN), ("1", "tool", P_TERRA), ("4", "max rounds", P_TAN)]
+    for index, (number, label, accent) in enumerate(stats):
+        x = 0.55 + index * 2.0
+        add_card(slide, x, 5.65, 1.85, 1.15, P_WHITE, P_LINE, accent)
+        add_text(slide, number, x + 0.2, 5.8, 1.45, 0.4, font="Georgia", size=28, color=accent, bold=True)
+        add_text(slide, label, x + 0.2, 6.3, 1.45, 0.25, size=9.5, color=P_MUTED)
+
+    add_text(slide, "Memory: how the agent remembers", 6.95, 1.95, 5.8, 0.3, font="Georgia", size=15, color=P_INK, bold=True)
+    memory = [
+        ("Feedback", "user corrections, used to measure accuracy", P_TERRA),
+        ("Long-term", "the user's wardrobe in Supabase", P_GREEN),
+        ("Short-term", "messages of one question (max 4 rounds)", P_TAN),
+    ]
+    for index, (title, body, accent) in enumerate(memory):
+        x = 6.95 + index * 2.0
+        add_card(slide, x, 2.4, 1.8, 1.5, P_WHITE, P_LINE, accent)
+        add_text(slide, title, x + 0.18, 2.58, 1.45, 0.28, font="Georgia", size=11.5, color=P_INK, bold=True)
+        add_text(slide, body, x + 0.18, 2.95, 1.45, 0.8, size=8.5, color=P_MUTED)
+        if index < 2:
+            add_arrow(slide, x + 1.82, 3.15, x + 1.98, 3.15, P_TAN, 1.0)
+    add_text(slide, "No chat history: each question starts fresh from the stored wardrobe.", 6.95, 4.05, 5.8, 0.3, size=9.5, color=P_MUTED, italic=True)
+    add_text(slide, "GPT-4o temperature per task (low = stable answers)", 6.95, 4.55, 5.8, 0.3, size=11.5, color=P_INK, bold=True)
+    # Small horizontal bar chart
+    add_rule(slide, 7.25, 6.12, 4.4, P_LINE, 0.01)
+    add_text(slide, "0", 7.2, 6.2, 0.3, 0.2, size=8, color=P_MUTED)
+    for i, value in enumerate(["0.1", "0.2", "0.3", "0.4"]):
+        add_text(slide, value, 8.3 + i * 1.1, 6.2, 0.4, 0.2, size=8, color=P_MUTED)
+    chart = [("3.0", 0.3, 4.9), ("2.0", 0.2, 5.3), ("1.0", 0.1, 5.7)]
+    for label, value, y in chart:
+        add_text(slide, label, 6.7, y + 0.02, 0.45, 0.2, size=8.5, color=P_MUTED, align=PP_ALIGN.RIGHT)
+        width = 4.4 * (value / 0.4)
+        add_rect(slide, 7.25, y, width, 0.25, P_TERRA, None, radius=0.04)
+        add_text(slide, f"{value:.1f}", 7.25 + width - 0.4, y + 0.035, 0.35, 0.18, size=7.5, color=P_WHITE, bold=True)
+    speaker_notes(slide, "This slide introduces the LLM and its memory model: GPT-4o, 2 agents, 1 tool, 4 max rounds.")
+
+    # Slide 2 - Actions and tools: the two agents
+    slide = new_slide(prs, 2, "LLM AGENTS", offset=0, footer=False)
+    external_header(slide, "Actions and tools: the two agents", "Each agent uses GPT-4o plus one tool, search_wardrobe, on the stored wardrobe")
+    top = [
+        ("Input", "photo or camera", P_GREEN),
+        ("Detect", "YOLO finds the item", P_TERRA),
+        ("Colour", "measured from pixels", P_TAN),
+        ("GPT-4o", "adds style, season...", P_GREEN),
+        ("Wardrobe", "saved per user", P_TERRA),
+    ]
+    for index, (title, body, accent) in enumerate(top):
+        x = 0.55 + index * 2.55
+        add_card(slide, x, 1.95, 2.35, 0.95, P_WHITE, P_LINE, accent)
+        add_text(slide, title, x + 0.18, 2.07, 1.95, 0.26, font="Georgia", size=11.5, color=P_INK, bold=True)
+        add_text(slide, body, x + 0.18, 2.42, 1.95, 0.3, size=8.5, color=P_MUTED)
+        if index < 4:
+            add_arrow(slide, x + 2.38, 2.42, x + 2.52, 2.42, P_TAN, 1.0)
+    add_text(slide, f"Tools used: search_wardrobe (Python)  {MIDDOT}  OpenAI API  {MIDDOT}  Supabase  {MIDDOT}  FastAPI + React", 0.55, 3.08, 12.2, 0.3, size=9, color=P_MUTED, italic=True, align=PP_ALIGN.CENTER)
+
+    # Agent 1 panel
+    add_rect(slide, 0.55, 3.55, 6.0, 3.2, P_SOFT, P_LINE)
+    add_text(slide, "Agent 1: Stylist", 0.8, 3.72, 5.4, 0.3, font="Georgia", size=15, color=P_TERRA, bold=True)
+    add_text(slide, "Answers questions with the user's real clothes", 0.8, 4.02, 5.4, 0.3, size=10.5, color=P_INK)
+    for index, (title, body) in enumerate([("Question", "warm jacket?"), ("GPT-4o", "picks filters"), ("Answer", "+ matching items")]):
+        x = 0.8 + index * 1.8
+        add_card(slide, x, 4.45, 1.55, 0.8, P_WHITE, P_LINE, P_GREEN if index == 1 else P_TAN)
+        add_text(slide, title, x + 0.14, 4.57, 1.25, 0.24, font="Georgia", size=10.5, color=P_INK, bold=True)
+        add_text(slide, body, x + 0.14, 4.87, 1.25, 0.25, size=8.2, color=P_MUTED)
+        if index < 2:
+            add_arrow(slide, x + 1.57, 4.85, x + 1.73, 4.85, P_TAN, 1.0)
+    add_card(slide, 2.6, 5.65, 1.55, 0.8, P_WHITE, P_LINE, P_GREEN)
+    add_text(slide, "search_wardrobe", 2.73, 5.75, 1.3, 0.24, font="Georgia", size=9.8, color=P_INK, bold=True)
+    add_text(slide, "finds items", 2.73, 6.03, 1.3, 0.22, size=8.2, color=P_MUTED)
+    add_arrow(slide, 3.12, 5.27, 3.12, 5.63, P_TERRA, 1.0)
+    add_arrow(slide, 3.58, 5.63, 3.58, 5.27, P_GREEN, 1.0)
+    add_text(slide, "filters", 2.55, 5.35, 0.55, 0.2, size=8, color=P_MUTED)
+    add_text(slide, "results", 3.7, 5.35, 0.6, 0.2, size=8, color=P_MUTED)
+    add_text(slide, "Searches again if needed (max 4 times)", 0.8, 5.45, 1.6, 0.7, size=9.3, color=P_MUTED)
+    add_text(slide, "Stops when it has a good answer", 4.4, 5.45, 1.6, 0.7, size=9.3, color=P_MUTED)
+
+    # Agent 2 panel
+    add_rect(slide, 6.78, 3.55, 6.0, 3.2, P_SOFT, P_LINE)
+    add_text(slide, "Agent 2: Duplicate guard", 7.03, 3.72, 5.4, 0.3, font="Georgia", size=15, color=P_GREEN, bold=True)
+    add_text(slide, "Stops the same item from being saved twice", 7.03, 4.02, 5.4, 0.3, size=10.5, color=P_INK)
+    for index, (title, body) in enumerate([("Live scan", "camera + YOLO"), ("Stable?", "held 1.4 s"), ("Already owned?", "GPT-4o + search")]):
+        x = 7.0 + index * 1.8
+        add_card(slide, x, 4.45, 1.55, 0.8, P_WHITE, P_LINE, P_TERRA if index == 2 else P_TAN)
+        add_text(slide, title, x + 0.14, 4.57, 1.25, 0.24, font="Georgia", size=10, color=P_INK, bold=True)
+        add_text(slide, body, x + 0.14, 4.87, 1.25, 0.25, size=8.2, color=P_MUTED)
+        if index < 2:
+            add_arrow(slide, x + 1.57, 4.85, x + 1.73, 4.85, P_TAN, 1.0)
+    add_card(slide, 8.8, 5.65, 1.55, 0.8, P_WHITE, P_LINE, P_TERRA)
+    add_text(slide, "Not added", 8.94, 5.75, 1.25, 0.24, font="Georgia", size=10.5, color=P_INK, bold=True)
+    add_text(slide, "duplicate", 8.94, 6.03, 1.25, 0.22, size=8.2, color=P_MUTED)
+    add_card(slide, 10.6, 5.65, 1.55, 0.8, P_WHITE, P_LINE, P_GREEN)
+    add_text(slide, "Saved", 10.74, 5.75, 1.25, 0.24, font="Georgia", size=10.5, color=P_INK, bold=True)
+    add_text(slide, "new item", 10.74, 6.03, 1.25, 0.22, size=8.2, color=P_MUTED)
+    add_arrow(slide, 11.3, 5.27, 9.6, 5.63, P_TERRA, 1.0)
+    add_arrow(slide, 11.45, 5.27, 11.45, 5.63, P_GREEN, 1.0)
+    add_text(slide, "yes", 9.85, 5.33, 0.4, 0.2, size=8, color=P_MUTED)
+    add_text(slide, "no", 11.55, 5.33, 0.4, 0.2, size=8, color=P_MUTED)
+    add_text(slide, "Checks before saving. A similar item is still allowed.", 7.03, 5.38, 1.6, 0.8, size=9.3, color=P_MUTED)
+    speaker_notes(slide, "Two agents share the same GPT-4o plus search_wardrobe tool: the Stylist and the Duplicate guard.")
+
+    # Slide 3 - AI techniques and safeguards
+    slide = new_slide(prs, 3, "LLM AGENTS", offset=0, footer=False)
+    external_header(slide, "AI techniques and safeguards", "What makes the agents smart, and what keeps them safe")
+    center = (4.1, 4.35)
+    techniques = [
+        ("Fine-tuned vision", "YOLO trained on 20 clothing classes", 0.58, 2.12, P_TERRA),
+        ("Agentic RAG", "searches real data, then answers", 4.98, 2.12, P_GREEN),
+        ("Tool-using agents", "plan, search, check, adjust", 0.48, 3.82, P_TAN),
+        ("Smart prompting", "clear rules and fixed word lists", 5.08, 3.82, P_TERRA),
+        ("Structured outputs", "JSON checked before saving", 0.58, 5.52, P_TERRA),
+        ("Human in the loop", "users can fix mistakes", 4.98, 5.52, P_GREEN),
+    ]
+    for title, body, x, y, accent in techniques:
+        add_arrow(slide, center[0], center[1], x + 1.325, y + 0.525, P_LINE, 0.9)
+    for title, body, x, y, accent in techniques:
+        add_card(slide, x, y, 2.65, 1.05, P_WHITE, P_LINE, accent)
+        add_text(slide, title, x + 0.2, y + 0.16, 2.25, 0.26, font="Georgia", size=11.5, color=P_INK, bold=True)
+        add_text(slide, body, x + 0.2, y + 0.5, 2.25, 0.45, size=8.8, color=P_MUTED)
+    circle = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(3.25), Inches(3.5), Inches(1.7), Inches(1.7))
+    circle.fill.solid()
+    circle.fill.fore_color.rgb = P_GREEN
+    circle.line.fill.background()
+    tf = circle.text_frame
+    tf.word_wrap = True
+    tf.margin_left = 0
+    tf.margin_right = 0
+    tf.margin_top = 0
+    tf.margin_bottom = 0
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    p.text = "LLM"
+    for run in p.runs:
+        pfont(run, "Georgia", 15, P_WHITE, True)
+    p2 = tf.add_paragraph()
+    p2.alignment = PP_ALIGN.CENTER
+    p2.text = "agents"
+    for run in p2.runs:
+        pfont(run, "Arial", 10, P_WHITE, False)
+
+    add_text(slide, "Safeguards", 8.15, 1.95, 4.6, 0.3, font="Georgia", size=15, color=P_INK, bold=True)
+    safeguards = [
+        ("Limited loops: ", "max 4 tool rounds, no runaway cost"),
+        ("Real answers only: ", "uses the user's own items"),
+        ("Checked data: ", "invalid values are rejected"),
+        ("Safe fallback: ", "simple rules if GPT-4o fails"),
+        ("Private data: ", "each user sees only their items"),
+        ("No duplicates: ", "checked before saving"),
+    ]
+    for index, (label, detail) in enumerate(safeguards):
+        y = 2.42 + index * 0.72
+        add_rect(slide, 8.15, y, 4.6, 0.6, P_SOFT, P_LINE)
+        check = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(8.28), Inches(y + 0.14), Inches(0.3), Inches(0.3))
+        check.fill.solid()
+        check.fill.fore_color.rgb = P_GREEN
+        check.line.fill.background()
+        ctf = check.text_frame
+        ctf.margin_left = 0
+        ctf.margin_right = 0
+        ctf.margin_top = 0
+        ctf.margin_bottom = 0
+        ctf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        cp = ctf.paragraphs[0]
+        cp.alignment = PP_ALIGN.CENTER
+        cp.text = chr(0x2713)
+        for run in cp.runs:
+            pfont(run, "Arial", 9.5, P_WHITE, True)
+        add_runs(slide, [(label, True, P_INK), (detail, False, P_MUTED)], 8.7, y + 0.11, 3.9, 0.4, size=9.2)
+    speaker_notes(slide, "Six techniques around the LLM, and six safeguards that bound cost, accuracy, and privacy.")
+
 def build_deck() -> None:
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
-    total = 27
+    total = 30
+
+    build_llm_agents_slides(prs)
 
     # 01 — Cover
     slide = new_slide(prs, 1, "COVER")

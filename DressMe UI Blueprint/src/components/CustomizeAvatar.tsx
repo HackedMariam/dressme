@@ -87,8 +87,8 @@ export default function CustomizeAvatar({
   const [photoError, setPhotoError] = useState<string | null>(null)
   const [visionConsent, setVisionConsent] = useState(false)
   const [visionState, setVisionState] = useState<"idle" | "running" | "success" | "error">("idle")
-  const [visionError, setVisionError] = useState<string | null>(null)
   const [visionResult, setVisionResult] = useState<VisionAnalysis | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [optState, setOptState] = useState<"idle" | "running" | "success" | "error">("idle")
   const [optError, setOptError] = useState<string | null>(null)
   const [optProgress, setOptProgress] = useState<{
@@ -167,10 +167,18 @@ export default function CustomizeAvatar({
   const detailTargets = useMemo(() => detailValuesToTargets(detailValues), [detailValues])
 
   const rows = scanResult ? measurementRows(scanResult.measurements) : []
-  const captureState = captureMode === "photos" ? photoState : scanState
+  const captureState =
+    captureMode === "photos"
+      ? visionState !== "idle"
+        ? visionState
+        : photoState !== "idle"
+          ? photoState
+          : scanState
+      : scanState
 
   const onHeightCmChange = (value: number) => {
     setHeightCm(value)
+    setCreateError(null)
     setPhotoAnalysis(null)
     setPhotoState("idle")
     setVisionResult(null)
@@ -205,10 +213,10 @@ export default function CustomizeAvatar({
     }
     setPhotoAnalysis(null)
     setPhotoState("idle")
+    setCreateError(null)
     setPhotoError(null)
     setVisionResult(null)
     setVisionState("idle")
-    setVisionError(null)
     cancelOptimization()
   }
 
@@ -223,6 +231,7 @@ export default function CustomizeAvatar({
     }
 
     setPhotoState("running")
+    setCreateError(null)
     setPhotoError(null)
     cancelOptimization()
     try {
@@ -242,35 +251,6 @@ export default function CustomizeAvatar({
     } catch (e) {
       setPhotoState("error")
       setPhotoError(e instanceof Error ? e.message : "Photo analysis failed.")
-    }
-  }
-
-  const onVisionAnalyze = async () => {
-    if (!frontFile || !sideFile) {
-      setVisionError("Add both a front and a side photo first.")
-      return
-    }
-    if (!visionConsent) {
-      setVisionError("Agree to send both photos to OpenAI before requesting the second opinion.")
-      return
-    }
-    setVisionState("running")
-    setVisionError(null)
-    try {
-      const result = await analyzeBodyVision(frontFile, sideFile, heightCm)
-      setVisionResult(result)
-      const allowed = new Set(DETAIL_CONTROLS.map((control) => control.key))
-      setDetailValues((prev) => {
-        const next = { ...prev }
-        for (const [key, value] of Object.entries(result.analysis.suggested_details)) {
-          if (allowed.has(key)) next[key] = Math.max(-1, Math.min(1, value))
-        }
-        return next
-      })
-      setVisionState("success")
-    } catch (e) {
-      setVisionState("error")
-      setVisionError(e instanceof Error ? e.message : "GPT-4 Vision analysis failed.")
     }
   }
 
@@ -306,6 +286,7 @@ export default function CustomizeAvatar({
   }
 
   const applyQuestionnaire = (result: BodyScanResult) => {
+    setCreateError(null)
     setPhotoAnalysis(null)
     setPhotoState("idle")
     setVisionResult(null)
@@ -428,6 +409,87 @@ export default function CustomizeAvatar({
       } as BodyTargets,
       result.details,
     )
+  }
+
+  const onCreateAvatar = async () => {
+    if (!frontFile || !sideFile) {
+      setCreateError("Add both a front and a side photo.")
+      return
+    }
+    if (!visionConsent) {
+      setCreateError("Agree to send both photos to OpenAI before creating the avatar.")
+      return
+    }
+    if (!Number.isFinite(heightCm) || heightCm < 140 || heightCm > 220) {
+      setCreateError("Enter a height between 140 and 220 cm.")
+      return
+    }
+
+    genAbortRef.current?.abort()
+    const controller = new AbortController()
+    genAbortRef.current = controller
+    const timer = window.setTimeout(() => controller.abort(), 420_000)
+    setCreateError(null)
+    setVisionState("running")
+    setGenState("idle")
+    setGenError(null)
+    setScanResult(null)
+    cancelOptimization()
+
+    try {
+      const vision = await analyzeBodyVision(frontFile, sideFile, heightCm, controller.signal)
+      setVisionResult(vision)
+
+      const rawTargets = vision.analysis.targets ?? {}
+      const nextMpb = defaultMpbTargets()
+      for (const meta of MPFB_PARAMS) {
+        const value = rawTargets[meta.key]
+        if (value !== undefined) nextMpb[meta.key] = Math.max(0, Math.min(1, value))
+      }
+      nextMpb.height = heightFromCm(heightCm)
+      const nextLegLength =
+        rawTargets.legLength !== undefined ? Math.max(0, Math.min(1, rawTargets.legLength)) : MPFB_NEUTRAL
+      const targets: BodyTargets = { ...nextMpb, legLength: nextLegLength }
+
+      const allowed = new Set(DETAIL_CONTROLS.map((control) => control.key))
+      const rawDetails = vision.analysis.detail_values ?? vision.analysis.suggested_details ?? {}
+      const nextDetails: DetailValues = {}
+      for (const [key, value] of Object.entries(rawDetails)) {
+        if (allowed.has(key)) nextDetails[key] = Math.max(-1, Math.min(1, value))
+      }
+      const nextDetailTargets = detailValuesToTargets(nextDetails)
+
+      setMpb(nextMpb)
+      setLegLengthOverride(nextLegLength)
+      setDetailValues(nextDetails)
+      setLinkMuscle(false)
+      setVisionState("success")
+      setGenState("running")
+
+      const result = await generateAvatar(targets, [], controller.signal, nextDetailTargets)
+      setGeneratedUrl(`${result.url}?v=${result.jobId}`)
+      setLastJob(result.jobId)
+      setLastResult(result)
+      setGenState("success")
+      setFitInfo({
+        score: Math.round(Math.max(0, Math.min(1, vision.analysis.confidence)) * 100),
+        achieved: result.metrics,
+      })
+      onUseParams?.(targets, nextDetailTargets)
+    } catch (e) {
+      const aborted = controller.signal.aborted
+      setGenState("error")
+      setVisionState("error")
+      setCreateError(
+        aborted
+          ? "Creating the avatar timed out. Check the backend console and try again."
+          : e instanceof Error
+            ? e.message
+            : "Could not create the avatar.",
+      )
+    } finally {
+      window.clearTimeout(timer)
+    }
   }
 
   const onOptimize = async () => {
@@ -738,157 +800,145 @@ export default function CustomizeAvatar({
                   Full body in frame, plain background, arms slightly away from the body. Keep the same stance in both
                   shots.
                 </p>
+                <label className="flex items-start gap-2 text-[11px] text-[#8C8A82]">
+                  <input
+                    type="checkbox"
+                    checked={visionConsent}
+                    onChange={(e) => setVisionConsent(e.target.checked)}
+                    className="mt-0.5 accent-[#556B2F]"
+                  />
+                  <span>I agree to send these two photos to OpenAI for avatar estimation.</span>
+                </label>
                 <button
                   type="button"
-                  onClick={onAnalyzePhotos}
-                  disabled={!frontFile || !sideFile || photoState === "running"}
-                  className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={onCreateAvatar}
+                  disabled={
+                    !frontFile || !sideFile || !visionConsent || visionState === "running" || genState === "running"
+                  }
+                  className="w-full bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {photoState === "running" ? "Analyzing photos…" : "Analyze front + side"}
+                  {visionState === "running"
+                    ? "Reading your photos…"
+                    : genState === "running"
+                      ? "Building your avatar…"
+                      : "Create my avatar"}
                 </button>
-                {photoError && (
-                  <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{photoError}</div>
+                {createError && (
+                  <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{createError}</div>
                 )}
-                {photoAnalysis && (
+                {visionResult && (
                   <div className="bg-white rounded-lg px-3 py-2.5 text-xs text-[#8C8A82] space-y-1">
                     <p>
-                      Confidence <span className="font-semibold text-[#1C1C1C]">{photoAnalysis.confidence}/100</span>
-                      {" · "}front {photoAnalysis.frontQuality}/100
-                      {" · "}side {photoAnalysis.sideQuality}/100
-                    </p>
-                    <p>
-                      Side-depth hints applied: torso{" "}
-                      <span className="font-semibold text-[#1C1C1C] tabular-nums">
-                        {photoAnalysis.detailSuggestions.torsoDepth.toFixed(2)}
+                      <span className="font-semibold text-[#1C1C1C]">
+                        {visionResult.analysis.body_shape.replace("_", " ")}
                       </span>
-                      {" · "}hips{" "}
+                      {" · "}confidence{" "}
                       <span className="font-semibold text-[#1C1C1C] tabular-nums">
-                        {photoAnalysis.detailSuggestions.hipDepth.toFixed(2)}
+                        {Math.round(visionResult.analysis.confidence * 100)}%
                       </span>
                     </p>
-                    <p className="text-[11px]">MediaPipe analysis stays in your browser.</p>
+                    {Object.entries(visionResult.analysis.observations).length > 0 && (
+                      <p className="text-[11px]">
+                        {Object.entries(visionResult.analysis.observations)
+                          .map(([key, observation]) => `${key}: ${observation.relative}`)
+                          .join(" · ")}
+                      </p>
+                    )}
+                    {visionResult.analysis.notes.length > 0 && (
+                      <p className="text-[11px]">{visionResult.analysis.notes[0]}</p>
+                    )}
+                    <p className="text-[11px]">
+                      GPT-4 Vision chose the body parameters. Expand Advanced customization to tweak anything.
+                    </p>
                   </div>
                 )}
 
-                {photoAnalysis && (
-                  <div className="border-t border-[#E2E0D8] pt-3 space-y-2">
-                    <div>
-                      <p className="text-xs font-semibold text-[#1C1C1C]">Silhouette fitting</p>
-                      <p className="text-[11px] text-[#8C8A82] mt-0.5">
-                        Renders your avatar front and side, then uses SciPy to adjust 15 macro and detail controls
-                        until the silhouettes match your photos. Takes roughly 3–5 minutes.
-                      </p>
-                    </div>
+                <details className="border-t border-[#E2E0D8] pt-3">
+                  <summary className="text-xs font-semibold text-[#1C1C1C] cursor-pointer">
+                    Advanced photo tools (optional)
+                  </summary>
+                  <div className="space-y-3 pt-3">
+                    <p className="text-[11px] text-[#8C8A82]">
+                      Run local MediaPipe measurements or use silhouette fitting if the LLM result needs a second pass.
+                    </p>
                     <button
                       type="button"
-                      onClick={onOptimize}
-                      disabled={optState === "running"}
-                      className="w-full bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={onAnalyzePhotos}
+                      disabled={!frontFile || !sideFile || photoState === "running"}
+                      className="w-full bg-white border border-[#E2E0D8] hover:bg-[#E2E0D8] text-[#1C1C1C] text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {optState === "running" ? "Fitting silhouettes…" : "Refine with silhouette fitting"}
+                      {photoState === "running" ? "Analyzing photos…" : "Analyze with MediaPipe"}
                     </button>
-                    {optState === "running" && (
-                      <div className="space-y-1">
-                        <div className="h-2 rounded-full bg-[#E2E0D8] overflow-hidden">
-                          <div
-                            className="h-full bg-[#556B2F] transition-all"
-                            style={{
-                              width: `${Math.min(100, (optProgress.evaluations / Math.max(1, optProgress.maxEvaluations)) * 100)}%`,
-                            }}
-                          />
-                        </div>
-                        <p className="text-[11px] text-[#8C8A82] tabular-nums">
-                          Evaluation {optProgress.evaluations} / {optProgress.maxEvaluations}
-                          {optProgress.bestScore !== null
-                            ? ` · best error ${optProgress.bestScore.toFixed(4)}`
-                            : ""}
-                        </p>
-                      </div>
+                    {photoError && (
+                      <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{photoError}</div>
                     )}
-                    {optError && (
-                      <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{optError}</div>
-                    )}
-                    {optState === "success" && optResult && (
+                    {photoAnalysis && (
                       <div className="bg-white rounded-lg px-3 py-2.5 text-xs text-[#8C8A82] space-y-1">
                         <p>
-                          Silhouette match{" "}
-                          <span className="font-semibold text-[#1C1C1C]">
-                            {Math.round(100 * (0.5 * optResult.fit.iouFront + 0.5 * optResult.fit.iouSide))}/100
-                          </span>
-                          {" · "}front IoU {optResult.fit.iouFront.toFixed(3)}
-                          {" · "}side IoU {optResult.fit.iouSide.toFixed(3)}
+                          Confidence <span className="font-semibold text-[#1C1C1C]">{photoAnalysis.confidence}/100</span>
+                          {" · "}front {photoAnalysis.frontQuality}/100
+                          {" · "}side {photoAnalysis.sideQuality}/100
                         </p>
                         <p>
-                          {optResult.evaluations} evaluations in {optResult.elapsedSeconds.toFixed(0)}s. The optimized
-                          body is now in the viewer.
+                          Side-depth hints: torso{" "}
+                          <span className="font-semibold text-[#1C1C1C] tabular-nums">
+                            {photoAnalysis.detailSuggestions.torsoDepth.toFixed(2)}
+                          </span>
+                          {" · "}hips{" "}
+                          <span className="font-semibold text-[#1C1C1C] tabular-nums">
+                            {photoAnalysis.detailSuggestions.hipDepth.toFixed(2)}
+                          </span>
                         </p>
                       </div>
                     )}
+                    {photoAnalysis && (
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={onOptimize}
+                          disabled={optState === "running"}
+                          className="w-full bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {optState === "running" ? "Fitting silhouettes…" : "Refine with silhouette fitting"}
+                        </button>
+                        {optState === "running" && (
+                          <div className="space-y-1">
+                            <div className="h-2 rounded-full bg-[#E2E0D8] overflow-hidden">
+                              <div
+                                className="h-full bg-[#556B2F] transition-all"
+                                style={{
+                                  width: `${Math.min(100, (optProgress.evaluations / Math.max(1, optProgress.maxEvaluations)) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                            <p className="text-[11px] text-[#8C8A82] tabular-nums">
+                              Evaluation {optProgress.evaluations} / {optProgress.maxEvaluations}
+                              {optProgress.bestScore !== null
+                                ? ` · best error ${optProgress.bestScore.toFixed(4)}`
+                                : ""}
+                            </p>
+                          </div>
+                        )}
+                        {optError && (
+                          <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{optError}</div>
+                        )}
+                        {optState === "success" && optResult && (
+                          <div className="bg-white rounded-lg px-3 py-2.5 text-xs text-[#8C8A82] space-y-1">
+                            <p>
+                              Silhouette match{" "}
+                              <span className="font-semibold text-[#1C1C1C]">
+                                {Math.round(100 * (0.5 * optResult.fit.iouFront + 0.5 * optResult.fit.iouSide))}/100
+                              </span>
+                            </p>
+                            <p>
+                              {optResult.evaluations} evaluations in {optResult.elapsedSeconds.toFixed(0)}s.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
-
-                <div className="border-t border-[#E2E0D8] pt-3 space-y-2">
-                  <div>
-                    <p className="text-xs font-semibold text-[#1C1C1C]">Optional GPT-4 Vision second opinion</p>
-                    <p className="text-[11px] text-[#8C8A82] mt-0.5">
-                      Sends both photos to OpenAI for relative shape observations. It never replaces the MediaPipe
-                      measurements; it only suggests bounded detail-target nudges.
-                    </p>
-                  </div>
-                  <label className="flex items-start gap-2 text-[11px] text-[#8C8A82]">
-                    <input
-                      type="checkbox"
-                      checked={visionConsent}
-                      onChange={(e) => setVisionConsent(e.target.checked)}
-                      className="mt-0.5 accent-[#556B2F]"
-                    />
-                    <span>I agree to send these two photos to OpenAI for this analysis.</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={onVisionAnalyze}
-                    disabled={!frontFile || !sideFile || !visionConsent || visionState === "running"}
-                    className="w-full bg-white border border-[#E2E0D8] hover:bg-[#E2E0D8] text-[#1C1C1C] text-sm font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {visionState === "running" ? "Asking GPT-4 Vision…" : "Analyze with GPT-4 Vision"}
-                  </button>
-                  {visionError && (
-                    <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{visionError}</div>
-                  )}
-                  {visionResult && (
-                    <div className="bg-white rounded-lg px-3 py-2.5 text-xs text-[#8C8A82] space-y-1">
-                      <p>
-                        Shape{" "}
-                        <span className="font-semibold text-[#1C1C1C]">
-                          {visionResult.analysis.body_shape.replace("_", " ")}
-                        </span>
-                        {" · "}front quality{" "}
-                        <span className="font-semibold text-[#1C1C1C] tabular-nums">
-                          {Math.round(visionResult.analysis.photo_quality.front * 100)}%
-                        </span>
-                        {" · "}side quality{" "}
-                        <span className="font-semibold text-[#1C1C1C] tabular-nums">
-                          {Math.round(visionResult.analysis.photo_quality.side * 100)}%
-                        </span>
-                      </p>
-                      {Object.entries(visionResult.analysis.observations).length > 0 && (
-                        <p className="text-[11px]">
-                          {Object.entries(visionResult.analysis.observations)
-                            .map(([key, observation]) => `${key}: ${observation.relative}`)
-                            .join(" · ")}
-                        </p>
-                      )}
-                      {visionResult.analysis.notes.length > 0 && (
-                        <ul className="text-[11px] list-disc pl-4 space-y-0.5">
-                          {visionResult.analysis.notes.slice(0, 3).map((note) => (
-                            <li key={note}>{note}</li>
-                          ))}
-                        </ul>
-                      )}
-                      <p className="text-[11px]">Relative observations only — not exact measurements.</p>
-                    </div>
-                  )}
-                </div>
+                </details>
               </div>
             )}
 
@@ -1054,6 +1104,11 @@ export default function CustomizeAvatar({
             </div>
           )}
 
+          <details className="rounded-xl border border-[#E2E0D8] bg-white/40 p-2">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-[#1C1C1C]">
+              Advanced customization (optional)
+            </summary>
+            <div className="space-y-6 pt-2">
           <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
             <div>
               <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Body shape parameters</h3>
@@ -1183,10 +1238,33 @@ export default function CustomizeAvatar({
               <div className="bg-[#F5E0E0] text-[#8A2E2E] text-xs rounded-lg px-3 py-2.5">{genError}</div>
             )}
           </div>
+            </div>
+          </details>
         </div>
 
         <div className="space-y-4">
           <AvatarCanvas url={generatedUrl ?? undefined} />
+          {genState === "success" && (
+            <div className="grid grid-cols-2 gap-2">
+              {onGoToTryOn && (
+                <button
+                  onClick={onGoToTryOn}
+                  className="bg-[#1C1C1C] hover:bg-[#333] text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+                >
+                  Try on outfits →
+                </button>
+              )}
+              {generatedUrl && (
+                <a
+                  href={generatedUrl}
+                  download
+                  className="text-center bg-white border border-[#E2E0D8] hover:bg-[#E2E0D8] text-[#1C1C1C] text-sm font-semibold py-2.5 rounded-lg transition-colors"
+                >
+                  Download GLB
+                </a>
+              )}
+            </div>
+          )}
           <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-3">
             <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Current targets</h3>
             <div className="grid grid-cols-3 gap-3">

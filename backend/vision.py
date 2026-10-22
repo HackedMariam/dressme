@@ -89,6 +89,16 @@ OBSERVATION_KEYS = {
     "calves",
     "legs",
 }
+ALLOWED_TARGET_KEYS = {
+    "gender",
+    "age",
+    "muscle",
+    "weight",
+    "proportions",
+    "cupsize",
+    "firmness",
+    "legLength",
+}
 
 
 class VisionError(Exception):
@@ -118,15 +128,16 @@ def _data_url(data: bytes, content_type: str) -> str:
     return f"data:{content_type};base64,{base64.b64encode(data).decode('ascii')}"
 
 
-PROMPT = """You are a body-shape analyst for a virtual try-on avatar.
+PROMPT = """You are the body-shape analyst for a virtual try-on avatar.
 
 Look at the front and side photos of the same person. The user's height is
-{height_cm:.1f} cm. Do NOT return centimetres or claim exact measurements. Use
-only relative descriptions and confidences.
+{height_cm:.1f} cm, so do NOT estimate or return height in centimetres. Your job
+is to choose MPFB avatar parameters from the *relative* shape you see.
 
 Return one JSON object with exactly this structure:
 {{
   "body_shape": "hourglass|rectangle|inverted_triangle|pear|apple|unknown",
+  "confidence": 0.0,
   "photo_quality": {{"front": 0.0, "side": 0.0, "notes": ["..."]}},
   "posture": {{"shoulders": "...", "spine": "...", "stance": "...", "camera": "..."}},
   "observations": {{
@@ -140,7 +151,11 @@ Return one JSON object with exactly this structure:
     "calves": {{"relative": "slim|average|full", "confidence": 0.0}},
     "legs": {{"relative": "short|average|long", "confidence": 0.0}}
   }},
-  "suggested_details": {{
+  "targets": {{
+    "gender": 0.5, "age": 0.5, "muscle": 0.5, "weight": 0.5,
+    "proportions": 0.5, "cupsize": 0.5, "firmness": 0.5, "legLength": 0.5
+  }},
+  "detail_values": {{
     "shoulders": 0.0, "bust": 0.0, "underbust": 0.0, "waist": 0.0,
     "hips": 0.0, "waistToHip": 0.0, "chestDepth": 0.0, "torsoDepth": 0.0,
     "vShape": 0.0, "hipWidth": 0.0, "hipDepth": 0.0, "belly": 0.0,
@@ -150,11 +165,18 @@ Return one JSON object with exactly this structure:
   "notes": ["short, useful caveats"]
 }}
 
-suggested_details values must be between -1.0 and 1.0, where 0 means no change,
-positive means larger/longer and negative means smaller/shorter. Confidence
-values must be between 0.0 and 1.0. If a photo is unclear, lower the confidence
-instead of guessing. Mention clothing, pose, camera angle, and segmentation
-problems in the notes."""
+Rules:
+- All targets are 0.0-1.0, with 0.5 as neutral. gender: 0 feminine, 1 masculine.
+  age: 0 young, 1 old. muscle/weight/proportions: 0 low, 1 high. cupsize and
+  firmness are relative. legLength: 0 short, 1 long.
+- All detail_values are -1.0 to 1.0, with 0 meaning no change, positive meaning
+  larger/longer, and negative meaning smaller/shorter.
+- confidence and every observation confidence are 0.0-1.0.
+- Use the front photo for widths and the side photo for depth/posture.
+- Do not return centimetres, do not claim exact measurements, and do not guess
+  identity or sensitive attributes. If something is unclear, stay near 0.5/0.0
+  and lower the confidence.
+- Mention clothing, pose, camera angle, and lighting problems in the notes."""
 
 
 def _clean_analysis(raw: dict) -> dict:
@@ -176,18 +198,28 @@ def _clean_analysis(raw: dict) -> dict:
             "confidence": round(_clamp(_number(value.get("confidence")), 0.0, 1.0), 3),
         }
 
-    suggested: dict[str, float] = {}
-    raw_suggested = raw.get("suggested_details") if isinstance(raw.get("suggested_details"), dict) else {}
-    for key, value in raw_suggested.items():
+    targets: dict[str, float] = {}
+    raw_targets = raw.get("targets") if isinstance(raw.get("targets"), dict) else {}
+    for key, value in raw_targets.items():
+        if key not in ALLOWED_TARGET_KEYS:
+            continue
+        targets[key] = round(_clamp(_number(value, 0.5), 0.0, 1.0), 3)
+
+    detail_values: dict[str, float] = {}
+    raw_details = raw.get("detail_values") if isinstance(raw.get("detail_values"), dict) else {}
+    if not raw_details and isinstance(raw.get("suggested_details"), dict):
+        raw_details = raw["suggested_details"]
+    for key, value in raw_details.items():
         if key not in ALLOWED_DETAIL_KEYS:
             continue
         number = _clamp(_number(value), -1.0, 1.0)
         if abs(number) >= 0.01:
-            suggested[key] = round(number, 2)
+            detail_values[key] = round(number, 2)
 
     notes = raw.get("notes") if isinstance(raw.get("notes"), list) else []
     return {
         "body_shape": shape,
+        "confidence": round(_clamp(_number(raw.get("confidence"), 0.5), 0.0, 1.0), 3),
         "photo_quality": {
             "front": round(_clamp(_number(quality.get("front"), 0.0), 0.0, 1.0), 3),
             "side": round(_clamp(_number(quality.get("side"), 0.0), 0.0, 1.0), 3),
@@ -195,7 +227,8 @@ def _clean_analysis(raw: dict) -> dict:
         },
         "posture": {str(key)[:40]: str(value)[:120] for key, value in list(posture.items())[:8]},
         "observations": observations,
-        "suggested_details": suggested,
+        "targets": targets,
+        "detail_values": detail_values,
         "notes": [str(note)[:240] for note in notes][:8],
     }
 

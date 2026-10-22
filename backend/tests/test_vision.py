@@ -30,7 +30,9 @@ def test_vision_route_returns_cleaned_analysis(monkeypatch):
             "model": "gpt-test",
             "analysis": {
                 "body_shape": "pear",
-                "suggested_details": {"hips": 0.2},
+                "confidence": 0.8,
+                "targets": {"weight": 0.6, "legLength": 0.55},
+                "detail_values": {"hips": 0.2},
                 "photo_quality": {"front": 0.8, "side": 0.7, "notes": []},
                 "posture": {},
                 "observations": {},
@@ -52,7 +54,8 @@ def test_vision_route_returns_cleaned_analysis(monkeypatch):
     body = response.json()
     assert body["ok"] is True
     assert body["analysis"]["body_shape"] == "pear"
-    assert body["analysis"]["suggested_details"]["hips"] == 0.2
+    assert body["analysis"]["targets"]["weight"] == 0.6
+    assert body["analysis"]["detail_values"]["hips"] == 0.2
 
 
 def test_vision_route_requires_both_photos():
@@ -100,13 +103,17 @@ def test_clean_analysis_clamps_and_filters():
                 "waist": {"relative": "narrow", "confidence": 2},
                 "bogus": {"relative": "wide", "confidence": 1},
             },
-            "suggested_details": {"waist": 5, "hips": -0.4, "bogus": 0.5},
+            "confidence": 2,
+            "targets": {"weight": 2, "bogus": 0.5},
+            "detail_values": {"waist": 5, "hips": -0.4, "bogus": 0.5},
             "notes": ["clothing hides the waist"],
         }
     )
     assert cleaned["body_shape"] == "unknown"
+    assert cleaned["confidence"] == 1.0
     assert cleaned["photo_quality"]["front"] == 1.0
     assert cleaned["photo_quality"]["side"] == 0.0
     assert cleaned["observations"]["waist"]["confidence"] == 1.0
     assert "bogus" not in cleaned["observations"]
-    assert cleaned["suggested_details"] == {"waist": 1.0, "hips": -0.4}
+    assert cleaned["targets"] == {"weight": 1.0}
+    assert cleaned["detail_values"] == {"waist": 1.0, "hips": -0.4}
