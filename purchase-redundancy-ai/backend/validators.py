@@ -136,6 +136,7 @@ class FeedbackRequest(_Lenient):
 
 class CameraCaptureRequest(_Lenient):
     image_base64: ImageData
+    top_k: int = Field(5, ge=1, le=24)  # catalog look-alikes to return (Find Similar asks for more)
 
 
 # ----------------------------------------------------------------------------
@@ -203,3 +204,25 @@ class ClientEventIn(_Strict):
 class ClientEventBatch(_Strict):
     session_id: Optional[Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9\-]{8,64}$")]] = None
     events: List[ClientEventIn] = Field(min_length=1, max_length=50)
+
+
+# ----------------------------------------------------------------------------
+# Outfit Studio & comparisons
+# ----------------------------------------------------------------------------
+
+Occasion = Literal["wedding", "interview", "office", "party", "date", "gym", "hiking", "beach", "casual"]
+
+
+class OutfitScoreRequest(_Strict):
+    item_ids: List[Identifier] = Field(min_length=1, max_length=10)
+
+
+class OutfitSaveRequest(_Strict):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    item_ids: List[Identifier] = Field(min_length=2, max_length=10)
+    occasion: Optional[Occasion] = None
+
+
+class CompareRequest(_Strict):
+    item_a: Identifier
+    item_b: Identifier

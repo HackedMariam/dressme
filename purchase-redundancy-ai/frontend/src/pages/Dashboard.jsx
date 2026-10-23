@@ -4,6 +4,7 @@ import { track } from '../utils/analytics';
 import Icon from '../components/Icon';
 import { HBars, Kpi, Legend, StackedColumns, SystemHealth, VERDICT_SERIES, VerdictTable, fillDays } from '../components/charts';
 import { ColorDot, Empty, ItemCard, ScoreRing } from '../components/ui';
+import Proposal from '../components/Proposal';
 import { categoryLabel, formatPrice, genderLabel } from '../labels';
 
 const RANGES = [{ days: 7, label: '7 j' }, { days: 30, label: '30 j' }, { days: 90, label: '90 j' }];
@@ -15,18 +16,28 @@ const SCORES = [
 ];
 const SEVERITY = { high: { label: 'Prioritaire', tone: 'bad' }, medium: { label: 'Conseillé', tone: 'warn' }, low: { label: 'Bonus', tone: 'good' } };
 const STATUS = { low: 'Manque', ok: 'Équilibré', high: 'Trop' };
-const PAGE_NAMES = { home: 'Accueil', scan: 'Analyser', agent: 'Conseiller', wardrobe: 'Garde-robe', catalog: 'Catalogue', stats: 'Tableau de bord' };
+const PAGE_NAMES = { home: 'Accueil', scan: 'Dois-je l’acheter ?', agent: 'Styliste IA', wardrobe: 'Garde-robe', catalog: 'Trouver similaire', stats: 'Tableau de bord', studio: 'Studio', profile: 'Profil de style' };
 const SOURCE_NAMES = { openai: 'GPT', claude: 'Claude', rules: 'Règles locales' };
 
 const healthTone = (v) => (v >= 75 ? 'good' : v >= 50 ? 'warn' : 'bad');
 
-export default function Dashboard({ notify, liveTick, user, wardrobe, refreshWardrobe, refreshStatus, openStarter, openCatalog, go }) {
+export default function Dashboard({ notify, liveTick, user, wardrobe, refreshWardrobe, refreshStatus, refreshActions, openStarter, openCatalog, go }) {
   const [report, setReport] = useState(null);
   const [activity, setActivity] = useState(null);
   const [system, setSystem] = useState(null);
   const [days, setDays] = useState(30);
   const [asTable, setAsTable] = useState(false);
   const [allDuplicates, setAllDuplicates] = useState(false);
+  const [daily, setDaily] = useState(null);
+  const [actions, setActions] = useState([]);
+
+  const loadActions = useCallback(() => api.get('/agent/actions', { params: { status: 'pending' } })
+    .then((r) => setActions(r.data.items)).catch(() => setActions([])), []);
+  useEffect(() => { loadActions(); }, [loadActions, liveTick, wardrobe.length]);
+  useEffect(() => {
+    if (!wardrobe.length) { setDaily(null); return; }
+    api.get('/outfits/daily').then((r) => setDaily(r.data)).catch(() => setDaily(null));
+  }, [wardrobe.length, user?.id]);
 
   const loadReport = useCallback(() => api.get('/insights').then((r) => setReport(r.data))
     .catch((e) => notify(errorMessage(e), 'bad')), [notify]);
@@ -60,13 +71,28 @@ export default function Dashboard({ notify, liveTick, user, wardrobe, refreshWar
 
   return (
     <div className="page dashboard">
-      <header className="page-head">
+      <header className="page-head greeting">
         <div>
-          <h2>Tableau de bord</h2>
-          <p>{user ? `${user.display_name || user.email} · ${genderLabel(user.gender)}` : 'Garde-robe invitée'} — l’analyse de votre garde-robe et vos conseils.</p>
+          <h2>{greeting()}, {user ? (user.display_name || user.email).split(' ')[0] : 'bienvenue'}.</h2>
+          <p>{new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} · {user ? genderLabel(user.gender) : 'Garde-robe invitée'} · {wardrobe.length} pièces</p>
         </div>
-        <button className="btn btn-ghost" onClick={() => go('agent')}><Icon name="agent" /> Demander au conseiller</button>
+        <button className="btn btn-ghost" onClick={() => go('agent')}><Icon name="agent" /> Demander au styliste</button>
       </header>
+
+      {daily?.outfit && <DailyLook daily={daily} go={go} />}
+
+      {actions.length > 0 && (
+        <section className="card">
+          <h3>L’agent attend votre accord</h3>
+          <p className="muted small" style={{ marginBottom: 12 }}>Ce que le styliste a repéré ou préparé pour vous. Rien n’est modifié sans votre approbation.</p>
+          <div className="actions-list">
+            {actions.map((a) => (
+              <Proposal key={a.id} action={a} notify={notify}
+                onDecided={() => { loadActions(); refreshActions?.(); refreshWardrobe(); refreshStatus(); }} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {report.empty ? (
         <Empty icon="hanger" title="Votre garde-robe est vide">
@@ -275,5 +301,43 @@ export default function Dashboard({ notify, liveTick, user, wardrobe, refreshWar
         {report.computed_ms !== undefined && <p className="muted small">Diagnostic calculé en {report.computed_ms} ms.</p>}
       </details>
     </div>
+  );
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  return h < 5 ? 'Bonsoir' : h < 18 ? 'Bonjour' : 'Bonsoir';
+}
+
+/** The agent's look of the day - a real outfit from the wardrobe, scored by the engine */
+function DailyLook({ daily, go }) {
+  const pieces = daily.outfit.pieces;
+  const SEASON = { winter: 'd’hiver', summer: 'd’été', spring: 'de printemps', fall: 'd’automne' };
+  return (
+    <section className="night daily">
+      <div className="daily-main">
+        <div>
+          <span className="night-eyebrow">Recommandation IA du jour</span>
+          <h3>La tenue {SEASON[daily.season] || 'du jour'}</h3>
+          <p>{daily.feedback?.[0]}</p>
+        </div>
+        <div className="daily-pieces">
+          {pieces.map((p) => (
+            <div key={p.id} className="daily-piece"><small>{categoryLabel(p.category)}</small><span>{p.name}</span></div>
+          ))}
+        </div>
+        <div className="daily-score">
+          <ScoreRing value={daily.outfit.score} size={64} label="" />
+          <div>
+            <strong>Score de synergie</strong>
+            <small>{daily.why.join(' · ')}</small>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => go('studio')} style={{ marginLeft: 'auto' }}>Ouvrir le studio</button>
+        </div>
+      </div>
+      <div className="daily-visual">
+        {pieces.slice(0, 4).map((p) => <img key={p.id} src={asset(p.image_url)} alt={p.name} />)}
+      </div>
+    </section>
   );
 }

@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, asset, errorMessage } from '../api';
 import Icon from '../components/Icon';
 import WardrobeNudges from '../components/Nudges';
 import { Empty, Field, ItemCard, PhotoPicker, Select } from '../components/ui';
 import { CATEGORIES, COLORS, MATERIALS, STYLES, formatPrice, materialLabel, styleLabel } from '../labels';
 
-export default function Wardrobe({ wardrobe, refreshWardrobe, refreshStatus, addToWardrobe, notify, go, openStarter, openProfile, user }) {
+export default function Wardrobe({ wardrobe, refreshWardrobe, refreshStatus, addToWardrobe, notify, go, openStarter, openProfile, user, addRequest }) {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
+  useEffect(() => { if (addRequest) setAdding(true); }, [addRequest]);  // "+ Ajouter une pièce" in the sidebar
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
 

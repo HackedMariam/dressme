@@ -99,7 +99,7 @@ class OpenAIClient:
 
     def run_agent(self, user_message: str, wardrobe: List[Dict], engine, max_iterations: int = 8,
                   on_step=None, image: Optional[str] = None, profile: Optional[Dict] = None,
-                  history: Optional[List[Dict]] = None) -> Dict:
+                  history: Optional[List[Dict]] = None, actions=None) -> Dict:
         """Tool-use loop: GPT picks the tools; the photo (data URL) goes to GPT vision directly"""
         if not self.available:
             raise RuntimeError(self.error or "OpenAI unavailable")
@@ -116,7 +116,7 @@ class OpenAIClient:
                 on_step(step)
             return text
 
-        tools = build_tools(engine, wardrobe, record, profile)
+        tools = build_tools(engine, wardrobe, record, profile, actions)
         wardrobe_text = "\n".join(
             f"- {i.get('name')} ({i.get('category')}, {i.get('color')}, {i.get('material')}, {i.get('style')})"
             for i in wardrobe) or "- (vide)"

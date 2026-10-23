@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, errorMessage } from '../api';
+import AnalysisHistory from '../components/AnalysisHistory';
 import { track } from '../utils/analytics';
 import Icon from '../components/Icon';
 import { Bar, Field, ItemCard, PhotoPicker, ScoreRing, Select, VerdictPill } from '../components/ui';
@@ -88,8 +89,8 @@ export default function Scan({ wardrobe, stats, addToWardrobe, notify, refreshSt
     <div className="page">
       <header className="page-head">
         <div>
-          <h2>Analyser un article</h2>
-          <p>Comparé à vos {wardrobe.length} pièces et aux {stats?.products_in_catalog ?? "…"} produits du catalogue.</p>
+          <h2>Dois-je l’acheter ?</h2>
+          <p>Photographiez l’article en magasin ou décrivez-le : il est comparé à vos {wardrobe.length} pièces avant que vous passiez en caisse.</p>
         </div>
         {(photo || result) && <button className="btn btn-ghost" onClick={reset}>Nouvel article</button>}
       </header>
@@ -142,6 +143,7 @@ export default function Scan({ wardrobe, stats, addToWardrobe, notify, refreshSt
 
       {result && <Result result={result} photo={photo} feedback={feedback} onFeedback={sendFeedback}
         onBought={() => addToWardrobe({ ...result.new_item, image_base64: photo }, result.new_item.name)} />}
+      <AnalysisHistory refreshKey={result?.analysis_id} />
     </div>
   );
 }

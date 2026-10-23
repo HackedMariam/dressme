@@ -161,7 +161,7 @@ class ClaudeClient:
 
     def run_agent(self, user_message: str, wardrobe: List[Dict], engine, max_iterations: int = 8,
                   on_step=None, image: Optional[str] = None, profile: Optional[Dict] = None,
-                  history: Optional[List[Dict]] = None) -> Dict:
+                  history: Optional[List[Dict]] = None, actions=None) -> Dict:
         """Tool-use loop over the shared toolset (agent_tools) - same tools and prompt as the GPT agent"""
         if not self.available:
             raise RuntimeError(self.error or "Claude unavailable")
@@ -177,7 +177,7 @@ class ClaudeClient:
                 on_step(step)
             return text
 
-        tools = build_tools(engine, wardrobe, record, profile)
+        tools = build_tools(engine, wardrobe, record, profile, actions)
         wardrobe_text = "\n".join(
             f"- {i.get('name')} ({i.get('category')}, {i.get('color')}, {i.get('material')}, {i.get('style')})"
             for i in wardrobe) or "- (vide)"

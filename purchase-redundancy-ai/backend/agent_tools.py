@@ -17,11 +17,23 @@ OCCASIONS = ["wedding", "interview", "office", "party", "date", "gym", "hiking",
 SEASONS = ["winter", "spring", "summer", "fall"]
 
 
-def build_tools(engine, wardrobe: List[Dict], record: Callable[..., str], profile: Optional[Dict] = None):
+class AgentActions:
+    """What the agent may change for a user: it saves outfits directly, and turns wardrobe changes into
+    proposals the user approves or rejects (main.py executes them on approval)"""
+
+    def __init__(self, save_outfit: Callable[..., Dict], propose: Callable[..., Dict]):
+        self.save_outfit = save_outfit   # (name, item_ids, occasion, score) -> outfit
+        self.propose = propose           # (kind, title, detail, payload) -> pending action
+
+
+def build_tools(engine, wardrobe: List[Dict], record: Callable[..., str], profile: Optional[Dict] = None,
+                actions: Optional[AgentActions] = None):
     """Return {name: (function, json_schema_function_spec)}.
     record(tool, input, output, cards=None) stores the step and returns the JSON text given to the model."""
-    from wardrobe_insights import DRESS_CODE, analyze_wardrobe, compose_outfits, shopping_suggestions
+    from wardrobe_insights import (DRESS_CODE, _slim, analyze_wardrobe, compare_pieces, compose_outfits,
+                                   score_outfit as score_outfit_fn, shopping_suggestions)
 
+    catalog_by_id = {p["id"]: p for p in engine.catalog}
     profile = profile or {}
     gender = profile.get("gender") or "Unspecified"
     has_gender = any(p.get("gender") for p in engine.catalog)
@@ -59,8 +71,83 @@ def build_tools(engine, wardrobe: List[Dict], record: Callable[..., str], profil
                       cards={"suggestions": slim[:4]})
 
     def get_wardrobe() -> str:
-        slim = [{k: w.get(k) for k in ("name", "category", "color", "style", "material", "season", "price")} for w in wardrobe]
+        slim = [{k: w.get(k) for k in ("id", "name", "category", "color", "style", "material", "season", "price")}
+                for w in wardrobe]
         return record("get_wardrobe", {}, slim)
+
+    by_id = {w.get("id"): w for w in wardrobe}
+
+    def resolve(ref: str) -> Optional[Dict]:
+        """A piece by id, or by name (exact, then partial) - models often quote the name they read"""
+        if ref in by_id:
+            return by_id[ref]
+        text = (ref or "").strip().lower()
+        exact = [w for w in wardrobe if (w.get("name") or "").lower() == text]
+        partial = [w for w in wardrobe if text and text in (w.get("name") or "").lower()]
+        return (exact or partial or [None])[0]
+
+    def resolve_all(refs: List[str]):
+        found, missing = [], []
+        for ref in refs or []:
+            piece = resolve(str(ref))
+            (found if piece else missing).append(piece or ref)
+        unique = list({p["id"]: p for p in found}.values())
+        return unique, missing
+
+    # ---- computations
+
+    def score_outfit(item_ids: List[str]) -> str:
+        pieces, missing = resolve_all(item_ids)
+        result = score_outfit_fn(pieces, wardrobe)
+        result["unknown_pieces"] = missing
+        return record("score_outfit", {"item_ids": item_ids}, {k: v for k, v in result.items() if k != "add"} |
+                      {"add_suggestions": [p["name"] for p in result["add"]]},
+                      cards={"outfit_score": dict(result, pieces=[_slim(p) for p in pieces])})
+
+    def compare_items(item_a: str, item_b: str) -> str:
+        a, b = resolve(item_a), resolve(item_b)
+        if not a or not b:
+            return record("compare_items", {"item_a": item_a, "item_b": item_b},
+                          {"error": "piece not found - call get_wardrobe for the exact ids or names"})
+        result = compare_pieces(a, b, engine)
+        return record("compare_items", {"item_a": a["name"], "item_b": b["name"]},
+                      {k: v for k, v in result.items() if k not in ("a", "b")}, cards={"comparison": result})
+
+    # ---- actions (non-destructive ones run directly; changes to the wardrobe wait for the user's approval)
+
+    def save_outfit(name: str, item_ids: List[str], occasion: str = "") -> str:
+        pieces, missing = resolve_all(item_ids)
+        if actions is None or len(pieces) < 2:
+            return record("save_outfit", {"name": name}, {"error": "need at least 2 known pieces" if actions else
+                                                          "saving is not available"})
+        score = score_outfit_fn(pieces)["score"]
+        saved = actions.save_outfit(name[:120], [p["id"] for p in pieces], occasion or None, score)
+        return record("save_outfit", {"name": name, "item_ids": [p["id"] for p in pieces]},
+                      {"saved": True, "outfit_id": saved["id"], "score": score, "unknown_pieces": missing},
+                      cards={"saved_outfit": dict(saved, pieces=[_slim(p) for p in pieces])})
+
+    def propose_remove_items(item_ids: List[str], reason: str) -> str:
+        pieces, missing = resolve_all(item_ids)
+        if actions is None or not pieces:
+            return record("propose_remove_items", {"item_ids": item_ids}, {"error": "no known piece to remove"})
+        names = ", ".join(p["name"] for p in pieces)
+        proposal = actions.propose("remove_items", f"Retirer {len(pieces)} pièce{'s' if len(pieces) > 1 else ''} : {names}"[:200],
+                                   reason, {"item_ids": [p["id"] for p in pieces], "pieces": [_slim(p) for p in pieces]})
+        return record("propose_remove_items", {"item_ids": [p["id"] for p in pieces], "reason": reason},
+                      {"proposal_id": proposal["id"], "status": "pending - waiting for the user's approval",
+                       "unknown_pieces": missing}, cards={"proposals": [proposal]})
+
+    def propose_add_items(product_ids: List[str], reason: str) -> str:
+        products = [catalog_by_id[p] for p in product_ids or [] if p in catalog_by_id]
+        if actions is None or not products:
+            return record("propose_add_items", {"product_ids": product_ids}, {"error": "no known catalog product"})
+        names = ", ".join(p["name"] for p in products)
+        proposal = actions.propose("add_items", f"Ajouter {len(products)} pièce{'s' if len(products) > 1 else ''} : {names}"[:200],
+                                   reason, {"product_ids": [p["id"] for p in products],
+                                            "pieces": [_slim(dict(p, color=p.get("primary_color"))) for p in products]})
+        return record("propose_add_items", {"product_ids": [p["id"] for p in products], "reason": reason},
+                      {"proposal_id": proposal["id"], "status": "pending - waiting for the user's approval"},
+                      cards={"proposals": [proposal]})
 
     def get_wardrobe_insights() -> str:
         report = insights()
@@ -173,7 +260,32 @@ def build_tools(engine, wardrobe: List[Dict], record: Callable[..., str], profil
             {"query": {**s, "description": "English description, e.g. black leather chelsea boots"},
              "category": s, "top_k": {"type": "integer"}, "max_price": {"type": "number", "description": "0 = no limit"}},
             ["query"])),
-        "get_wardrobe": (get_wardrobe, spec("get_wardrobe", "List every item the shopper owns (raw list).", {}, [])),
+        "get_wardrobe": (get_wardrobe, spec(
+            "get_wardrobe", "List every piece the shopper owns, with its id (use the ids with the tools below).", {}, [])),
+        "score_outfit": (score_outfit, spec(
+            "score_outfit", "Synergy score 0-100 of a set of OWNED pieces (color harmony, completeness, style and season "
+            "coherence, doubled roles), with feedback and owned pieces that would complete it.",
+            {"item_ids": {"type": "array", "items": s, "description": "ids (or exact names) from get_wardrobe"}}, ["item_ids"])),
+        "compare_items": (compare_items, spec(
+            "compare_items", "Similarity score between two OWNED pieces (CLIP image + text, attributes) and whether "
+            "they are duplicates.", {"item_a": {**s, "description": "id or name"}, "item_b": {**s, "description": "id or name"}},
+            ["item_a", "item_b"])),
+        "save_outfit": (save_outfit, spec(
+            "save_outfit", "ACTION - save an outfit of owned pieces to the user's Outfit Studio. Only when the user asks "
+            "to save or keep a look.",
+            {"name": {**s, "description": "short French name, e.g. Entretien d'hiver"},
+             "item_ids": {"type": "array", "items": s}, "occasion": {"type": "string", "enum": OCCASIONS}},
+            ["name", "item_ids"])),
+        "propose_remove_items": (propose_remove_items, spec(
+            "propose_remove_items", "ACTION (needs approval) - propose removing owned pieces, e.g. the extra pieces of a "
+            "duplicate group. Creates a proposal card the user approves or rejects; nothing is removed yet.",
+            {"item_ids": {"type": "array", "items": s}, "reason": {**s, "description": "one French sentence"}},
+            ["item_ids", "reason"])),
+        "propose_add_items": (propose_add_items, spec(
+            "propose_add_items", "ACTION (needs approval) - propose adding catalog products the user says they bought. "
+            "Creates a proposal card; nothing is added yet.",
+            {"product_ids": {"type": "array", "items": s, "description": "catalog ids from search_catalog"},
+             "reason": {**s, "description": "one French sentence"}}, ["product_ids", "reason"])),
         "list_features": (list_features, spec("list_features", "List the 31 analysis features and their parameters.", {}, [])),
         "run_feature": (run_feature, spec(
             "run_feature",

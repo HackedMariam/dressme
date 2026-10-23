@@ -284,6 +284,41 @@ class ClientEvent(Base):
     __table_args__ = (Index("ix_client_events_name_created", "name", "created_at"),)
 
 # ============================================================================
+# OUTFITS & AGENT ACTIONS
+# ============================================================================
+
+class SavedOutfit(Base):
+    """A look saved from the Outfit Studio or by the agent"""
+    __tablename__ = "saved_outfits"
+
+    id = Column(String(50), primary_key=True)
+    user_id = Column(String(50), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    occasion = Column(String(30), nullable=True)
+    item_ids = Column(JSON, nullable=False)
+    score = Column(Integer, nullable=True)
+    source = Column(String(10), default="user")       # user | agent
+    created_at = Column(DateTime, default=_utcnow)
+
+
+class AgentAction(Base):
+    """What the agent did or wants to do. Changes to the wardrobe are proposals the user approves or rejects;
+    alerts come from the agent watching new pieces on its own."""
+    __tablename__ = "agent_actions"
+
+    id = Column(String(50), primary_key=True)
+    user_id = Column(String(50), nullable=False, index=True)
+    kind = Column(String(20), nullable=False)          # remove_items | add_items | duplicate_alert
+    status = Column(String(12), nullable=False, default="pending", index=True)  # pending | done | rejected
+    title = Column(String(200), nullable=False)
+    detail = Column(Text, nullable=True)
+    payload = Column(JSON, nullable=True)
+    result = Column(JSON, nullable=True)
+    source = Column(String(20), default="agent")       # agent (asked in chat) | watcher (proactive)
+    created_at = Column(DateTime, default=_utcnow, index=True)
+    decided_at = Column(DateTime, nullable=True)
+
+# ============================================================================
 # DATABASE MANAGER
 # ============================================================================
 
@@ -648,6 +683,80 @@ class DatabaseManager:
     # --------
     # ANALYTICS
     # --------
+
+    # --------
+    # OUTFITS
+    # --------
+
+    @staticmethod
+    def _outfit_dict(outfit: "SavedOutfit") -> Dict:
+        return {"id": outfit.id, "name": outfit.name, "occasion": outfit.occasion, "item_ids": outfit.item_ids,
+                "score": outfit.score, "source": outfit.source,
+                "created_at": outfit.created_at.isoformat() if outfit.created_at else None}
+
+    def save_outfit(self, outfit_id: str, user_id: str, name: str, item_ids: List[str], occasion: Optional[str],
+                    score: Optional[int], source: str = "user") -> Dict:
+        with self.get_session() as session:
+            outfit = SavedOutfit(id=outfit_id, user_id=user_id, name=name, item_ids=item_ids, occasion=occasion,
+                                 score=score, source=source)
+            session.add(outfit)
+            session.commit()
+            return self._outfit_dict(outfit)
+
+    def list_outfits(self, user_id: str) -> List[Dict]:
+        with self.get_session() as session:
+            rows = (session.query(SavedOutfit).filter(SavedOutfit.user_id == user_id)
+                    .order_by(SavedOutfit.created_at.desc()).all())
+            return [self._outfit_dict(o) for o in rows]
+
+    def delete_outfit(self, outfit_id: str, user_id: str) -> bool:
+        with self.get_session() as session:
+            deleted = (session.query(SavedOutfit)
+                       .filter(SavedOutfit.id == outfit_id, SavedOutfit.user_id == user_id).delete())
+            session.commit()
+            return bool(deleted)
+
+    # --------
+    # AGENT ACTIONS (proposals & alerts)
+    # --------
+
+    @staticmethod
+    def _action_dict(action: "AgentAction") -> Dict:
+        return {"id": action.id, "kind": action.kind, "status": action.status, "title": action.title,
+                "detail": action.detail, "payload": action.payload, "result": action.result, "source": action.source,
+                "created_at": action.created_at.isoformat() if action.created_at else None,
+                "decided_at": action.decided_at.isoformat() if action.decided_at else None}
+
+    def create_action(self, action_id: str, user_id: str, kind: str, title: str, detail: str, payload: Dict,
+                      source: str = "agent") -> Dict:
+        with self.get_session() as session:
+            action = AgentAction(id=action_id, user_id=user_id, kind=kind, title=title, detail=detail,
+                                 payload=payload, source=source, status="pending")
+            session.add(action)
+            session.commit()
+            return self._action_dict(action)
+
+    def list_actions(self, user_id: str, status: Optional[str] = None, limit: int = 30) -> List[Dict]:
+        with self.get_session() as session:
+            query = session.query(AgentAction).filter(AgentAction.user_id == user_id)
+            if status:
+                query = query.filter(AgentAction.status == status)
+            return [self._action_dict(a) for a in query.order_by(AgentAction.created_at.desc()).limit(limit).all()]
+
+    def get_action(self, action_id: str, user_id: str) -> Optional[Dict]:
+        with self.get_session() as session:
+            action = session.get(AgentAction, action_id)
+            return self._action_dict(action) if action and action.user_id == user_id else None
+
+    def decide_action(self, action_id: str, user_id: str, status: str, result: Optional[Dict] = None) -> Optional[Dict]:
+        """pending -> done | rejected (a decided action cannot be decided again)"""
+        with self.get_session() as session:
+            action = session.get(AgentAction, action_id)
+            if not action or action.user_id != user_id or action.status != "pending":
+                return None
+            action.status, action.result, action.decided_at = status, result, _utcnow()
+            session.commit()
+            return self._action_dict(action)
 
     def save_client_events(self, events: List[Dict], user_id: str, session_id: Optional[str]) -> int:
         with self.get_session() as session:

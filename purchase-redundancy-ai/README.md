@@ -2,7 +2,9 @@
 
 Assistant d'achat vestimentaire qui vous dit, **avant de payer**, si un vêtement fait doublon avec ce que vous possédez déjà.
 
-Prenez une photo (caméra ou fichier) ou décrivez l'article. Le système le compare visuellement à votre garde-robe avec **CLIP**, calcule un score de redondance de 0 à 100 et rend un verdict : **Acheter**, **À réfléchir** ou **Inutile**. Un **agent IA autonome** (GPT-4.1 ou Claude) peut aussi mener toute la démarche seul et rédiger un rapport.
+Prenez une photo (caméra ou fichier) ou décrivez l'article. Le système le compare visuellement à votre garde-robe avec **CLIP**, calcule un score de redondance de 0 à 100 et rend un verdict : **Acheter**, **À réfléchir** ou **Inutile**. Un **styliste IA agentique** (GPT-4.1 ou Claude) analyse la garde-robe, calcule des scores de synergie et de similarité, compose et **enregistre** des tenues, et **prépare des actions** (retirer un doublon, ajouter un achat) que vous validez d'un clic.
+
+Interface au design **DressMe** (Playfair Display + Inter, barre latérale anthracite, accents olive), d'après la maquette « DressMe UI Blueprint ».
 
 | | |
 |---|---|
@@ -12,7 +14,7 @@ Prenez une photo (caméra ou fichier) ou décrivez l'article. Le système le com
 | **Comptes** | Inscription et connexion (JWT) ; garde-robe et historique privés par compte ; mode invité |
 | **Exploitation** | Logs JSON avec rotation · métriques Prometheus · tableau de bord · limitation de débit · validation stricte |
 | **Données** | **761 vrais produits avec vraies photos** issus de 4 sources ouvertes |
-| **Tests** | **136 tests** pytest, validés sur SQLite **et** sur PostgreSQL + Redis |
+| **Tests** | **146 tests** pytest, validés sur SQLite **et** sur PostgreSQL + Redis |
 | **Démo** | 4 comptes (2 femmes, 2 hommes) avec 49 à 52 vraies pièces chacun, profil complet et analyses |
 
 ---
@@ -44,12 +46,13 @@ L'interface est disponible sur `http://localhost:3000`.
 
 | Écran | Ce que l'utilisateur peut faire |
 |---|---|
-| **Accueil** | Voir ses statistiques (pièces possédées, articles analysés, **doublons évités**, **argent économisé**), un aperçu de sa garde-robe et l'historique des dernières analyses. |
-| **Analyser** | Photographier un article avec la **caméra**, ou importer une photo. La couleur, la catégorie, le style et la matière sont détectés automatiquement et restent modifiables. On obtient ensuite le score, le verdict, les pièces similaires déjà possédées, une explication rédigée par GPT/Claude et des alternatives du catalogue. |
-| **Conseiller IA** | Une conversation avec mémoire. Raccourcis : **Diagnostic**, **Que porter ?**, **Quoi acheter ?**, **Trier & revendre**, **Dois-je l'acheter ?** — ou une question libre, avec photo si besoin. Le raisonnement (outils utilisés) se déplie ; les réponses sont illustrées par des cartes : tenues composées avec vos pièces, doublons, produits, verdict, score de santé. |
+| **Tableau de bord** (page d'accueil) | Salutation, **tenue IA du jour** (composée avec vos pièces, adaptée à la saison, avec son score de synergie) ; **actions en attente de votre accord** ; **santé de la garde-robe** (score 0-100 et 4 sous-scores) ; **conseils priorisés** ; **composition** comparée à l'idéal pour votre sexe ; **palette** ; **doublons regroupés** avec « Retirer » ; pièces stars et orphelines ; **activité** (verdicts par jour, économies). |
+| **Studio de tenues** | **Composer** : choisir des pièces (recherche, filtre par catégorie) ; le **score de synergie** 0-100 se recalcule à chaque ajout (couleurs, complétude, cohérence de style, saison, rôles en double), avec conseils et pièces pour compléter ; **enregistrer** la tenue (nom, occasion) et retrouver « Mes tenues ». **Comparer** : la similarité CLIP de deux pièces, avec le verdict « doublon probable » ou non. |
+| **Dois-je l'acheter ?** | Photographier un article avec la **caméra**, ou importer une photo. La couleur, la catégorie, le style et la matière sont détectés automatiquement et restent modifiables. On obtient ensuite le score, le verdict, les pièces similaires déjà possédées, une explication rédigée par GPT/Claude et des alternatives du catalogue. |
+| **Styliste IA** | Une conversation avec mémoire. Raccourcis : **Diagnostic**, **Que porter ?**, **Quoi acheter ?**, **Trier & revendre**, **Dois-je l'acheter ?**, **Noter & enregistrer**, **Comparer deux pièces** — ou une question libre, avec photo si besoin. Le raisonnement (outils utilisés) se déplie ; les réponses sont illustrées par des cartes : tenues, score de synergie, similarité, tenue enregistrée, **propositions à valider**, doublons, produits, verdict. Une colonne affiche le contexte de l'agent (garde-robe, profil, saison, mémoire) et les actions en attente. |
 | **Garde-robe** | Ajouter une pièce (photo ou formulaire), la **modifier** en cliquant dessus, la supprimer, filtrer par catégorie, rechercher, voir la valeur totale. **Garde-robe de départ** : 40+ vraies pièces adaptées (femme ≈ 50, homme ≈ 47, mixte) en un clic, sans rien supprimer. Sous 40 pièces, une suggestion propose de la compléter. Après une analyse, « Ajouter à ma garde-robe » y range l'article. |
-| **Catalogue** | Parcourir les 761 produits, faire une **recherche sémantique CLIP** (en anglais : « black leather boots »…), filtrer par catégorie, source ou « avec prix », **trier** par pertinence, prix ou nom. Chaque fiche produit propose le bouton **« Ai-je déjà ça ? »** et indique la source et la licence de l'image. |
-| **Tableau de bord** | **Santé de la garde-robe** (score 0-100 et 4 sous-scores) ; **conseils priorisés** avec action ; **composition** comparée à l'idéal pour votre sexe ; **palette** ; **doublons regroupés** avec « Retirer » ; pièces stars et orphelines ; achats vraiment utiles ; **activité** (verdicts par jour, économies). Les données techniques sont repliées en bas. |
+| **Trouver similaire** | **Chercher par photo** (les 24 produits visuellement les plus proches, avec le % de similarité) ou parcourir les 761 produits, faire une **recherche sémantique CLIP** (en anglais : « black leather boots »…), filtrer par catégorie, source ou « avec prix », **trier** par pertinence, prix ou nom. Chaque fiche produit propose le bouton **« Ai-je déjà ça ? »** et indique la source et la licence de l'image. |
+| **Profil de style** | Esthétique de la garde-robe (part de chaque style, cohérence), palette, couleurs préférées, **archétype** déduit de vos pièces (minimaliste intemporel, coloriste, classique raffiné…), tailles et chiffres clés. |
 
 Fonctions transversales :
 - **Compte** (« Se connecter » en bas de la barre latérale) : garde-robe et historique privés et synchronisés entre appareils. Le formulaire d'inscription a trois parties :
@@ -64,6 +67,7 @@ Fonctions transversales :
   - le choix des pièces selon les styles et couleurs préférés ;
   - le filtre « Pour femme / homme » du catalogue, présélectionné.
 - **Temps réel** : une analyse faite sur le téléphone met à jour le tableau de bord ouvert sur l'ordinateur, avec une notification.
+- **Veille automatique** : quand une pièce ajoutée fait doublon avec une pièce existante, l'agent crée une alerte « Retirer la nouvelle pièce / Garder » sans qu'on lui demande rien.
 - **Thème** clair, sombre ou celui du système. Les animations sont réduites si le système le demande.
 - Les produits déjà possédés ne sont jamais proposés comme alternatives.
 
@@ -242,7 +246,7 @@ purchase-redundancy-ai/
 │   └── pages/               # Home, Scan, Wardrobe, Dashboard, Agent (conseiller), Catalog
 ├── database/                # Collecte du catalogue réel, catalogue illustré, images (/images)
 ├── data/                    # Base SQLite, photos importées, caches, clé de signature (créé automatiquement)
-├── tests/                   # 136 tests : API, fonctions, agent, plateforme, LLM hors ligne
+├── tests/                   # 146 tests : API, fonctions, agent, actions, plateforme, LLM hors ligne
 ├── docker-compose.yml       # PostgreSQL 16 + Redis 7 (optionnels)
 └── setup.ps1 / setup.sh / QUICKSTART.md
 ```
@@ -316,7 +320,7 @@ Endpoint : `POST /agent/run`. La réponse est un flux NDJSON d'événements `sta
 
 | Mode | Fonctionnement |
 |---|---|
-| **LLM** (GPT-4.1 ou Claude) | Le prompt système contient le **profil** (sexe, tailles, styles, couleurs ; le sexe n'est jamais deviné). Les **10 derniers tours** de la conversation sont transmis (mémoire). <br><br>Outils partagés par GPT et Claude : `get_wardrobe_insights`, `analyze_redundancy`, `suggest_outfits`, `plan_shopping`, `plan_declutter`, `search_catalog` (filtré par sexe), `get_wardrobe`, `run_feature`, `list_features`. <br><br>**Ancrage** : le premier tour doit appeler un outil (`tool_choice` required / any), donc l'agent ne répond jamais sans avoir regardé vos données. <br><br>Règles du prompt : chaque fait vient d'un outil, rien d'inventé, vouvoiement, conclusion d'abord, moins de 150 mots. Les outils renvoient aussi des **cartes** (tenues, produits, doublons, santé) affichées sous la réponse. |
+| **LLM** (GPT-4.1 ou Claude) | Le prompt système contient le **profil** (sexe, tailles, styles, couleurs ; le sexe n'est jamais deviné). Les **10 derniers tours** de la conversation sont transmis (mémoire). <br><br>Outils d'analyse partagés par GPT et Claude : `get_wardrobe_insights`, `analyze_redundancy`, `suggest_outfits`, `plan_shopping`, `plan_declutter`, `search_catalog` (filtré par sexe), `get_wardrobe`, **`score_outfit`** (synergie 0-100), **`compare_items`** (similarité CLIP de deux pièces), `run_feature`, `list_features`. <br><br>**Outils d'action** : `save_outfit` enregistre une tenue directement (non destructif) ; `propose_remove_items` et `propose_add_items` créent une **proposition** (`pending`) que l'utilisateur approuve ou refuse : l'agent ne modifie jamais la garde-robe seul et ne propose de retirer que des pièces signalées par un outil. <br><br>**Ancrage** : le premier tour doit appeler un outil (`tool_choice` required / any), donc l'agent ne répond jamais sans avoir regardé vos données. <br><br>Règles du prompt : chaque fait vient d'un outil, rien d'inventé, vouvoiement, conclusion d'abord, moins de 150 mots. Les outils renvoient aussi des **cartes** (tenues, produits, doublons, santé) affichées sous la réponse. |
 | **Local** (sans clé, ou si le LLM échoue) | Planificateurs déterministes pour chaque mission, en français. |
 
 En mode `auto`, si le LLM échoue, l'agent passe en mode local et le signale par un événement `notice`. L'agent travaille toujours sur la garde-robe de l'utilisateur connecté.
@@ -455,16 +459,22 @@ La documentation interactive complète (Swagger) est disponible sur **`/docs`**.
 | POST | `/wardrobe/sample?gender=` 🔒 | Garde-robe de départ : 40+ pièces adaptées (`Women`, `Men`, `Unspecified`). Rien n'est supprimé sauf avec `replace=true`. |
 | GET | `/wardrobe/starter-plan?gender=` | Composition prévue (pièces par catégorie) |
 | POST | `/agent/run` 🔒 | Conseiller (flux NDJSON) : `mission` = `ask`, `audit`, `outfits`, `shopping`, `declutter`, `purchase` ; `history` (12 tours max) |
+| POST | `/outfits/score` 🔒 | Score de synergie d'une tenue (`item_ids`, 1 à 10) : score, verdict, détail, conseils, pièces pour compléter |
+| GET · POST · DELETE | `/outfits` · `/outfits/{id}` 🔒 | Tenues enregistrées : lister · enregistrer (`name`, `item_ids` 2-10, `occasion`) · supprimer |
+| GET | `/outfits/daily` 🔒 | Tenue du jour (stable sur la journée, adaptée à la saison) |
+| POST | `/wardrobe/compare` 🔒 | Similarité de deux pièces (`item_a`, `item_b`) |
+| GET | `/agent/actions?status=` 🔒 | Propositions de l'agent et alertes de la veille (`pending`, `done`, `rejected`) |
+| POST | `/agent/actions/{id}/approve` · `/reject` 🔒 | Valider (exécute le retrait ou l'ajout) · refuser ; 409 si déjà décidée |
 | GET | `/insights?budget=` 🔒 | Diagnostic de la garde-robe (tableau de bord), mis en cache jusqu'au prochain changement |
 | POST | `/agent` | Question directe au LLM (503 sans clé) |
 | GET | `/llm/status` | Fournisseur, modèle, disponibilité |
-| POST | `/upload-image` · `/camera-capture` | Analyse d'une image (multipart · base64) |
+| POST | `/upload-image` · `/camera-capture` | Analyse d'une image (multipart · base64 ; `top_k` 1-24 produits proches) |
 | GET | `/products` | Catalogue : `category`, `brand`, `source`, `color`, `gender`, `min_price`, `max_price`, `priced`, `q` (recherche sémantique), `sort` (`relevance`, `price_asc`, `price_desc`, `name`), `facets`, `limit` (1-200), `offset` |
 | GET | `/stats` 🔒 | Catalogue + vos chiffres (analyses, économies, garde-robe) |
 | POST | `/feedback` 🔒 | Avis sur une analyse (note de 0 à 5) |
 | POST | `/analytics/events` 🔒 · GET `/analytics/summary` 🔒 | Suivi d'usage · vos statistiques |
 | GET | `/analytics/system` · `/metrics` | Monitoring JSON · Prometheus |
-| WS | `/ws/live?token=` | Événements temps réel `analysis.created`, `wardrobe.changed` |
+| WS | `/ws/live?token=` | Événements temps réel `analysis.created`, `wardrobe.changed`, `agent.action` |
 | POST | `/feature/{id}` · GET `/features` · `/prompts` | Les 31 fonctions · liste · prompts |
 
 **Pagination** : toutes les listes renvoient `total`, `limit`, `offset`, `has_more` et `next_offset`. La liste elle-même garde sa clé historique (`products`, `items`).
@@ -477,7 +487,7 @@ La documentation interactive complète (Swagger) est disponible sur **`/docs`**.
 |---|---|
 | 401 | Jeton absent, invalide ou expiré |
 | 404 | Ressource introuvable ou appartenant à un autre compte |
-| 409 | E-mail déjà utilisé |
+| 409 | E-mail déjà utilisé · proposition déjà décidée |
 | 413 | Corps de requête supérieur à 15 Mo |
 | 415 | Type d'image refusé |
 | 422 | Validation (le détail précise le champ) |
@@ -527,7 +537,7 @@ Toutes ces fonctions sont exécutables via `POST /feature/{id}`. Elles sont tout
 
 ```bash
 cd backend
-venv/Scripts/python -m pytest ../tests -q                         # 136 tests, ~15 s
+venv/Scripts/python -m pytest ../tests -q                         # 146 tests, ~15 s
 venv/Scripts/python -m pytest ../tests --cov=. --cov-report=term  # couverture
 ```
 
@@ -538,6 +548,7 @@ venv/Scripts/python -m pytest ../tests --cov=. --cov-report=term  # couverture
 | `test_agent.py` | Missions achat et audit, compréhension du français, catalogue, garde-robe |
 | `test_platform.py` | Comptes, jetons expirés ou falsifiés, isolation entre comptes, pagination, filtres et tri, validation, taille max, limitation de débit, cache, logs, analytics, Prometheus, gzip, WebSocket, migration |
 | `test_advisor.py` | Diagnostic (doublons groupés, couleurs, genre, enfants), missions, routage, codes vestimentaires, mémoire de conversation, boucle Claude avec faux client |
+| `test_agent_actions.py` | Score de synergie, tenues enregistrées et du jour, comparaison, veille sur ajout, approbation / refus / 409, confidentialité, outils d'action GPT avec faux client |
 | `test_llm_offline.py` | Boucle d'outils GPT, vision, explications, erreurs d'API, repli de l'agent. Utilise un faux client OpenAI : aucun appel réseau, aucun coût. |
 
 - Les tests utilisent une base, un dossier de photos et des logs temporaires (`DATA_DIR` et `LOG_DIR`), sans CLIP ni LLM. Ils ne touchent jamais vos données.

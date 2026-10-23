@@ -175,7 +175,7 @@ class AutonomousAgent:
 
     def run(self, mission: str, wardrobe: List[Dict], message: str = "", item: Optional[Dict] = None,
             image: Optional[str] = None, budget: Optional[float] = None, mode: str = "auto",
-            profile: Optional[Dict] = None, history: Optional[List[Dict]] = None) -> Iterator[Dict]:
+            profile: Optional[Dict] = None, history: Optional[List[Dict]] = None, actions=None) -> Iterator[Dict]:
         profile = profile or {}
         use_claude = mode in ("claude", "llm") or (mode == "auto" and self.llm is not None and self.llm.available)
         if use_claude and (self.llm is None or not self.llm.available):
@@ -183,7 +183,7 @@ class AutonomousAgent:
             return
         try:
             if use_claude:
-                for event in self._run_claude(mission, wardrobe, message, item or {}, image, budget, profile, history):
+                for event in self._run_claude(mission, wardrobe, message, item or {}, image, budget, profile, history, actions):
                     if event["type"] == "error" and mode == "auto":
                         # the LLM failed (no credits, network...) -> the local planner takes over
                         yield {"type": "notice", "message": f"{event['message']} — l'agent local prend le relais."}
@@ -202,7 +202,7 @@ class AutonomousAgent:
             elif mission == "shopping":
                 yield from self._shopping(wardrobe, budget, profile)
             elif mission == "declutter":
-                yield from self._declutter(wardrobe, profile)
+                yield from self._declutter(wardrobe, profile, actions)
             else:
                 yield from self._purchase(wardrobe, message, item or {}, image, budget)
         except Exception as e:
@@ -533,7 +533,7 @@ class AutonomousAgent:
         yield {"type": "final", "mission": "shopping", "verdict": None, "headline": headline, "score": report["health"],
                "reasons": reasons, "actions": actions, "suggestions": suggestions, "answer": answer}
 
-    def _declutter(self, wardrobe: List[Dict], profile: Dict) -> Iterator[Dict]:
+    def _declutter(self, wardrobe: List[Dict], profile: Dict, agent_actions=None) -> Iterator[Dict]:
         plan = [("analyze", "Analyser la garde-robe"),
                 ("duplicates", "Trouver les doublons à garder / retirer"),
                 ("orphans", "Trouver les pièces qui ne s'associent à rien"),
@@ -574,12 +574,21 @@ class AutonomousAgent:
         actions = ["Revendez les pièces en bon état (Vinted, Leboncoin), donnez les autres.",
                    "Ne rachetez pas ces catégories avant d'avoir porté ce que vous gardez."] if to_remove else \
                   ["Rien à retirer : votre garde-robe ne contient pas de doublon."]
+        proposals = []
+        if to_remove and agent_actions is not None:  # autonomous step: prepare the removal, the user approves it
+            proposals.append(agent_actions.propose(
+                "remove_items", f"Retirer {len(to_remove)} pièce(s) en double",
+                "Les pièces en trop de chaque groupe de doublons ; la plus polyvalente est gardée.",
+                {"item_ids": [p["id"] for p in to_remove],
+                 "pieces": [{k: p.get(k) for k in ("id", "name", "category", "image_url")} for p in to_remove]}))
+            actions_text = "J'ai préparé leur retrait : approuvez-le dans la carte ci-dessous."
+            reasons.append(actions_text)
         headline = f"Tri de votre garde-robe — {len(to_remove)} pièce(s) à retirer"
         answer = self._claude_summary(headline, reasons, actions) or " ".join(reasons + actions)
         yield self._done("report", plan, "Liste prête.")
         yield {"type": "final", "mission": "declutter", "verdict": None, "headline": headline, "score": report["scores"]["uniqueness"],
                "reasons": reasons, "actions": actions, "duplicates": dups[:6], "to_remove": to_remove,
-               "orphans": orphans, "suggestions": [], "answer": answer}
+               "orphans": orphans, "suggestions": [], "proposals": proposals, "answer": answer}
 
     # ------------------------------------------------------------------
     # Claude-driven mode (tool use) - events forwarded from a worker thread
@@ -596,7 +605,7 @@ class AutonomousAgent:
 
     def _run_claude(self, mission: str, wardrobe: List[Dict], message: str, item: Dict,
                     image: Optional[str], budget: Optional[float], profile: Optional[Dict] = None,
-                    history: Optional[List[Dict]] = None) -> Iterator[Dict]:
+                    history: Optional[List[Dict]] = None, actions=None) -> Iterator[Dict]:
         events: "queue.Queue" = queue.Queue()
         profile = profile or {}
         prompt_parts = [message or self.MISSION_PROMPTS.get(mission, self.MISSION_PROMPTS["ask"])]
@@ -621,14 +630,17 @@ class AutonomousAgent:
             if step["tool"] == "analyze_redundancy":
                 analyzed.append(step["input"])
             for key, value in (step.get("cards") or {}).items():
-                cards.setdefault(key, value)
+                if key == "proposals":  # every proposal of the run is shown, not only the first
+                    cards.setdefault("proposals", []).extend(value)
+                else:
+                    cards.setdefault(key, value)
             title, summary = self._describe_tool_step(step)
             events.put({"type": "step", "id": f"t{step['n']}", "title": title, "status": "done", "summary": summary})
 
         def worker():
             try:
                 result = self.llm.run_agent("\n".join(prompt_parts), wardrobe, self.engine, image=image,
-                                            on_step=on_step, profile=profile, history=history)
+                                            on_step=on_step, profile=profile, history=history, actions=actions)
                 final = {"type": "final", "mission": mission, "verdict": None,
                          "headline": f"Réponse de l'agent {self._llm_name()}",
                          "reasons": [], "actions": [], "suggestions": [], "answer": result["answer"],
