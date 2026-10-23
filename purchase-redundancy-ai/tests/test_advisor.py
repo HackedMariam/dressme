@@ -260,3 +260,12 @@ def test_outfits_keep_shoes_whatever_their_season_label():
     outfit = compose_outfits(wardrobe, {"formal"}, set(), "summer", dress_code="formal")["outfits"][0]
     ids = [p["id"] for p in outfit["pieces"]]
     assert "h" in ids and "w" not in ids  # heels tagged "fall" are fine in summer, a winter coat is not
+
+
+def test_follow_up_question_is_tagged():
+    from prompts import OptimizedPrompts
+
+    first = OptimizedPrompts.agent_user_message("- Black jeans", "Que porter ?", follow_up=False)
+    follow = OptimizedPrompts.agent_user_message("- Black jeans", "Et ce jean ?", follow_up=True)
+    assert "<question>\nQue porter ?\n</question>" in first and "follow-up" not in first
+    assert follow.index("<question>") < follow.index("answer only the <question>")  # rule right after the question

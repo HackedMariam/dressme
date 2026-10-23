@@ -44,7 +44,9 @@ Rules:
 - Every fact about the wardrobe, a product or a price comes from a tool result. Never invent pieces, brands or prices;
   if something could not be checked, say so.
 - Respect the profile: never suggest dresses or heels to a man, use the user's sizes and favorite colors when relevant.
-- The conversation may continue: use the earlier turns for context ("and for winter?" refers to the previous question).
+- The conversation may continue: use the earlier turns for context ("and for winter?" refers to the previous question),
+  but answer ONLY the latest message - never repeat or summarize an earlier answer, and only call the tools
+  this latest question needs.
 
 Answer in French and address the user as "vous" (never "tu"), warm and direct, like a stylist who respects the
 user's money:
@@ -302,6 +304,17 @@ Provide valuation and recommendations."""
             "agent": OptimizedPrompts.SYSTEM_AGENT,
         }
         return prompts.get(prompt_type, OptimizedPrompts.SYSTEM_ANALYZER)
+
+    @staticmethod
+    def agent_user_message(wardrobe_text: str, question: str, follow_up: bool) -> str:
+        """Latest user turn: the wardrobe, then the question in its own tag. In a follow-up, the instruction
+        sits right next to the question - a rule in the system prompt alone did not stop GPT-4.1 from
+        re-answering the previous turn before the new one."""
+        text = f"<wardrobe>\n{wardrobe_text}\n</wardrobe>\n\n<question>\n{question}\n</question>"
+        if follow_up:
+            text += ("\n\nThis is a follow-up: answer only the <question> above. The earlier messages are context; "
+                     "do not repeat or summarize your previous answer.")
+        return text
 
     @staticmethod
     def agent_system(profile: Optional[Dict] = None) -> str:

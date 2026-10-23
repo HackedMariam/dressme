@@ -120,7 +120,7 @@ class OpenAIClient:
         wardrobe_text = "\n".join(
             f"- {i.get('name')} ({i.get('category')}, {i.get('color')}, {i.get('material')}, {i.get('style')})"
             for i in wardrobe) or "- (vide)"
-        content = [{"type": "text", "text": f"<wardrobe>\n{wardrobe_text}\n</wardrobe>\n\n{user_message}"}]
+        content = [{"type": "text", "text": OptimizedPrompts.agent_user_message(wardrobe_text, user_message, bool(history))}]
         if image:
             url = image if image.startswith("data:") else f"data:image/jpeg;base64,{image}"
             content.append({"type": "image_url", "image_url": {"url": url, "detail": "low"}})
