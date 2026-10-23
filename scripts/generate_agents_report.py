@@ -234,43 +234,53 @@ def draw_avatar(path: Path) -> None:
     header(
         draw,
         "03 / Avatar & Try-On",
-        "From two photos to a body-shaped try-on",
-        "Local pose and silhouette first; optional GPT-4o Vision second opinion; Blender/MPFB2 geometry.",
+        "GPT-4o Vision chooses the body",
+        "Primary path: GPT-4o Vision selects MPFB targets; MediaPipe and SciPy are optional refinement.",
         "Implemented | avatar/try1 + working tree",
     )
 
-    steps = [
-        ("Photo pair", "Front + side photos + height, or the local questionnaire fallback.", GREEN),
-        ("Pose + silhouette", "MediaPipe landmarks and selfie segmentation; photos stay in browser.", TERRA),
-        ("Measurements", "Height-scaled widths, depths, inseam, mass and BMI.", TERRA),
-        ("Optional vision", "Consent-gated GPT-4o relative observations and bounded detail hints.", TERRA),
-        ("Silhouette fit", "Optional SciPy Powell search over 15 controls; IoU + profile fit.", GREEN),
-        ("MPFB + API", "Macros + details; whitelist, bounds, slot rules, job lock.", GREEN),
-        ("Blender / MPFB2", "Shape body, apply details, leg post-process, bake keys.", TERRA),
-        ("Garments + GLB", "Body-derived shells, materials, one dressed GLB.", GREEN),
-        ("Validate + serve", "Check glTF magic bytes, move to public folder, return URL.", GREEN),
-        ("Preview + correct", "Three.js viewer, metrics, compare, one closed-loop regen.", GREEN),
+    primary = [
+        ("Photo pair", "Front + side photos + height.", GREEN),
+        ("Consent + API", "Validate photos, consent, OpenAI call.", GREEN),
+        ("GPT-4o Vision", "Reads both photos; returns targets + details.", TERRA),
+        ("Targets + details", "8 MPFB macros + 19 detail controls.", TERRA),
+        ("Blender / MPFB2", "Shape body, apply details, bake keys.", GREEN),
+        ("Garments + GLB", "Body-derived shells, one dressed GLB.", GREEN),
+        ("Three.js preview", "Orbit viewer, metrics, compare, save.", GREEN),
     ]
-
-    w, h, gap, left, top = 300, 170, 55, 100, 290
+    w, h, gap, left, top = 240, 170, 25, 45, 290
     boxes = []
-    for i in range(5):
-        boxes.append((left + i * (w + gap), top, left + i * (w + gap) + w, top + h))
-    for i in range(5):
-        boxes.append((left + (4 - i) * (w + gap), top + 430, left + (4 - i) * (w + gap) + w, top + 430 + h))
+    for i in range(7):
+        x = left + i * (w + gap)
+        boxes.append((x, top, x + w, top + h))
+    for i, (title, body, accent) in enumerate(primary):
+        step_box(draw, i + 1, title, body, boxes[i], accent, GREEN if accent == GREEN else TERRA,
+                 title_size=20, body_size=16, number_size=18, max_lines=4)
+        if i < 6:
+            arrow(draw, (boxes[i][2] + 4, top + h // 2), (boxes[i + 1][0] - 4, top + h // 2), TAN)
 
-    for i, (title, body, accent) in enumerate(steps):
-        step_box(draw, i + 1, title, body, boxes[i], accent, GREEN if accent == GREEN else TERRA)
+    optional = [
+        ("MediaPipe", "Pose + silhouette; local measurements.", TERRA),
+        ("SciPy fitting", "Powell search; IoU + profile; 36 evals.", TERRA),
+        ("Questionnaire", "Eight-answer local fallback.", GREEN),
+    ]
+    ow, oh, ogap, oleft, otop = 360, 150, 40, 380, 620
+    oboxes = []
+    for i in range(3):
+        x = oleft + i * (ow + ogap)
+        oboxes.append((x, otop, x + ow, otop + oh))
+    for i, (title, body, accent) in enumerate(optional):
+        step_box(draw, i + 8, title, body, oboxes[i], accent, GREEN if accent == GREEN else TERRA,
+                 title_size=21, body_size=16, number_size=18, max_lines=3)
+        if i < 2:
+            arrow(draw, (oboxes[i][2] + 4, otop + oh // 2), (oboxes[i + 1][0] - 4, otop + oh // 2), TAN)
+    # Optional branch feeds back into Targets + details (step 04)
+    arrow(draw, (960, otop - 4), (960, top + h + 4), TERRA)
+    draw.text((975, otop - 62), "optional refinement", font=font(ARIAL_BOLD, 16), fill=TERRA)
 
-    for i in range(4):
-        arrow(draw, (boxes[i][2] + 6, top + h // 2), (boxes[i + 1][0] - 6, top + h // 2), TAN)
-    arrow(draw, (boxes[4][0] + w // 2, top + h + 8), (boxes[5][0] + w // 2, top + 430 - 8), TAN)
-    for i in range(5, 9):
-        arrow(draw, (boxes[i][0] - 6, top + 430 + h // 2), (boxes[i + 1][2] + 6, top + 430 + h // 2), TAN)
-
-    note_card(draw, (100, 900, 660, 1002), "Tools", "MediaPipe | SciPy | GPT-4V optional | Blender | Three.js", GREEN)
-    note_card(draw, (700, 900, 1260, 1002), "Memory", "Photos in browser | 24 saved looks | 24 h GLB TTL", TERRA)
-    note_card(draw, (1300, 900, 1820, 1002), "Privacy boundary", "No default upload | consent-gated | no profile", GREEN)
+    note_card(draw, (100, 900, 660, 1002), "Tools", "GPT-4o Vision | MediaPipe/SciPy optional | Blender", GREEN)
+    note_card(draw, (700, 900, 1260, 1002), "Memory", "Photos in browser | 24 looks | 24 h GLB TTL", TERRA)
+    note_card(draw, (1300, 900, 1820, 1002), "Privacy", "Consent-gated OpenAI call | no stored photos", GREEN)
     footer(draw, "03 / 03")
     img.save(path, quality=95)
 
@@ -534,13 +544,13 @@ def add_pill(slide, text: str, left: float, top: float, color: RGBColor = P_GREE
     return shape
 
 
-def add_footer(slide, label: str, page: int, total: int = 30) -> None:
+def add_footer(slide, label: str, page: int, total: int = 37) -> None:
     add_rule(slide, 0.55, 7.04, 12.23)
     add_text(slide, "DressMe  /  Agent implementation report", 0.55, 7.12, 7.0, 0.22, size=8.5, color=P_MUTED)
     add_text(slide, f"{label}   {page:02d} / {total:02d}", 8.7, 7.12, 4.08, 0.22, size=8.5, color=P_MUTED, align=PP_ALIGN.RIGHT)
 
 
-def new_slide(prs, page: int, label: str, offset: int = 3, total: int = 30, footer: bool = True):
+def new_slide(prs, page: int, label: str, offset: int = 3, total: int = 37, footer: bool = True):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = P_BG
@@ -565,8 +575,8 @@ def speaker_notes(slide, text: str) -> None:
     slide.notes_slide.notes_text_frame.text = text
 
 
-def section_divider(prs, page: int, number: str, title: str, subtitle: str, branch: str, metrics: list[tuple[str, str]]):
-    slide = new_slide(prs, page, f"SECTION {number}")
+def section_divider(prs, page: int, number: str, title: str, subtitle: str, branch: str, metrics: list[tuple[str, str]], offset: int = 3, total: int = 37):
+    slide = new_slide(prs, page, f"SECTION {number}", offset=offset, total=total)
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = P_SOFT
     add_text(slide, number, 8.35, 0.7, 4.3, 2.4, font="Georgia", size=180, color=RGBColor(0xE8, 0xDC, 0xCA), bold=True, align=PP_ALIGN.RIGHT)
@@ -800,11 +810,167 @@ def build_llm_agents_slides(prs) -> None:
         add_runs(slide, [(label, True, P_INK), (detail, False, P_MUTED)], 8.7, y + 0.11, 3.9, 0.4, size=9.2)
     speaker_notes(slide, "Six techniques around the LLM, and six safeguards that bound cost, accuracy, and privacy.")
 
+def build_purchasing_slides(prs) -> None:
+    # Divider - page 31
+    section_divider(
+        prs, 1, "04", "Smart Purchasing Assistant",
+        "Should I buy this? Qwen 2.5 3B, YOLOv8, CIEDE2000, and XGBoost arbitration.",
+        "Appendix  /  DressMe_Fashion_Assistant_Presentation.docx",
+        [("3B", "Qwen 2.5 parameters"), ("9", "agent actions"), ("7", "tools + engines")],
+        offset=30, total=37,
+    )
+
+    # LLM - page 32
+    slide = new_slide(prs, 2, "SMART PURCHASING", offset=30, total=37)
+    content_header(slide, "04 / SMART PURCHASING", "The LLM: Qwen 2.5 3B Instruct", "Fine-tuned with 4-bit QLoRA and hosted in Hugging Face.", "LLM USED")
+    add_text(slide, "Why this model", 0.62, 2.0, 5.8, 0.3, font="Georgia", size=16, color=P_INK, bold=True)
+    add_para(slide, [
+        {"text": f"{BULLET}  Exceptional instruction and strict JSON compliance.", "size": 11.2, "space_after": 8},
+        {"text": f"{BULLET}  4-bit NF4: ~2.1 GB VRAM, efficient on edge and GPU.", "size": 11.2, "space_after": 8},
+        {"text": f"{BULLET}  3B capacity for fashion knowledge, trade-off reasoning, and hard constraints.", "size": 11.2, "space_after": 8},
+        {"text": f"{BULLET}  Fine-tuned on 1,200 curated fashion deliberation scenarios.", "size": 11.2, "space_after": 8},
+        {"text": f"{BULLET}  Hosted in Hugging Face; no catastrophic forgetting in the setup.", "size": 11.2, "space_after": 8},
+    ], 0.62, 2.42, 6.0, 2.8)
+    add_card(slide, 7.05, 1.98, 5.5, 3.55, P_WHITE, P_LINE, P_TERRA)
+    add_label(slide, "Model card", 7.32, 2.16, P_TERRA, 8.5)
+    rows = [
+        ["Field", "Value"],
+        ["Model", "Qwen/Qwen2.5-3B-Instruct"],
+        ["Method", "4-bit QLoRA"],
+        ["Precision", "4-bit NF4"],
+        ["VRAM", "~2.1 GB"],
+        ["Hosting", "Hugging Face"],
+        ["Training", "PEFT + TRL, 1,200 scenarios"],
+        ["Role", "Purchase verdict reasoning"],
+    ]
+    add_table(slide, rows, 7.32, 2.48, 4.95, [1.35, 3.6], 0.37, font_size=8.5)
+    add_card(slide, 0.62, 5.72, 11.93, 0.92, P_GREEN_SOFT, P_GREEN, P_GREEN)
+    add_text(slide, "The 3B model is the reasoning layer; YOLOv8, CIEDE2000, and XGBoost provide grounded observations.", 0.86, 5.9, 11.5, 0.55, size=10.5, color=P_INK)
+    speaker_notes(slide, "Qwen 2.5 3B is fine-tuned with 4-bit QLoRA and hosted in Hugging Face; it is the reasoning layer.")
+
+    # Memory - page 33
+    slide = new_slide(prs, 3, "SMART PURCHASING", offset=30, total=37)
+    content_header(slide, "04 / SMART PURCHASING", "Three tiers of memory", "Scratchpad state, session checkpoints, and the authoritative wardrobe.", "MEMORY")
+    tiers = [
+        ("Tier 1", "Working in-context memory", "Scratchpad", "Ephemeral active evaluation turn: candidate image features, user budget, and every executed tool result (redundancy, gaps, outfits, ML predictions).", P_GREEN),
+        ("Tier 2", "Episodic session memory", "Checkpoints", "JSON session checkpoints in data/checkpoints/ (e.g. sess_0082e4a2.json); tracks recent shopping history across a browsing session.", P_TERRA),
+        ("Tier 3", "Long-term wardrobe knowledge", "50 real items", "The user's wardrobe: item_id, category, item_type, color, style, season, warmth, versatility, formality, cleanliness.", P_GREEN),
+    ]
+    for index, (tier, title, big, body, accent) in enumerate(tiers):
+        x = 0.55 + index * 3.95
+        add_card(slide, x, 1.98, 3.75, 3.55, P_WHITE, P_LINE, accent)
+        add_label(slide, tier, x + 0.22, 2.16, accent, 8.5, 2.5)
+        add_text(slide, title, x + 0.22, 2.55, 3.3, 0.62, font="Georgia", size=13.5, color=P_INK, bold=True)
+        add_text(slide, big, x + 0.22, 3.2, 3.3, 0.3, size=10.5, color=accent, bold=True)
+        add_text(slide, body, x + 0.22, 3.56, 3.3, 1.8, size=9.3, color=P_MUTED)
+    add_text(slide, "Tier 3 is the authoritative knowledge base for every duplicate and outfit calculation.", 0.62, 5.85, 11.9, 0.3, size=10.2, color=P_INK, italic=True)
+    speaker_notes(slide, "Memory combines an in-context scratchpad, JSON session checkpoints, and the 50-item wardrobe knowledge base.")
+
+    # Actions - page 34
+    slide = new_slide(prs, 4, "SMART PURCHASING", offset=30, total=37)
+    content_header(slide, "04 / SMART PURCHASING", "Nine autonomous actions", "From image ingestion to multi-model deliberation.", "ACTIONS")
+    actions = [
+        ("Multi-modal ingestion & URL fetching", "Downloads garment images from URLs or local paths."),
+        ("Zero-shot NLP intent & occasion parsing", "Extracts occasion and style preferences from prompts."),
+        ("Foreground segmentation & colour extraction", "YOLOv8 polygon masks; background-free median RGB."),
+        ("Perceptual colour physics normalization", "RGB -> CIELAB D65; CIEDE2000 against textile shades."),
+        ("Wardrobe duplicate & redundancy auditing", "Finds similar items; functional + perceptual redundancy."),
+        ("Combinatorial outfit assembly", "Builds valid outfits with owned item IDs."),
+        ("Closet gap & underrepresentation analysis", "Scores missing categories and colour diversification."),
+        ("Dynamic financial overage penalization", "Penalty when price exceeds the declared budget."),
+        ("Multi-model decision deliberation", "Arbitrates XGBoost, deterministic score, and LLM."),
+    ]
+    for index, (title, body) in enumerate(actions):
+        col = index % 3
+        row = index // 3
+        x = 0.55 + col * 3.95
+        y = 1.95 + row * 1.5
+        add_card(slide, x, y, 3.75, 1.35, P_WHITE, P_LINE, P_GREEN if index % 2 == 0 else P_TERRA)
+        add_text(slide, f"{index + 1:02d}", x + 0.18, y + 0.12, 0.4, 0.25, size=9, color=P_TAN, bold=True)
+        add_text(slide, title, x + 0.55, y + 0.1, 3.0, 0.52, font="Georgia", size=10.2, color=P_INK, bold=True)
+        add_text(slide, body, x + 0.55, y + 0.66, 3.0, 0.55, size=8.3, color=P_MUTED)
+    add_text(slide, "The nine actions feed the same validated downstream JSON contract.", 0.62, 6.45, 11.9, 0.3, size=9.5, color=P_MUTED, italic=True)
+    speaker_notes(slide, "Nine discrete actions cover ingestion, language, vision, colour science, wardrobe retrieval, combinatorics, gaps, budget, and deliberation.")
+
+    # Tools - page 35
+    slide = new_slide(prs, 5, "SMART PURCHASING", offset=30, total=37)
+    content_header(slide, "04 / SMART PURCHASING", "Tools, APIs, and internal engines", "Five specialized domain tools plus two internal ML/CV engines.", "TOOLS")
+    rows = [
+        ["Tool / Resource", "Implementation", "Role & function"],
+        ["analyze_item (YOLOv8)", "vision_model.py / dressme_best.pt", "Instance segmentation across 20 clothing classes; polygon masks remove background."],
+        ["Color Similarity Engine", "color_similarity.py / data/colors.json", "sRGB -> CIEXYZ -> CIELAB D65; CIEDE2000 vs 30+ colors; Delta E -> similarity."],
+        ["find_similar_items", "tools.py / wardrobe.csv", "RAG over wardrobe; category, color, subtype; redundancy % + duplicate flags."],
+        ["check_outfit_compatibility", "tools.py / wardrobe.csv", "Builds outfits with owned tops, bottoms, footwear; returns item IDs."],
+        ["analyze_wardrobe_gaps", "tools.py / wardrobe.csv", "Essential gap 90; color diversification 75; redundant duplicate 10."],
+        ["predict_purchase_ml (XGBoost)", "ml_model.py / xgb_purchase_model.json", "6D feature vector -> BUY / CONSIDER / SKIP probabilities."],
+        ["calculate_purchase_value", "tools.py / deterministic formula", "S = 0.30*O + 0.20*G + 0.20*V + 0.15*P + 0.15*(100-R) - penalty; R >= 85% caps <=40 and forces SKIP."],
+    ]
+    add_table(slide, rows, 0.62, 1.92, 12.05, [2.45, 3.2, 6.4], 0.56, font_size=7.7)
+    add_text(slide, "The LLM never invents these observations; it deliberates over their validated outputs.", 0.62, 6.58, 11.9, 0.25, size=9.3, color=P_MUTED, italic=True)
+    speaker_notes(slide, "Seven tools and engines produce the grounded observations used by the LLM and the deterministic formula.")
+
+    # Pipeline - page 36
+    slide = new_slide(prs, 6, "SMART PURCHASING", offset=30, total=37)
+    content_header(slide, "04 / SMART PURCHASING", "The complete agent pipeline", "Five sequential stages from input to validated downstream JSON.", "PIPELINE")
+    stages = [
+        ("Ingestion & intent extraction", "image_path, price, budget, user_prompt; auto-downloader -> NLP intent parser infers occasion."),
+        ("Computer vision & colour physics", "YOLOv8 category + polygon mask; img_np[mask > 0.5] -> CIELAB D65 -> CIEDE2000."),
+        ("Wardrobe retrieval & combinatorics", "find_similar_items + check_outfit_compatibility + analyze_wardrobe_gaps; budget penalty min(25, (price-budget)/budget*20)."),
+        ("Statistical & deterministic arbitration", "XGBoost BUY / CONSIDER / SKIP probabilities + weighted 0-100 score + duplicate cap."),
+        ("Reasoning & JSON generation", "Fine-tuned Qwen 2.5 3B deliberates over observations; emits validated downstream JSON."),
+    ]
+    for index, (title, body) in enumerate(stages):
+        y = 1.95 + index * 0.98
+        add_card(slide, 0.62, y, 12.05, 0.82, P_WHITE, P_LINE, P_GREEN if index % 2 == 0 else P_TERRA)
+        circle = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(0.78), Inches(y + 0.18), Inches(0.4), Inches(0.4))
+        circle.fill.solid()
+        circle.fill.fore_color.rgb = P_GREEN if index % 2 == 0 else P_TERRA
+        circle.line.fill.background()
+        ctf = circle.text_frame
+        ctf.margin_left = 0
+        ctf.margin_right = 0
+        ctf.margin_top = 0
+        ctf.margin_bottom = 0
+        ctf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        cp = ctf.paragraphs[0]
+        cp.alignment = PP_ALIGN.CENTER
+        cp.text = str(index + 1)
+        for run in cp.runs:
+            pfont(run, "Arial", 9, P_WHITE, True)
+        add_text(slide, title, 1.35, y + 0.12, 3.2, 0.28, font="Georgia", size=11.5, color=P_INK, bold=True)
+        add_text(slide, body, 4.65, y + 0.14, 7.75, 0.55, size=8.6, color=P_MUTED)
+        if index < 4:
+            add_arrow(slide, 0.98, y + 0.82, 0.98, y + 0.96, P_TAN, 1.0)
+    speaker_notes(slide, "The five stages mirror the source pipeline: ingestion, vision and colour, retrieval and combinatorics, arbitration, then reasoning and JSON.")
+
+    # AI techniques - page 37
+    slide = new_slide(prs, 7, "SMART PURCHASING", offset=30, total=37)
+    content_header(slide, "04 / SMART PURCHASING", "AI techniques and guardrails", "Five techniques turn observations into an auditable purchase verdict.", "AI TECHNIQUES")
+    top = [
+        ("4-bit QLoRA", "Qwen 2.5 3B on Kaggle GPUs; 1,200 scenarios; PEFT/TRL; r=16, alpha=32; q/k/v/o/gate/up/down; NF4."),
+        ("YOLOv8 segmentation", "dressme_best.pt; pixel-accurate polygon masks; filters background and skin."),
+        ("CIEDE2000 colour science", "RGB -> CIELAB; Sharma-Wu-Dalal; White/Ivory 89%; White/Camel 31%."),
+        ("XGBoost classifier", "xgb_purchase_model.json; BUY / CONSIDER / SKIP probabilities."),
+    ]
+    for index, (title, body) in enumerate(top):
+        col = index % 2
+        row = index // 2
+        x = 0.62 + col * 6.1
+        y = 1.95 + row * 1.55
+        add_card(slide, x, y, 5.9, 1.35, P_WHITE, P_LINE, P_GREEN if index % 2 == 0 else P_TERRA)
+        add_text(slide, title, x + 0.22, y + 0.15, 5.4, 0.28, font="Georgia", size=12.5, color=P_INK, bold=True)
+        add_text(slide, body, x + 0.22, y + 0.55, 5.4, 0.7, size=8.7, color=P_MUTED)
+    add_card(slide, 0.62, 5.12, 12.05, 1.2, P_GREEN_SOFT, P_GREEN, P_GREEN)
+    add_text(slide, "Advanced prompting + guardrails", 0.86, 5.28, 4.2, 0.28, font="Georgia", size=12.5, color=P_INK, bold=True)
+    add_text(slide, "Role conditioning, structured observation injection, and hard constraints: redundancy >= 85% caps the score at <=40 and forces SKIP regardless of LLM sentiment.", 0.86, 5.65, 11.5, 0.5, size=8.8, color=P_INK)
+    add_text(slide, "Five techniques, one auditable decision pipeline.", 0.62, 6.55, 11.9, 0.25, size=9.3, color=P_MUTED, italic=True)
+    speaker_notes(slide, "QLoRA, YOLOv8, CIEDE2000, XGBoost, and hard-constrained prompting form the purchasing prototype.")
+
 def build_deck() -> None:
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
-    total = 30
+    total = 37
 
     build_llm_agents_slides(prs)
 
@@ -836,7 +1002,7 @@ def build_deck() -> None:
     items = [
         ("01", "RAG AI Stylist", "Hybrid retrieval, grounded answers, citations"),
         ("02", "Trip Agent / Help Me Pack", "Tool calling, weather, CP-SAT, checklist"),
-        ("03", "Avatar & Try-On", "Pose, silhouette, Blender/MPFB2, optional GPT-4V"),
+        ("03", "Avatar & Try-On", "GPT-4o Vision, Blender/MPFB2, try-on"),
         ("04", "Cross-agent comparison", "What is shared and what is deliberately different"),
         ("05", "Prototype evidence", "Branches, files, metrics, and reproduction"),
         ("06", "Conclusion", "What is real, what is next"),
@@ -858,7 +1024,7 @@ def build_deck() -> None:
     cards = [
         ("01", "RAG AI Stylist", "Knows and cites", "LLM: GPT-4o", "Technique: hybrid RAG", "Output: answer + sources", P_GREEN),
         ("02", "Trip Agent", "Decides and computes", "LLM: GPT-4o", "Technique: tool calling + CP-SAT", "Output: capsule + checklist", P_TERRA),
-        ("03", "Avatar & Try-On", "Constructs and fits", "LLM: optional GPT-4o Vision", "Technique: vision + SciPy + geometry", "Output: body-shaped GLB", P_GREEN),
+        ("03", "Avatar & Try-On", "Constructs and fits", "LLM: GPT-4o Vision", "Technique: VLM + geometry", "Output: body-shaped GLB", P_GREEN),
     ]
     for index, (num, title, role, llm, tech, output, accent) in enumerate(cards):
         x = 0.6 + index * 4.14
@@ -881,12 +1047,12 @@ def build_deck() -> None:
         ["Idea", "Branch", "Commit", "What is real"],
         ["RAG AI Stylist", "rag/try1", "5f7f6b4", "FastAPI, hybrid retrieval, citations, eval set"],
         ["Trip Agent", "helpmepack/try1", "8d90269", "10 tools, CP-SAT, weather, checklist, UI"],
-        ["Avatar & Try-On", "avatar/try1", "22eebcb", "Blender/MPFB2, MediaPipe, Three.js, GLB, optional GPT-4V"],
-        ["Two-photo capture", "working tree", "uncommitted", "Local pose + silhouette, SciPy fitting, 128 detail targets"],
+        ["Avatar & Try-On", "avatar/try1", "22eebcb", "Blender/MPFB2, GPT-4o Vision, Three.js, GLB"],
+        ["GPT-4V capture", "working tree", "uncommitted", "GPT-4o Vision targets, 19 detail controls, optional SciPy"],
     ]
     add_table(slide, rows, 0.62, 2.05, 12.05, [2.25, 2.35, 1.65, 5.8], 0.62, font_size=10.5)
     add_card(slide, 0.62, 5.62, 12.05, 0.9, P_GREEN_SOFT, P_GREEN, P_GREEN)
-    add_text(slide, "Current branch: avatar/try1. The two-photo capture and optional GPT-4V work is explicitly labelled as current, uncommitted prototype work.", 0.86, 5.82, 11.5, 0.45, size=10.5, color=P_GREEN, bold=True)
+    add_text(slide, "Current branch: avatar/try1. The GPT-4V capture and optional MediaPipe/SciPy work is explicitly labelled as current, uncommitted prototype work.", 0.86, 5.82, 11.5, 0.45, size=10.5, color=P_GREEN, bold=True)
     speaker_notes(slide, "Use this slide to ground the report: every claim is tied to a branch and a source path.")
 
     # 05 — Section 01
@@ -1173,38 +1339,38 @@ def build_deck() -> None:
     # 19 — Section 03
     section_divider(
         prs, 19, "03", "Avatar & Try-On",
-        "Local two-photo capture, optional GPT-4o Vision and SciPy fitting, and procedural garment fitting.",
+        "GPT-4o Vision parameter selection, optional MediaPipe/SciPy refinement, and procedural garment fitting.",
         "avatar/try1  @  22eebcb  + current working tree",
-        [("2", "photos for capture"), ("15", "controls fitted by SciPy"), ("36", "max evaluations")],
+        [("2", "photos for capture"), ("8", "MPFB macro targets"), ("19", "detail controls")],
     )
 
     # 20 - Avatar LLM
     slide = new_slide(prs, 20, "03 / AVATAR")
-    content_header(slide, "03 / Avatar & Try-On", "The LLM is a second opinion, not the ruler", "Local pose and silhouette measurements are primary; optional GPT-4o Vision adds relative observations.", "LLM: OPTIONAL")
-    add_text(slide, "Local first. Optional VLM second.", 0.62, 2.05, 11.8, 0.75, font="Georgia", size=36, color=P_INK, bold=True)
+    content_header(slide, "03 / Avatar & Try-On", "GPT-4o Vision chooses the body", "Front + side photos + height; the model returns MPFB targets and detail values after consent.", "LLM: PRIMARY")
+    add_text(slide, "One vision call. Eight targets. Nineteen details.", 0.62, 2.05, 11.8, 0.6, font="Georgia", size=32, color=P_INK, bold=True)
     cards = [
-        ("Primary: local CV", "MediaPipe pose + silhouette, height-scaled. Photos stay in the browser.", P_GREEN),
-        ("Optional: GPT-4o Vision", "Consent-gated front/side analysis. Relative observations and bounded detail hints.", P_TERRA),
-        ("Hard boundary", "No centimetres and no replacement measurements. The local path works without an API key.", P_GREEN),
+        ("What it sees", "Front + side photos and the declared height. Explicit consent is required.", P_GREEN),
+        ("What it returns", "Body shape, confidence, 8 MPFB macro targets, and 19 detail controls.", P_TERRA),
+        ("What we do with it", "Clamp values, apply the sliders, and generate in Blender. MediaPipe/SciPy remain optional.", P_GREEN),
     ]
     for index, (title, body, accent) in enumerate(cards):
         x = 0.62 + index * 4.08
-        add_card(slide, x, 3.05, 3.86, 2.55, P_WHITE, P_LINE, accent)
-        add_label(slide, title, x + 0.24, 3.25, accent, 8.5, 3.3)
-        add_text(slide, body, x + 0.24, 3.68, 3.35, 1.65, size=11.5, color=P_INK)
-    add_text(slide, "No fine-tuning. A separate SciPy optimizer fits silhouettes; the geometry path never depends on an LLM.", 0.62, 6.0, 11.9, 0.3, size=10.5, color=P_TERRA, italic=True)
-    speaker_notes(slide, "This is the key nuance: the current worktree includes an optional GPT-4 Vision second opinion, but the measurements and geometry remain deterministic.")
+        add_card(slide, x, 2.9, 3.86, 2.7, P_WHITE, P_LINE, accent)
+        add_label(slide, title, x + 0.24, 3.1, accent, 8.5, 3.3)
+        add_text(slide, body, x + 0.24, 3.55, 3.35, 1.75, size=11.2, color=P_INK)
+    add_text(slide, "No fine-tuning. The LLM chooses parameters; Blender builds the body.", 0.62, 6.0, 11.9, 0.3, size=10.5, color=P_TERRA, italic=True)
+    speaker_notes(slide, "GPT-4o Vision is the primary avatar-estimation path. Local MediaPipe and SciPy are optional refinement tools.")
 
     # 21 - Avatar memory
     slide = new_slide(prs, 21, "03 / AVATAR")
     content_header(slide, "03 / Avatar & Try-On", "Memory is local, temporary, and explicit", "No account, no durable body profile, no hidden personalization.", "MEMORY")
     mem = [
-        ("UI state", "React state", "Photos, analysis, measurements, sliders, job result."),
+        ("UI state", "React state", "Photos, vision result, targets, detail sliders, job result."),
         ("Saved looks", "localStorage", "Up to 24 looks with garment and wardrobe IDs."),
+        ("Photo pair", "Consent-gated", "Front/side object URLs; sent to OpenAI only after consent."),
+        ("Vision result", "React state", "Body shape, confidence, 8 targets, 19 detail values."),
         ("Backend job", "Temp + lock", "One active Blender job, params/details JSON, temp GLB."),
         ("Generated assets", "24 h TTL", "avatar_<jobId>.glb in public/models/generated."),
-        ("Photo pair", "Browser only", "Front/side object URLs; optional upload only after consent."),
-        ("Optimizer job", "In-memory", "Async /api/avatar/optimize job, progress, fitted targets."),
     ]
     for index, (title, big, body) in enumerate(mem):
         col = index % 3
@@ -1215,23 +1381,23 @@ def build_deck() -> None:
         add_label(slide, title, x + 0.22, y + 0.16, P_GREEN if index % 2 == 0 else P_TERRA, 8)
         add_text(slide, big, x + 0.22, y + 0.52, 3.35, 0.3, font="Georgia", size=14.5, color=P_INK, bold=True)
         add_text(slide, body, x + 0.22, y + 0.9, 3.35, 0.6, size=9.3, color=P_MUTED)
-    add_text(slide, "Photos stay in the browser by default. 128 MPFB detail targets are whitelisted in the manifest; no durable body profile.", 0.62, 6.3, 11.9, 0.3, size=9.5, color=P_MUTED, italic=True)
-    speaker_notes(slide, "The absence of a durable profile is deliberate. The local photo path never uploads images.")
+    add_text(slide, "Optional SciPy jobs are in-memory; 128 detail targets are whitelisted; no durable body profile.", 0.62, 6.3, 11.9, 0.3, size=9.5, color=P_MUTED, italic=True)
+    speaker_notes(slide, "The primary vision flow sends photos to OpenAI only after consent; the app stores no durable body profile.")
 
     # 22 - Avatar actions
     slide = new_slide(prs, 22, "03 / AVATAR")
-    content_header(slide, "03 / Avatar & Try-On", "What the visual agent accomplishes", "From a photo pair to an optimized, body-shaped, dressed GLB.", "ACTIONS")
+    content_header(slide, "03 / Avatar & Try-On", "What the visual agent accomplishes", "GPT-4o Vision chooses the body; Blender builds and dresses it.", "ACTIONS")
     actions = [
-        ("Capture", "Front + side photos or the local questionnaire."),
-        ("Local pose", "MediaPipe landmarks with view-specific checks."),
-        ("Silhouette", "Segment the body and scale widths by height."),
-        ("Measure", "Widths, depths, inseam, mass, BMI."),
-        ("Optional VLM", "GPT-4V relative observations and detail hints."),
-        ("SciPy fit", "Powell search over 15 controls; IoU + profile fit."),
-        ("Map", "MPFB macros plus up to 128 detail targets."),
-        ("Generate", "Blender + MPFB2 shapes the body."),
-        ("Dress + GLB", "Garment shells and one dressed GLB."),
-        ("Preview + correct", "Three.js viewer, metrics, one closed-loop regen."),
+        ("Capture", "Front + side photos + height."),
+        ("Consent", "Explicit OpenAI consent."),
+        ("GPT-4o Vision", "Reads both photos; chooses body parameters."),
+        ("Targets + details", "8 MPFB macros + 19 detail controls."),
+        ("Generate", "Validate and run Blender/MPFB2."),
+        ("Garments + GLB", "Body-derived shells, one dressed GLB."),
+        ("Preview", "Three.js viewer, metrics, compare, save."),
+        ("MediaPipe", "Optional pose + silhouette measurements."),
+        ("SciPy fit", "Optional Powell search; IoU + profile; 36 evals."),
+        ("Questionnaire", "Eight-answer local fallback."),
     ]
     for index, (title, body) in enumerate(actions):
         col = index % 2
@@ -1243,22 +1409,22 @@ def build_deck() -> None:
         add_text(slide, body, x + 0.52, y + 0.3, 4.9, 0.44, size=9.3, color=P_MUTED)
         add_rule(slide, x, y + 0.78, 5.4, P_LINE, 0.008)
     add_text(slide, "Slot rule: one item per slot; a dress replaces top + bottom; outerwear layers over a top.", 0.62, 6.68, 11.9, 0.25, size=9.5, color=P_TERRA, italic=True)
-    speaker_notes(slide, "The agent is a deterministic visual pipeline; SciPy fitting is optional and the VLM only nudges detail sliders.")
+    speaker_notes(slide, "The primary flow is GPT-4o Vision -> targets/details -> Blender. MediaPipe, SciPy, and the questionnaire are optional paths.")
 
     # 23 - Avatar tools
     slide = new_slide(prs, 23, "03 / AVATAR")
-    content_header(slide, "03 / Avatar & Try-On", "The tool stack, with actual output", "Local vision, SciPy fitting, an optional VLM, Blender, and a 3D viewer.", "TOOLS")
+    content_header(slide, "03 / Avatar & Try-On", "The tool stack, with actual output", "GPT-4o Vision for parameters, local fallback tools, Blender, and a 3D viewer.", "TOOLS")
     tools = [
-        ("MediaPipe Pose", "Landmarks + view checks"),
-        ("MediaPipe Segmenter", "Body silhouette mask"),
-        ("OpenAI Vision", "Optional relative opinion"),
-        ("SciPy Powell", "15-control silhouette fit"),
-        ("NumPy + Pillow", "Masks, IoU, profiles"),
+        ("GPT-4o Vision", "Primary parameter chooser"),
         ("FastAPI", "Validation + job control"),
         ("Blender 5.4", "Headless generation"),
         ("MPFB2", "Macros + 128 detail targets"),
         ("bpy / bmesh", "Garment geometry"),
         ("Three.js / R3F", "3D preview + controls"),
+        ("MediaPipe Pose", "Optional local analysis"),
+        ("MediaPipe Segmenter", "Optional silhouette"),
+        ("SciPy Powell", "Optional silhouette fit"),
+        ("NumPy + Pillow", "Masks, IoU, profiles"),
     ]
     for index, (name, desc) in enumerate(tools):
         col = index % 2
@@ -1273,25 +1439,25 @@ def build_deck() -> None:
     add_text(slide, "Actual Blender render", 10.4, 2.45, 1.95, 0.3, font="Georgia", size=12, color=P_INK, bold=True)
     add_text(slide, "public/models/dressed_avatar.glb\nrendered with backend/blender/\nrender_preview.py", 10.4, 2.85, 1.95, 1.0, size=8.5, color=P_MUTED)
     add_text(slide, "10 garments / 5 slots", 10.4, 4.05, 1.95, 0.3, size=9.5, color=P_GREEN, bold=True)
-    add_text(slide, "Photos stay in the browser; only the consent-gated vision route sends them to OpenAI.", 0.62, 6.45, 11.9, 0.3, size=9.5, color=P_MUTED, italic=True)
+    add_text(slide, "Photos go to OpenAI only after consent; the MediaPipe and SciPy paths stay local.", 0.62, 6.45, 11.9, 0.3, size=9.5, color=P_MUTED, italic=True)
     speaker_notes(slide, "The render on the right is an actual output from the current prototype, not a mockup.")
 
     # 24 — Avatar pipeline
     slide = new_slide(prs, 24, "03 / AVATAR")
-    content_header(slide, "03 / Avatar & Try-On", "The complete two-photo pipeline", "Capture, local pose and silhouette, optional GPT-4V, SciPy fitting, Blender, garments, viewer.", "PIPELINE")
+    content_header(slide, "03 / Avatar & Try-On", "The complete two-photo pipeline", "Photo pair + consent, GPT-4o Vision targets, Blender/MPFB2, garments, viewer; MediaPipe/SciPy optional.", "PIPELINE")
     add_picture(slide, ASSETS / "avatar-agent-pipeline-flow.png", 0.55, 1.95, 12.23, 4.87)
-    speaker_notes(slide, "The default pipeline is local. The optional GPT-4 Vision call is a second opinion, not a measurement step.")
+    speaker_notes(slide, "GPT-4o Vision is the primary parameter chooser; MediaPipe and SciPy are optional refinement paths.")
 
     # 25 - Avatar AI techniques
     slide = new_slide(prs, 25, "03 / AVATAR")
-    content_header(slide, "03 / Avatar & Try-On", "AI techniques in the prototype", "Local vision and geometry first; optional VLM and optimization second.", "AI TECHNIQUES")
+    content_header(slide, "03 / Avatar & Try-On", "AI techniques in the prototype", "Vision-language parameter selection first; local refinement is optional.", "AI TECHNIQUES")
     tech = [
-        ("Pose estimation", "MediaPipe landmarks with visibility and view-specific checks."),
-        ("Silhouette segmentation", "Selfie segmenter extracts the body mask for width/depth."),
-        ("Height-scaled measurements", "Pixel widths become centimetres using the entered height."),
-        ("Optional VLM opinion", "GPT-4o Vision returns relative observations and detail hints."),
-        ("SciPy silhouette fitting", "Powell search minimizes IoU loss + width-profile error."),
-        ("Garments + correction", "Body-derived shells; achieved ratios nudge controls."),
+        ("GPT-4o parameter selection", "Front + side photos -> 8 macro targets + 19 details."),
+        ("Structured output", "JSON checked, clamped, and bounded before use."),
+        ("Optional pose + silhouette", "MediaPipe measurements and side-depth hints."),
+        ("Optional SciPy fitting", "Powell search minimizes IoU + width-profile error."),
+        ("Procedural garments", "Body-derived shells, offset and solidified."),
+        ("Closed-loop + guardrails", "Achieved ratios nudge controls; invalid input rejected."),
     ]
     for index, (name, desc) in enumerate(tech):
         col = index % 3
@@ -1299,23 +1465,23 @@ def build_deck() -> None:
         x = 0.62 + col * 4.05
         y = 2.0 + row * 1.9
         add_card(slide, x, y, 3.82, 1.65, P_WHITE, P_LINE, P_GREEN if index % 2 == 0 else P_TERRA)
-        add_text(slide, name, x + 0.22, y + 0.18, 3.3, 0.3, font="Georgia", size=14.5, color=P_INK, bold=True)
+        add_text(slide, name, x + 0.22, y + 0.18, 3.3, 0.3, font="Georgia", size=14.2, color=P_INK, bold=True)
         add_text(slide, desc, x + 0.22, y + 0.65, 3.3, 0.75, size=9.6, color=P_MUTED)
     add_text(slide, "Not used for geometry: fine-tuning, skeletal skinning, morph targets, cloth simulation, persistent profiles.", 0.62, 6.28, 11.9, 0.35, size=9.5, color=P_TERRA, italic=True)
-    speaker_notes(slide, "The AI is local pose/silhouette, optional GPT-4 Vision, and SciPy fitting. Geometry remains procedural.")
+    speaker_notes(slide, "The primary AI is GPT-4o Vision parameter selection. MediaPipe and SciPy are optional refinement tools.")
 
     # 26 — Comparison
     slide = new_slide(prs, 26, "COMPARISON")
     content_header(slide, "Cross-agent comparison", "Shared discipline, different intelligence", "The architecture uses each tool where it is strongest.", "COMPARISON")
     rows = [
         ["Dimension", "RAG AI Stylist", "Trip Agent", "Avatar & Try-On"],
-        ["Primary intelligence", "Retrieval + grounded generation", "LLM orchestration + CP-SAT", "Vision + geometry + optimization"],
-        ["LLM", "GPT-4o (configurable)", "GPT-4o (configurable)", "Optional GPT-4o Vision"],
+        ["Primary intelligence", "Retrieval + grounded generation", "LLM orchestration + CP-SAT", "Vision-language + geometry"],
+        ["LLM", "GPT-4o (configurable)", "GPT-4o (configurable)", "GPT-4o Vision (primary)"],
         ["Memory", "SQLite + pgvector + localStorage", "AgentState + in-memory sessions", "React + localStorage + file cache"],
-        ["External services", "OpenAI, Supabase", "OpenAI, Open-Meteo", "MediaPipe, OpenAI (optional), Blender"],
-        ["Key technique", "Hybrid RAG with citations", "Tool calling + neuro-symbolic optimization", "Pose + silhouette + SciPy fitting"],
+        ["External services", "OpenAI, Supabase", "OpenAI, Open-Meteo", "OpenAI, Blender (+ MediaPipe optional)"],
+        ["Key technique", "Hybrid RAG with citations", "Tool calling + neuro-symbolic optimization", "VLM parameter selection + garments"],
         ["Output", "Cited answer + sources", "Trip capsule + checklist", "Body-shaped GLB + 3D try-on"],
-        ["Status", "Implemented", "Implemented", "Implemented; capture work uncommitted"],
+        ["Status", "Implemented", "Implemented", "Implemented; GPT-4V flow uncommitted"],
     ]
     add_table(slide, rows, 0.62, 1.98, 12.05, [2.1, 3.3, 3.3, 3.35], 0.55, font_size=9.2)
     add_text(slide, "Use the LLM for language and relative visual judgment, solvers for fitting and constraints, and geometry for bodies.", 0.62, 6.62, 11.9, 0.3, size=10.5, color=P_GREEN, bold=True)
@@ -1327,7 +1493,7 @@ def build_deck() -> None:
     cards = [
         ("RAG", "Real grounded answers", "14,574 chunks, hybrid retrieval, citations, measured Hit@5.", P_GREEN),
         ("Trip Agent", "Real planning", "10 tools, weather, CP-SAT, capsule, checklist, fallbacks.", P_TERRA),
-        ("Avatar", "Real visual try-on", "Local pose + silhouette, optional GPT-4V, SciPy fitting, Blender/MPFB2, GLB.", P_GREEN),
+        ("Avatar", "Real visual try-on", "GPT-4o Vision parameter selection, optional MediaPipe/SciPy, Blender/MPFB2, GLB.", P_GREEN),
     ]
     for index, (title, big, body, accent) in enumerate(cards):
         x = 0.62 + index * 4.08
@@ -1344,7 +1510,7 @@ def build_deck() -> None:
     ], 0.62, 5.0, 11.5, 1.2)
     add_text(slide, "See your wardrobe differently.", 0.62, 6.45, 8.0, 0.45, font="Georgia", size=22, color=P_GREEN, bold=True, italic=True)
     speaker_notes(slide, "Close on the architectural lesson and the concrete next steps.")
-    # Fix total in footers (pages were created with default total 27)
+    build_purchasing_slides(prs)
     prs.save(DECK_PATH)
     print("Wrote deck to", DECK_PATH)
 

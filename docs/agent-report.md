@@ -14,7 +14,7 @@ The third section also covers the uncommitted GPT-4o Vision avatar-estimation fl
 
 > **What is real.** Each section is based on code and artifacts that exist in the repository. The report separates implemented behaviour from limitations and future work. No API keys or secrets are included.
 
-**Companion deck:** [`agent-report.pptx`](agent-report.pptx) - 30 slides, 16:9, matching the DressMe design language. The first three slides are the LLM agent overview, restyled to match the report theme without changing their structure or wording.  
+**Companion deck:** [`agent-report.pptx`](agent-report.pptx) - 37 slides, 16:9, matching the DressMe design language. The first three slides are the LLM agent overview, restyled to match the report theme without changing their structure or wording. Slides 31-37 are an appendix covering the Smart Purchasing Assistant from `DressMe_Fashion_Assistant_Presentation.docx`.  
 **Pipeline assets:** [`agents-report-assets/`](agents-report-assets/).
 
 ---
