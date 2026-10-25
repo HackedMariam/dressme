@@ -1,0 +1,41 @@
+# Optional infrastructure: PostgreSQL + Redis for multi-user / multi-worker deployments.
+# The app runs without them (SQLite + in-memory cache). Start with:  docker compose up -d
+# then in .env:
+#   DATABASE_URL=postgresql://redundancy:<POSTGRES_PASSWORD>@localhost:5433/purchase_redundancy
+#   REDIS_URL=redis://localhost:6379/0
+# Port 5433 on the host avoids clashing with a PostgreSQL already installed on 5432.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: purchase-redundancy-postgres
+    environment:
+      POSTGRES_DB: purchase_redundancy
+      POSTGRES_USER: redundancy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-env}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U redundancy -d purchase_redundancy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: purchase-redundancy-redis
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

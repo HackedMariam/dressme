@@ -251,7 +251,7 @@ The prototype is used to:
 - **Demonstrate the 7 BOs** — give concrete form to each objective.
 - **Provide a foundation for the technical implementation** — act as the visual and UX reference the real frontend is built against.
 
-The prototype is interactive but **not connected to any backend, AI model, or data source**. Scores, weather, wardrobe items, recommendations, and chat replies are all hard-coded sample data for illustration. The prototype will keep evolving as product and technical decisions are refined.
+The prototype is interactive. Most product data is still hard-coded sample data for illustration: scores, weather, wardrobe items, recommendations, and chat replies. The **account, onboarding, profile, and style-preference flows are now real**: they use Supabase Auth and are persisted in the linked Supabase project (see [User Profile & Preferences](#user-profile--preferences-implemented)). The rest of the prototype will keep evolving as product and technical decisions are refined.
 
 ### Prototype screens
 
@@ -267,8 +267,67 @@ Each screen maps to the BOs it is meant to demonstrate:
 | **Should I Buy?** | Retail screenshot / URL analysis with purchase score, redundancy risk, and verdict | BO2, BO6 |
 | **Find Similar** | Image reference → similar items with match percentages | BO2, BO6 |
 | **AI Stylist** | Conversational interface with an active-context panel (weather, occasion, style, wardrobe size) | BO4, BO5 |
-| **Style Profile** | Aesthetic affinities, colour palette, preferred occasions, size profile | BO1, BO4 |
-| **Settings** | Account, regional preferences (currency, units, size system), AI and notification toggles | — |
+| **Style Profile** | Aesthetic affinities, colour palette, preferred occasions, size profile — persisted per user | BO1, BO4 |
+| **Settings** | Account, regional preferences (currency, units, size system), AI and notification toggles — persisted per user | — |
+
+---
+
+## User Profile & Preferences (implemented)
+
+The account, onboarding, profile, and preference flows are connected to the existing Supabase project. They do **not** need a local backend server: the frontend talks directly to Supabase using the public anon key, and Row Level Security restricts each user to their own rows.
+
+### What is persisted
+
+- **Auth**: email/password sign-in and sign-up through Supabase Auth. The auth user id is the stable owner of all profile data.
+- **`profiles`**: display name, avatar URL, preferred language, country/city (`location` JSONB), default currency, timezone, onboarding completion/step, temperature unit, size system, and notification/AI toggles.
+- **`style_profiles`**: preferred styles, favourite colours, avoided colours, preferred occasions, preferred categories, preferred fit, and structured clothing sizes.
+- **Onboarding**: three steps (basics, fit/sizes, style). Progress is saved after every step. A user can skip for now and resume from the same step later. `onboarding_completed` is only set after preferences and the final profile update succeed.
+- **RLS**: users can select/insert/update only their own `profiles` and `style_profiles` rows. Anonymous access to these tables is revoked. The `ensure_user_profile()` RPC only creates rows for `auth.uid()`.
+
+### Supabase configuration
+
+Add the public Supabase values to `DressMe UI Blueprint/.env`:
+
+```env
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<public-anon-key>
+```
+
+- Find both values in **Supabase Dashboard → Project Settings → API**.
+- The `anon` / `public` key is safe in the browser because RLS protects the data.
+- **Never** put `SUPABASE_SERVICE_ROLE_KEY` in `DressMe UI Blueprint/.env` or any client bundle.
+
+The schema change lives in:
+
+```text
+supabase/migrations/20261025140000_profile_and_preferences.sql
+```
+
+It has been applied to the linked project and recorded in its migration history. For a fresh environment, apply it with the Supabase CLI (`supabase db push`) or paste it into the SQL editor. The migration is idempotent and only extends the existing `profiles` / `style_profiles` tables.
+
+### Run and verify
+
+From the repository root:
+
+```bash
+pnpm --dir "DressMe UI Blueprint" dev
+```
+
+Open `http://localhost:8443`. This is the only local process needed for these flows; Supabase is remote.
+
+```bash
+pnpm --dir "DressMe UI Blueprint" typecheck
+pnpm --dir "DressMe UI Blueprint" test
+pnpm --dir "DressMe UI Blueprint" build
+```
+
+The tests cover profile/preference validation, form round-tripping, onboarding draft persistence, and the guarantee that a failed preference save does not mark onboarding complete. Live RLS checks were also run against the linked project with temporary users (owner access allowed; cross-account access rejected; anonymous access rejected).
+
+### Notes
+
+- If a profile is missing, the frontend calls `ensure_user_profile()` (with an insert fallback) and initialises `style_profiles` at the same time.
+- Existing users are not deleted or overwritten; their current rows are preserved and `onboarding_completed` starts as `false`.
+- Account deletion is not exposed in the UI: deleting an auth user still requires a service-role/admin operation.
 
 ---
 
@@ -301,13 +360,15 @@ Each screen maps to the BOs it is meant to demonstrate:
 - Product ideation completed around the 7 business objectives.
 - UI/UX prototype under development from the Figma design.
 - Core navigation and the main feature flows implemented as interactive prototype screens.
+- **User accounts, onboarding, profile, and style preferences implemented** against the existing Supabase project, with typed client services, validation, error handling, and RLS policies.
+- Version-controlled migration for the profile/preferences schema, plus validation and orchestration tests.
 
 **Still open**
 
-- The technical architecture is not yet defined.
+- The broader technical architecture is not yet defined.
 - The multi-agent approach is planned but not finalized — agent boundaries, models, and orchestration are unresolved.
 - Feature scope, CV models, external APIs, data model, and implementation choices remain under evaluation.
-- No AI pipeline, backend, or persistence layer exists yet.
+- Wardrobe, outfit recommendation, packing, purchase analysis, and AI chat screens still use mock data; only the profile/preferences domain is persisted so far.
 
 **This is not a finished or production-ready product.**
 
@@ -374,10 +435,18 @@ pnpm install
 pnpm dev
 ```
 
-Requires Node.js and pnpm (versions pinned in `.mise.toml`).
+Requires Node.js and pnpm (versions pinned in `.mise.toml`). Copy `DressMe UI Blueprint/.env.example` to `.env` and add `SUPABASE_URL` and `SUPABASE_ANON_KEY` if you have not already done so. The profile/onboarding/settings flows need the Supabase migration described in [User Profile & Preferences](#user-profile--preferences-implemented).
+
+Checks:
+
+```bash
+pnpm typecheck
+pnpm test
+pnpm build
+```
 
 ---
 
 ## Disclaimer / Project Status
 
-DressMe is **under active development**. The prototype, architecture, AI components, and feature scope may change as the project progresses. The seven business objectives and the multi-agent direction described above represent the current understanding of the product and are subject to revision — they should not be read as committed technical decisions or as evidence of implemented functionality.
+DressMe is **under active development**. The prototype, architecture, AI components, and feature scope may change as the project progresses. The seven business objectives and the multi-agent direction described above represent the current understanding of the product and are subject to revision — they should not be read as committed technical decisions or as evidence of implemented functionality beyond the profile/preferences feature described above.

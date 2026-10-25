@@ -5,10 +5,13 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.ruff_cache/
 
 # Node
 node_modules/
 dist/
+build/
 
 # Backend runtime
 backend/temp/
@@ -24,10 +27,13 @@ DressMe UI Blueprint/public/models/generated/
 
 # Environment
 .env
-.env.*
+.env.local
+.env.*.local
 
 # OS / editor
 Thumbs.db
 .DS_Store
 .vscode/
 .idea/
+
+supabase/.temp/

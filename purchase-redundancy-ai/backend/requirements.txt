@@ -1,0 +1,15 @@
+# Core API (compatible Python 3.10 - 3.13)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sqlalchemy>=2.0.36
+pydantic>=2.9.0
+python-dotenv>=1.0.1
+python-multipart>=0.0.12
+anthropic>=2.0.0
+openai>=1.50.0
+pillow>=11.0.0
+numpy>=2.1.0
+
+PyJWT>=2.8.0                 # account tokens
+redis>=5.0.0                 # optional shared cache / rate limits (REDIS_URL) - falls back to memory
+psycopg[binary]>=3.1.0       # optional PostgreSQL driver (DATABASE_URL=postgresql://...)
