@@ -20,17 +20,22 @@ import subprocess
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import avatar_store
 import body_scan
 import mpfb_details
 import optimizer
+import settings
+import tryon_mapping
 import vision
+from avatar_auth import User, current_user
 
 BACKEND_DIR = Path(__file__).resolve().parent
 BLENDER_PATH = os.environ.get(
@@ -64,6 +69,7 @@ def load_garment_catalog() -> tuple[dict[str, dict], list[str]]:
 
 
 GARMENT_CATALOG, GARMENT_SLOTS = load_garment_catalog()
+AVATAR_STORE = avatar_store.get_avatar_store(GENERATED_DIR)
 
 ALLOWED_PARAMS = {
     "gender", "age", "muscle", "weight",
@@ -87,9 +93,23 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
-    allow_methods=["POST", "GET"],
+    allow_methods=["POST", "GET", "DELETE"],
     allow_headers=["*"],
 )
+
+
+class WardrobeItemInput(BaseModel):
+    wardrobe_item_id: str | None = None
+    template: str | None = None
+    slot: str | None = None
+    label: str | None = None
+    color_hex: str | None = None
+    category: str | None = None
+    category_group: str | None = None
+    subcategory: str | None = None
+    material: str | None = None
+    formality: int | None = None
+    cutout_url: str | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -98,7 +118,31 @@ class GenerateRequest(BaseModel):
         default_factory=dict,
         description="Optional MPFB detail target name -> value in [0, 1]",
     )
-    outfit: list[str] = Field(default_factory=list, description="Garment ids to fit and export")
+    outfit: list[str] = Field(default_factory=list, description="Legacy garment template ids")
+    wardrobe_item_ids: list[str] = Field(
+        default_factory=list,
+        description="Wardrobe item ids selected by the user",
+    )
+    wardrobe_items: list[WardrobeItemInput] = Field(
+        default_factory=list,
+        description="Local-dev fallback item specs (ignored when Supabase lookup is available)",
+    )
+    height_cm: float | None = Field(
+        None,
+        ge=140,
+        le=220,
+        description="Declared user height in centimetres; the generated avatar is scaled to match",
+    )
+
+
+class SavedAvatarItem(BaseModel):
+    wardrobe_item_id: str
+    template: str
+    slot: str
+    label: str
+    color_hex: str
+    cutout_url: str | None = None
+    category: str = ""
 
 
 class GenerateResponse(BaseModel):
@@ -110,6 +154,10 @@ class GenerateResponse(BaseModel):
     bytes: int
     elapsedSeconds: float
     metrics: dict[str, float] = Field(default_factory=dict)
+    items: list[SavedAvatarItem] = Field(default_factory=list)
+    saved: bool = False
+    savedAt: str | None = None
+    saveError: str | None = None
 
 
 class QuestionnaireRequest(BaseModel):
@@ -130,6 +178,7 @@ class OptimizeRequest(BaseModel):
     details: dict[str, float] = Field(default_factory=dict, description="Starting detail targets")
     silhouettes: dict[str, str] = Field(..., description="Normalized front/side PNG data URLs")
     maxEvaluations: int = Field(36, ge=8, le=96)
+    height_cm: float | None = Field(None, ge=140, le=220)
 
 
 class MeasurementsRequest(BaseModel):
@@ -223,6 +272,157 @@ def validate_outfit(outfit: list[str]) -> list[str]:
     return cleaned
 
 
+def validate_tryon_specs(specs: list[dict]) -> None:
+    if len(specs) > MAX_GARMENTS:
+        raise HTTPException(status_code=422, detail=f"at most {MAX_GARMENTS} garments allowed")
+
+    seen: set[str] = set()
+    slots: list[str] = []
+    for spec in specs:
+        template = spec.get("template")
+        if template not in GARMENT_CATALOG:
+            raise HTTPException(status_code=422, detail=f"unsupported garment '{template}'")
+        slot = GARMENT_CATALOG[template]["slot"]
+        if slot in seen:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Only one '{slot}' garment can be worn at a time.",
+            )
+        seen.add(slot)
+        slots.append(slot)
+
+    if "dress" in slots and ("top" in slots or "bottom" in slots):
+        raise HTTPException(
+            status_code=422,
+            detail="A dress replaces the top and bottom. Choose a dress or a top + bottom, not both.",
+        )
+
+
+def _unique(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def _template_spec(template: str) -> dict:
+    meta = GARMENT_CATALOG[template]
+    return {
+        "wardrobe_item_id": f"template:{template}",
+        "template": template,
+        "slot": str(meta["slot"]),
+        "label": str(meta.get("label") or template),
+        "color_hex": str(meta.get("swatch") or "#9a9a9a"),
+        "color": list(meta.get("color") or tryon_mapping.hex_to_rgb(meta.get("swatch"))),
+        "cutout_url": None,
+        "category": "",
+    }
+
+
+def resolve_tryon_specs(req: GenerateRequest, user: User) -> list[dict]:
+    requested = _unique(req.wardrobe_item_ids)
+    payloads = [item.model_dump() for item in req.wardrobe_items]
+
+    if requested and AVATAR_STORE.kind == "supabase":
+        rows = AVATAR_STORE.list_owned_items(user.id, requested)
+        by_id = {str(row.get("id")): row for row in rows}
+        missing = [item_id for item_id in requested if item_id not in by_id]
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail="Some wardrobe items were not found for this user.",
+            )
+        specs = []
+        for item_id in requested:
+            resolved = tryon_mapping.resolve_item(by_id[item_id], GARMENT_CATALOG)
+            if not resolved:
+                name = by_id[item_id].get("name") or item_id
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"'{name}' has no 3D try-on template.",
+                )
+            specs.append(resolved)
+    elif requested and payloads:
+        by_id = {
+            str(payload.get("wardrobe_item_id")): payload
+            for payload in payloads
+            if payload.get("wardrobe_item_id")
+        }
+        specs = []
+        for index, item_id in enumerate(requested):
+            payload = by_id.get(item_id) or (payloads[index] if index < len(payloads) else None)
+            resolved = (
+                tryon_mapping.resolve_payload(payload, GARMENT_CATALOG)
+                or tryon_mapping.resolve_item(payload, GARMENT_CATALOG)
+                if payload
+                else None
+            )
+            if not resolved:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Wardrobe item '{item_id}' has no 3D try-on template.",
+                )
+            resolved["wardrobe_item_id"] = item_id
+            specs.append(resolved)
+    elif payloads:
+        specs = []
+        for payload in payloads:
+            resolved = tryon_mapping.resolve_payload(
+                payload, GARMENT_CATALOG
+            ) or tryon_mapping.resolve_item(payload, GARMENT_CATALOG)
+            if not resolved:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"'{payload.get('label') or payload.get('template') or 'Item'}' has no 3D try-on template.",
+                )
+            specs.append(resolved)
+    elif req.outfit:
+        specs = [_template_spec(template) for template in validate_outfit(req.outfit)]
+    else:
+        specs = []
+
+    validate_tryon_specs(specs)
+    return specs
+
+
+def _blender_spec(specs: list[dict]) -> list[dict]:
+    return [
+        {
+            "template": spec["template"],
+            "color": spec["color"],
+            "label": spec["label"],
+            "wardrobe_item_id": spec.get("wardrobe_item_id") or "",
+        }
+        for spec in specs
+    ]
+
+
+def _snapshot(specs: list[dict]) -> list[SavedAvatarItem]:
+    return [
+        SavedAvatarItem(
+            wardrobe_item_id=str(spec.get("wardrobe_item_id") or ""),
+            template=str(spec["template"]),
+            slot=str(spec["slot"]),
+            label=str(spec["label"]),
+            color_hex=str(spec.get("color_hex") or "#9a9a9a"),
+            cutout_url=spec.get("cutout_url"),
+            category=str(spec.get("category") or ""),
+        )
+        for spec in specs
+    ]
+
+
+def _avatar_response(row: dict) -> dict:
+    return {
+        "found": True,
+        "targets": row.get("targets") or {},
+        "details": row.get("details") or {},
+        "outfit": row.get("outfit") or [],
+        "metrics": row.get("metrics") or {},
+        "url": row.get("url") or "",
+        "heightCm": row.get("height_cm"),
+        "generatedAt": row.get("generated_at"),
+        "updatedAt": row.get("updated_at"),
+    }
+
+
 def is_valid_glb(path: Path) -> bool:
     try:
         with open(path, "rb") as f:
@@ -277,6 +477,8 @@ def health() -> dict:
         "allowedGarments": ALLOWED_GARMENTS,
         "slots": GARMENT_SLOTS,
         "visionConfigured": vision.is_configured(),
+        "authEnabled": settings.AUTH_ENABLED,
+        "avatarStorage": AVATAR_STORE.kind,
     }
 
 
@@ -337,11 +539,15 @@ async def body_vision(
 
 
 @app.post("/api/avatar/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest) -> GenerateResponse:
+def generate(
+    req: GenerateRequest,
+    user: User = Depends(current_user),
+) -> GenerateResponse:
     targets = validate_targets(req.targets)
     details = validate_details(req.details)
-    outfit = validate_outfit(req.outfit)
-    script = DRESSED_BLENDER_SCRIPT if outfit else BLENDER_SCRIPT
+    specs = resolve_tryon_specs(req, user)
+    outfit = [spec["template"] for spec in specs]
+    script = DRESSED_BLENDER_SCRIPT if specs else BLENDER_SCRIPT
     if not script.is_file():
         raise HTTPException(status_code=500, detail=f"Generator script missing: {script}")
 
@@ -361,9 +567,12 @@ def generate(req: GenerateRequest) -> GenerateResponse:
 
         params_path = TEMP_DIR / f"params_{job_id}.json"
         details_path = TEMP_DIR / f"details_{job_id}.json"
+        spec_path = TEMP_DIR / f"spec_{job_id}.json"
         temp_glb = TEMP_DIR / f"avatar_{job_id}.glb"
         params_path.write_text(json.dumps(targets), encoding="utf-8")
         details_path.write_text(json.dumps(details), encoding="utf-8")
+        if specs:
+            spec_path.write_text(json.dumps(_blender_spec(specs)), encoding="utf-8")
 
         cmd = [
             BLENDER_PATH,
@@ -379,8 +588,10 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             "--output",
             str(temp_glb),
         ]
-        if outfit:
-            cmd.extend(["--outfit", ",".join(outfit)])
+        if specs:
+            cmd.extend(["--spec", str(spec_path)])
+        if req.height_cm is not None:
+            cmd.extend(["--height-cm", str(req.height_cm)])
         started = time.monotonic()
         try:
             proc = subprocess.run(
@@ -400,6 +611,7 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             try:
                 params_path.unlink(missing_ok=True)
                 details_path.unlink(missing_ok=True)
+                spec_path.unlink(missing_ok=True)
             except OSError:
                 pass
 
@@ -420,19 +632,62 @@ def generate(req: GenerateRequest) -> GenerateResponse:
 
         metrics = result.get("metrics") or {}
         metrics = {k: float(v) for k, v in metrics.items() if isinstance(v, (int, float))}
+        snapshots = _snapshot(specs)
+        response_url = f"/models/generated/{final_name}"
+        saved = False
+        saved_at: str | None = None
+        save_error: str | None = None
+
+        try:
+            row = AVATAR_STORE.save_avatar(
+                user.id,
+                {
+                    "targets": targets,
+                    "details": details,
+                    "outfit": [item.model_dump() for item in snapshots],
+                    "metrics": metrics,
+                    "height_cm": req.height_cm,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                final_path.read_bytes(),
+            )
+            response_url = str(row.get("url") or response_url)
+            saved = True
+            saved_at = row.get("updated_at") or row.get("generated_at")
+        except Exception as exc:  # noqa: BLE001 - generation succeeds even if storage is down
+            save_error = str(exc)
+            print(f"[avatar] could not save latest avatar for {user.id}: {exc}", flush=True)
 
         return GenerateResponse(
             jobId=job_id,
-            url=f"/models/generated/{final_name}",
+            url=response_url,
             params=targets,
             details=details,
             outfit=outfit,
             bytes=final_path.stat().st_size,
             elapsedSeconds=elapsed,
             metrics=metrics,
+            items=snapshots,
+            saved=saved,
+            savedAt=saved_at,
+            saveError=save_error,
         )
     finally:
         _job_lock.release()
+
+
+@app.get("/api/avatar/me")
+def get_my_avatar(user: User = Depends(current_user)) -> dict:
+    row = AVATAR_STORE.get_avatar(user.id)
+    if not row:
+        return {"found": False}
+    return _avatar_response(row)
+
+
+@app.delete("/api/avatar/me")
+def delete_my_avatar(user: User = Depends(current_user)) -> dict:
+    AVATAR_STORE.delete_avatar(user.id)
+    return {"deleted": True}
 
 
 def _update_opt_job(job_id: str, **fields) -> None:
@@ -448,6 +703,7 @@ def _run_optimize(
     details: dict[str, float],
     silhouettes: dict[str, str],
     max_evaluations: int,
+    height_cm: float | None = None,
 ) -> None:
     work_dir = TEMP_DIR / f"opt_{job_id}"
     config = {
@@ -456,6 +712,7 @@ def _run_optimize(
         "script": str(BLENDER_SCRIPT),
         "work_dir": str(work_dir),
         "eval_timeout": min(JOB_TIMEOUT_SECONDS, 180),
+        "height_cm": height_cm,
     }
 
     def progress(payload: dict) -> None:
@@ -520,7 +777,7 @@ def start_optimize(payload: OptimizeRequest) -> dict:
     try:
         thread = threading.Thread(
             target=_run_optimize,
-            args=(job_id, targets, details, payload.silhouettes, payload.maxEvaluations),
+            args=(job_id, targets, details, payload.silhouettes, payload.maxEvaluations, payload.height_cm),
             daemon=True,
         )
         thread.start()

@@ -1,10 +1,12 @@
 import type { GarmentId } from "./garments"
+import type { TryOnItemSnapshot } from "./tryon"
 
 export type SavedLook = {
   id: string
   label: string
   garmentIds: GarmentId[]
-  wardrobeIds: number[]
+  wardrobeIds: string[]
+  items?: TryOnItemSnapshot[]
   createdAt: number
 }
 
@@ -22,13 +24,18 @@ export function loadLooks(): SavedLook[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (look): look is SavedLook =>
-        typeof look?.id === "string" &&
-        typeof look?.label === "string" &&
-        Array.isArray(look?.garmentIds) &&
-        Array.isArray(look?.wardrobeIds),
-    )
+    return parsed
+      .filter(
+        (look): look is SavedLook =>
+          typeof look?.id === "string" &&
+          typeof look?.label === "string" &&
+          Array.isArray(look?.garmentIds) &&
+          Array.isArray(look?.wardrobeIds),
+      )
+      .map((look) => ({
+        ...look,
+        wardrobeIds: look.wardrobeIds.map((id) => String(id)),
+      }))
   } catch {
     return []
   }

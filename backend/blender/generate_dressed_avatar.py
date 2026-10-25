@@ -66,6 +66,42 @@ def read_details(path):
     return details
 
 
+def read_spec(path):
+    """Per-item garment specs: template id + optional RGB colour override."""
+    if not path:
+        return None
+    with open(path, "r", encoding="utf-8-sig") as f:
+        spec = json.load(f)
+    if not isinstance(spec, list):
+        raise ValueError("Garment spec must be a JSON array")
+    cleaned = []
+    for entry in spec:
+        if not isinstance(entry, dict):
+            raise ValueError("Each garment spec must be an object")
+        template = str(entry.get("template") or "").strip()
+        if template not in GARMENTS:
+            raise ValueError(f"Unsupported garment template in spec: {template!r}")
+        color = entry.get("color")
+        if color is not None:
+            if not isinstance(color, list) or len(color) != 3:
+                raise ValueError(f"Garment {template} colour must be [r, g, b]")
+            values = []
+            for channel in color:
+                if isinstance(channel, bool) or not isinstance(channel, (int, float)):
+                    raise ValueError(f"Garment {template} colour channels must be numbers")
+                values.append(min(1.0, max(0.0, float(channel))))
+            color = tuple(values)
+        cleaned.append(
+            {
+                "template": template,
+                "color": color,
+                "label": str(entry.get("label") or template),
+                "wardrobe_item_id": str(entry.get("wardrobe_item_id") or ""),
+            }
+        )
+    return cleaned
+
+
 def apply_detail_targets(TargetService, basemesh, details):
     applied = {}
     missing = []
@@ -296,6 +332,56 @@ def mesh_height(body_obj) -> float:
     return max(zs) - min(zs) if zs else 0.0
 
 
+def scale_to_height(objects, target_height_m: float):
+    """Uniformly scale every mesh in `objects` around the ground so the figure is
+    exactly target_height_m tall. Returns (factor, pivot) for landmark scaling."""
+    meshes = []
+    seen = set()
+    for obj in objects:
+        if obj is None or obj.type != "MESH" or obj.name in seen:
+            continue
+        seen.add(obj.name)
+        meshes.append(obj)
+    if not meshes or target_height_m <= 0:
+        return 1.0, None
+
+    points = [(obj.matrix_world @ vertex.co) for obj in meshes for vertex in obj.data.vertices]
+    if not points:
+        return 1.0, None
+    min_z = min(point.z for point in points)
+    max_z = max(point.z for point in points)
+    current_height = max_z - min_z
+    if current_height <= 1e-6:
+        return 1.0, None
+
+    factor = target_height_m / current_height
+    if abs(factor - 1.0) < 1e-4:
+        return 1.0, None
+
+    pivot = Vector((
+        (min(point.x for point in points) + max(point.x for point in points)) * 0.5,
+        (min(point.y for point in points) + max(point.y for point in points)) * 0.5,
+        min_z,
+    ))
+    for obj in meshes:
+        matrix_world = obj.matrix_world
+        inverse = matrix_world.inverted()
+        for vertex in obj.data.vertices:
+            world = matrix_world @ vertex.co
+            vertex.co = inverse @ (pivot + (world - pivot) * factor)
+        obj.data.update()
+    return factor, pivot
+
+
+def scale_landmarks(landmarks, factor: float, pivot):
+    if abs(factor - 1.0) < 1e-4 or pivot is None:
+        return landmarks
+    return {
+        name: pivot + (point - pivot) * factor
+        for name, point in landmarks.items()
+    }
+
+
 def classify_vertices(points, segments):
     labels = []
     for p in points:
@@ -329,7 +415,7 @@ def make_material(name, color, roughness=0.8):
     return mat
 
 
-def build_garment(body_obj, landmarks, garment_id):
+def build_garment(body_obj, landmarks, garment_id, color=None):
     cfg = GARMENTS[garment_id]
     segments = build_segments(landmarks)
 
@@ -406,7 +492,7 @@ def build_garment(body_obj, landmarks, garment_id):
     bm.free()
 
     new_mesh.materials.append(
-        make_material(f"mat_{garment_id}", cfg["color"], cfg["roughness"])
+        make_material(f"mat_{garment_id}", color or cfg["color"], cfg["roughness"])
     )
     for poly in new_mesh.polygons:
         poly.use_smooth = True
@@ -432,8 +518,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--params", required=True)
     parser.add_argument("--details", default=None)
+    parser.add_argument("--spec", default=None, help="Per-item template/colour JSON")
     parser.add_argument("--outfit", default="tshirt")
     parser.add_argument("--output", required=True)
+    parser.add_argument("--height-cm", type=float, default=None)
     args, _unknown = parser.parse_known_args(sys.argv[sys.argv.index("--") + 1:])
 
     with open(args.params, "r", encoding="utf-8-sig") as f:
@@ -447,7 +535,13 @@ def main():
         if not isinstance(v, (int, float)) or isinstance(v, bool) or not (0.0 <= float(v) <= 1.0):
             raise ValueError(f"Parameter {k} must be a number between 0.0 and 1.0, got {v!r}")
 
-    outfit = [g.strip() for g in args.outfit.split(",") if g.strip()]
+    spec = read_spec(args.spec)
+    if spec is not None:
+        outfit_specs = [(entry["template"], entry["color"]) for entry in spec]
+        outfit = [entry["template"] for entry in spec]
+    else:
+        outfit = [g.strip() for g in args.outfit.split(",") if g.strip()]
+        outfit_specs = [(g, None) for g in outfit]
     unknown_g = [g for g in outfit if g not in GARMENTS]
     if unknown_g:
         raise ValueError(f"Unsupported garments: {unknown_g}. Allowed: {sorted(GARMENTS)}")
@@ -506,15 +600,24 @@ def main():
         bake_keys(child)
 
     leg_factor = apply_leg_length(export_basemesh, float(params.get("legLength", 0.5)), landmarks["pelvis"].z)
-    metrics = compute_metrics(landmarks, leg_factor)
+    garment_landmarks = scale_landmarks_for_legs(landmarks, landmarks["pelvis"].z, leg_factor)
+    if args.height_cm is not None:
+        height_factor, height_pivot = scale_to_height(
+            [export_basemesh] + list(ObjectService.get_list_of_children(export_root)),
+            args.height_cm / 100.0,
+        )
+        garment_landmarks = scale_landmarks(garment_landmarks, height_factor, height_pivot)
+    metrics = compute_metrics(garment_landmarks, 1.0)
     metrics["heightMeters"] = round(mesh_height(export_basemesh), 4)
 
     skin_mat = make_material("mat_skin", (0.82, 0.66, 0.54), 0.75)
     export_basemesh.data.materials.clear()
     export_basemesh.data.materials.append(skin_mat)
 
-    garment_landmarks = scale_landmarks_for_legs(landmarks, landmarks["pelvis"].z, leg_factor)
-    garments = [build_garment(export_basemesh, garment_landmarks, g) for g in outfit]
+    garments = [
+        build_garment(export_basemesh, garment_landmarks, g, color)
+        for g, color in outfit_specs
+    ]
 
     bpy.ops.object.select_all(action="DESELECT")
     export_root.select_set(True)
@@ -546,6 +649,15 @@ def main():
         "details_applied": applied_details,
         "details_missing": missing_details,
         "outfit": outfit,
+        "items": [
+            {
+                "template": entry["template"],
+                "color": list(entry["color"]) if entry.get("color") else None,
+                "label": entry.get("label"),
+                "wardrobe_item_id": entry.get("wardrobe_item_id"),
+            }
+            for entry in (spec or [])
+        ],
         "output": args.output,
         "bytes": size,
         "metrics": metrics,

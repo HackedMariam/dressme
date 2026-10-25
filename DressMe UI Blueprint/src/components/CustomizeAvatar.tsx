@@ -26,6 +26,7 @@ import {
   type OptimizeResult,
   type QuestionnairePayload,
   type VisionAnalysis,
+  versionedUrl,
 } from "../lib/avatarApi"
 import { analyzeBodyPhotos, type PhotoPairAnalysis } from "../lib/bodyPhotos"
 import { preloadPoseModel } from "../lib/pose"
@@ -65,10 +66,12 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 }
 
 export default function CustomizeAvatar({
+  initialUrl,
   onUseParams,
   onGoToTryOn,
 }: {
-  onUseParams?: (p: BodyTargets, details: DetailTargets) => void
+  initialUrl?: string
+  onUseParams?: (p: BodyTargets, details: DetailTargets, heightCm: number) => void
   onGoToTryOn?: () => void
 } = {}) {
   const [mpfb, setMpb] = useState<Record<MpbParam, number>>(defaultMpbTargets)
@@ -113,7 +116,7 @@ export default function CustomizeAvatar({
 
   const [genState, setGenState] = useState<"idle" | "running" | "success" | "error">("idle")
   const [genError, setGenError] = useState<string | null>(null)
-  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(initialUrl ?? null)
   const [lastJob, setLastJob] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<GenerateResult | null>(null)
   const [genIteration, setGenIteration] = useState(0)
@@ -133,6 +136,10 @@ export default function CustomizeAvatar({
       if (sideUrlRef.current) URL.revokeObjectURL(sideUrlRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (initialUrl) setGeneratedUrl(initialUrl)
+  }, [initialUrl])
 
   useEffect(() => {
     preloadPoseModel().catch(() => undefined)
@@ -336,7 +343,7 @@ export default function CustomizeAvatar({
 
       for (let pass = 0; pass < maxPasses; pass++) {
         setGenIteration(pass + 1)
-        last = await generateAvatar(current, [], controller.signal, detailTargets)
+        last = await generateAvatar(current, [], controller.signal, detailTargets, { heightCm })
         if (!desired) break
         const next = fitTargets(current, last.metrics, desired)
         if (!next) break
@@ -348,7 +355,7 @@ export default function CustomizeAvatar({
       }
 
       if (!last) throw new Error("Generation produced no result")
-      setGeneratedUrl(`${last.url}?v=${last.jobId}`)
+      setGeneratedUrl(versionedUrl(last.url, last.jobId))
       setLastJob(last.jobId)
       setLastResult(last)
       setGenState("success")
@@ -356,7 +363,7 @@ export default function CustomizeAvatar({
       if (desired && last.metrics) {
         setFitInfo({ score: fitScore(last.metrics, desired), achieved: last.metrics })
       }
-      onUseParams?.(current, detailTargets)
+      onUseParams?.(current, detailTargets, heightCm)
     } catch (e) {
       const aborted = controller.signal.aborted
       setGenState("error")
@@ -385,7 +392,7 @@ export default function CustomizeAvatar({
       setLegLengthOverride(result.targets.legLength)
     }
     setDetailValues(detailTargetsToValues(result.details))
-    setGeneratedUrl(`${result.url}?v=${result.jobId}`)
+    setGeneratedUrl(versionedUrl(result.url, result.jobId))
     setLastJob(result.jobId)
     setLastResult({
       jobId: result.jobId,
@@ -408,6 +415,7 @@ export default function CustomizeAvatar({
         legLength: result.targets.legLength ?? legLength,
       } as BodyTargets,
       result.details,
+      heightCm,
     )
   }
 
@@ -466,8 +474,8 @@ export default function CustomizeAvatar({
       setVisionState("success")
       setGenState("running")
 
-      const result = await generateAvatar(targets, [], controller.signal, nextDetailTargets)
-      setGeneratedUrl(`${result.url}?v=${result.jobId}`)
+      const result = await generateAvatar(targets, [], controller.signal, nextDetailTargets, { heightCm })
+      setGeneratedUrl(versionedUrl(result.url, result.jobId))
       setLastJob(result.jobId)
       setLastResult(result)
       setGenState("success")
@@ -475,7 +483,7 @@ export default function CustomizeAvatar({
         score: Math.round(Math.max(0, Math.min(1, vision.analysis.confidence)) * 100),
         achieved: result.metrics,
       })
-      onUseParams?.(targets, nextDetailTargets)
+      onUseParams?.(targets, nextDetailTargets, heightCm)
     } catch (e) {
       const aborted = controller.signal.aborted
       setGenState("error")
@@ -515,6 +523,7 @@ export default function CustomizeAvatar({
         photoAnalysis.silhouettes,
         36,
         controller.signal,
+        heightCm,
       )
       const jobId = started.jobId
       const poll = async () => {

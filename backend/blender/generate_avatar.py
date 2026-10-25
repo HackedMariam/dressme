@@ -129,6 +129,56 @@ def mesh_height(body_obj) -> float:
     return max(zs) - min(zs) if zs else 0.0
 
 
+def scale_to_height(objects, target_height_m: float):
+    """Uniformly scale every mesh in `objects` around the ground so the figure is
+    exactly target_height_m tall. Returns (factor, pivot) for landmark scaling."""
+    meshes = []
+    seen = set()
+    for obj in objects:
+        if obj is None or obj.type != "MESH" or obj.name in seen:
+            continue
+        seen.add(obj.name)
+        meshes.append(obj)
+    if not meshes or target_height_m <= 0:
+        return 1.0, None
+
+    points = [(obj.matrix_world @ vertex.co) for obj in meshes for vertex in obj.data.vertices]
+    if not points:
+        return 1.0, None
+    min_z = min(point.z for point in points)
+    max_z = max(point.z for point in points)
+    current_height = max_z - min_z
+    if current_height <= 1e-6:
+        return 1.0, None
+
+    factor = target_height_m / current_height
+    if abs(factor - 1.0) < 1e-4:
+        return 1.0, None
+
+    pivot = Vector((
+        (min(point.x for point in points) + max(point.x for point in points)) * 0.5,
+        (min(point.y for point in points) + max(point.y for point in points)) * 0.5,
+        min_z,
+    ))
+    for obj in meshes:
+        matrix_world = obj.matrix_world
+        inverse = matrix_world.inverted()
+        for vertex in obj.data.vertices:
+            world = matrix_world @ vertex.co
+            vertex.co = inverse @ (pivot + (world - pivot) * factor)
+        obj.data.update()
+    return factor, pivot
+
+
+def scale_landmarks(landmarks, factor: float, pivot):
+    if abs(factor - 1.0) < 1e-4 or pivot is None:
+        return landmarks
+    return {
+        name: pivot + (point - pivot) * factor
+        for name, point in landmarks.items()
+    }
+
+
 def render_silhouette_views(body_obj, out_prefix: str) -> dict:
     """Render transparent front/side masks of the generated body for fitting."""
     matrix_world = body_obj.matrix_world
@@ -276,6 +326,7 @@ def main():
     parser.add_argument("--details", default=None)
     parser.add_argument("--silhouettes", default=None)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--height-cm", type=float, default=None)
     args, _unknown = parser.parse_known_args(sys.argv[sys.argv.index("--") + 1:])
 
     with open(args.params, "r", encoding="utf-8-sig") as f:
@@ -330,6 +381,13 @@ def main():
         bake_shape_keys_if_any(TargetService, child)
 
     leg_factor = apply_leg_length(export_basemesh, float(params.get("legLength", 0.5)), landmarks["pelvis"].z)
+    height_factor, height_pivot = 1.0, None
+    if args.height_cm is not None:
+        height_factor, height_pivot = scale_to_height(
+            [export_basemesh] + list(ObjectService.get_list_of_children(export_root)),
+            args.height_cm / 100.0,
+        )
+        landmarks = scale_landmarks(landmarks, height_factor, height_pivot)
     metrics = compute_metrics(landmarks, leg_factor)
     metrics["heightMeters"] = round(mesh_height(export_basemesh), 4)
 

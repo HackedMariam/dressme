@@ -1,5 +1,6 @@
 import type { BodyMetrics, MetricReliability, Proportions } from "./pose"
-import type { GarmentId } from "./garments"
+import type { GarmentId, GarmentSlot } from "./garments"
+import { isSupabaseConfigured, supabase } from "./supabase"
 
 export type { GarmentId }
 
@@ -53,6 +54,63 @@ export type GenerateResult = {
   bytes: number
   elapsedSeconds: number
   metrics: Record<string, number>
+  items?: SavedAvatarItem[]
+  saved?: boolean
+  savedAt?: string | null
+  saveError?: string | null
+}
+
+export type WardrobeItemRequest = {
+  wardrobe_item_id: string
+  template: GarmentId
+  slot: GarmentSlot
+  label: string
+  color_hex: string
+  category: string
+}
+
+export type SavedAvatarItem = {
+  wardrobe_item_id: string
+  template: GarmentId
+  slot: GarmentSlot
+  label: string
+  color_hex: string
+  cutout_url?: string | null
+  category?: string
+}
+
+export type AvatarSnapshot = {
+  found: true
+  targets: Record<string, number>
+  details: DetailTargets
+  outfit: SavedAvatarItem[]
+  metrics: Record<string, number>
+  url: string
+  heightCm?: number | null
+  generatedAt?: string | null
+  updatedAt?: string | null
+}
+
+export type GenerateOptions = {
+  wardrobeItemIds?: string[]
+  wardrobeItems?: WardrobeItemRequest[]
+  heightCm?: number
+}
+
+export function versionedUrl(url: string, version?: string | null): string {
+  if (!version) return url
+  return `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}`
+}
+
+async function authHeaders(
+  extra: Record<string, string> = {},
+): Promise<Record<string, string>> {
+  const headers = { ...extra }
+  if (!isSupabaseConfigured) return headers
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
 }
 
 export type Health = {
@@ -367,13 +425,22 @@ export async function generateAvatar(
   outfit: GarmentId[] = [],
   signal?: AbortSignal,
   details: DetailTargets = {},
+  options: GenerateOptions = {},
 ): Promise<GenerateResult> {
   let res: Response
   try {
+    const headers = await authHeaders({ "Content-Type": "application/json" })
     res = await fetch(`${API_BASE}/api/avatar/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targets, details, outfit }),
+      headers,
+      body: JSON.stringify({
+        targets,
+        details,
+        outfit,
+        wardrobe_item_ids: options.wardrobeItemIds ?? [],
+        wardrobe_items: options.wardrobeItems ?? [],
+        ...(options.heightCm !== undefined ? { height_cm: options.heightCm } : {}),
+      }),
       signal,
     })
   } catch {
@@ -395,19 +462,57 @@ export async function generateAvatar(
   return { ...data, details: data.details ?? {}, metrics: data.metrics ?? {} }
 }
 
+export async function getLatestAvatar(
+  signal?: AbortSignal,
+): Promise<AvatarSnapshot | null> {
+  let res: Response
+  try {
+    const headers = await authHeaders()
+    res = await fetch(`${API_BASE}/api/avatar/me`, { headers, signal })
+  } catch {
+    throw new Error("Cannot reach the local avatar backend.")
+  }
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(await readApiError(res))
+  const body = (await res.json()) as AvatarSnapshot | { found: false }
+  return body && "found" in body && body.found ? body : null
+}
+
+export async function deleteLatestAvatar(signal?: AbortSignal): Promise<void> {
+  let res: Response
+  try {
+    const headers = await authHeaders()
+    res = await fetch(`${API_BASE}/api/avatar/me`, {
+      method: "DELETE",
+      headers,
+      signal,
+    })
+  } catch {
+    throw new Error("Cannot reach the local avatar backend.")
+  }
+  if (!res.ok && res.status !== 404) throw new Error(await readApiError(res))
+}
+
 export async function startAvatarOptimization(
   targets: BodyTargets | MpbTargets,
   details: DetailTargets,
   silhouettes: { front: string; side: string },
   maxEvaluations = 36,
   signal?: AbortSignal,
+  heightCm?: number,
 ): Promise<{ jobId: string; status: string; progress: OptimizeJob["progress"] }> {
   let res: Response
   try {
     res = await fetch(`${API_BASE}/api/avatar/optimize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targets, details, silhouettes, maxEvaluations }),
+      body: JSON.stringify({
+        targets,
+        details,
+        silhouettes,
+        maxEvaluations,
+        ...(heightCm !== undefined ? { height_cm: heightCm } : {}),
+      }),
       signal,
     })
   } catch {

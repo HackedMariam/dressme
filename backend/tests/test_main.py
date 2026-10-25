@@ -86,6 +86,19 @@ def test_generate_rejects_invalid_outfit_before_running_blender():
     assert "dress" in response.json()["detail"].lower()
 
 
+def test_generate_accepts_height_cm():
+    req = main.GenerateRequest(targets={"muscle": 0.5}, height_cm=172)
+    assert req.height_cm == 172
+
+
+def test_generate_rejects_out_of_range_height_cm():
+    response = client.post(
+        "/api/avatar/generate",
+        json={"targets": {"muscle": 0.5}, "height_cm": 300},
+    )
+    assert response.status_code == 422
+
+
 def test_is_valid_glb(tmp_path):
     valid = tmp_path / "model.glb"
     valid.write_bytes(b"glTF" + b"0" * 2000)

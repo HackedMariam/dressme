@@ -221,6 +221,8 @@ def _run_blender(
         "--output",
         str(glb_path),
     ]
+    if config.get("height_cm") is not None:
+        cmd.extend(["--height-cm", str(config["height_cm"])])
     try:
         proc = subprocess.run(
             cmd,

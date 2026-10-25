@@ -1,10 +1,10 @@
-import { useState } from "react";
-import AvatarViewer from "./components/AvatarViewer";
+import { useEffect, useRef, useState } from "react";
 import CustomizeAvatar from "./components/CustomizeAvatar";
 import TryOnStudio from "./components/TryOnStudio";
 import { defaultBodyTargets, type BodyTargets, type DetailTargets } from "./lib/avatarApi";
-import type { GarmentId } from "./lib/garments";
+import { tryOnItemsFromSnapshots, type TryOnItem } from "./lib/tryon";
 import { loadLooks, saveLook, type SavedLook } from "./lib/looks";
+import { useLatestAvatar } from "./features/avatar/useLatestAvatar";
 import { wardrobeItems } from "./lib/wardrobe";
 import { AuthProvider, useAuth } from "./features/auth/AuthProvider";
 import AuthScreen from "./features/auth/AuthScreen";
@@ -26,7 +26,6 @@ type Page =
   | "find-similar"
   | "ai-stylist"
   | "weather"
-  | "avatar-test"
   | "customize-avatar"
   | "try-on"
   | "settings";
@@ -47,7 +46,6 @@ const navItems: { label: string; page: Page; icon: string }[] = [
   { label: "Find Similar", page: "find-similar", icon: "◎" },
   { label: "AI Stylist", page: "ai-stylist", icon: "◆" },
   { label: "Weather", page: "weather", icon: "◌" },
-  { label: "Avatar Test", page: "avatar-test", icon: "◐" },
   { label: "Customize My Avatar", page: "customize-avatar", icon: "◍" },
   { label: "Try On Outfits", page: "try-on", icon: "◑" },
   { label: "Settings", page: "settings", icon: "⊙" },
@@ -1064,13 +1062,34 @@ function ConfigScreen({ message }: { message: string }) {
 function AuthenticatedApp() {
   const { signOut } = useAuth();
   const { profile, loading, error, refresh } = useUserData();
+  const {
+    snapshot: latestAvatar,
+    refresh: refreshLatestAvatar,
+  } = useLatestAvatar(profile?.id);
   const [page, setPage] = useState<Page>("dashboard");
   const [avatarParams, setAvatarParams] = useState<BodyTargets>(defaultBodyTargets);
   const [avatarDetails, setAvatarDetails] = useState<DetailTargets>({});
+  const [avatarHeightCm, setAvatarHeightCm] = useState(170);
   const [hasCustomized, setHasCustomized] = useState(false);
-  const [tryOnSelection, setTryOnSelection] = useState<GarmentId[]>(["tshirt", "trousers"]);
+  const [tryOnSelection, setTryOnSelection] = useState<TryOnItem[]>([]);
   const [savedLooks, setSavedLooks] = useState<SavedLook[]>(loadLooks);
   const [setupDismissed, setSetupDismissed] = useState(false);
+  const restoredLatest = useRef(false);
+
+  useEffect(() => {
+    if (!latestAvatar) return;
+    setAvatarParams({ ...defaultBodyTargets(), ...latestAvatar.targets });
+    setAvatarDetails(latestAvatar.details ?? {});
+    if (latestAvatar.heightCm) setAvatarHeightCm(latestAvatar.heightCm);
+    setHasCustomized(true);
+    if (!restoredLatest.current) {
+      const restored = tryOnItemsFromSnapshots(latestAvatar.outfit);
+      if (restored.length) {
+        setTryOnSelection(restored);
+        restoredLatest.current = true;
+      }
+    }
+  }, [latestAvatar]);
 
   const renderPage = () => {
     switch (page) {
@@ -1083,11 +1102,17 @@ function AuthenticatedApp() {
       case "ai-stylist": return <AIStylist />;
       case "style-profile": return <StyleProfile />;
       case "find-similar": return <FindSimilar />;
-      case "avatar-test": return <AvatarViewer />;
       case "customize-avatar":
         return (
           <CustomizeAvatar
-            onUseParams={(p, d) => { setAvatarParams(p); setAvatarDetails(d); setHasCustomized(true); }}
+            initialUrl={latestAvatar && latestAvatar.outfit.length === 0 ? latestAvatar.url : undefined}
+            onUseParams={(p, d, heightCm) => {
+              setAvatarParams(p);
+              setAvatarDetails(d);
+              setAvatarHeightCm(heightCm);
+              setHasCustomized(true);
+              void refreshLatestAvatar();
+            }}
             onGoToTryOn={() => setPage("try-on")}
           />
         );
@@ -1096,11 +1121,14 @@ function AuthenticatedApp() {
           <TryOnStudio
             params={avatarParams}
             details={avatarDetails}
+            heightCm={avatarHeightCm}
             selection={tryOnSelection}
             onSelectionChange={setTryOnSelection}
             savedLooks={savedLooks}
             onSaveLook={(look) => setSavedLooks(saveLook(look))}
             hasCustomized={hasCustomized}
+            initialAvatar={latestAvatar}
+            onAvatarSaved={() => void refreshLatestAvatar()}
             onBack={() => setPage("customize-avatar")}
           />
         );

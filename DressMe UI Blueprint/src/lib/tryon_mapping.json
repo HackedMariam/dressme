@@ -1,0 +1,36 @@
+{
+  "formal_at": 4,
+  "categories": {
+    "top": { "default": "tshirt", "formal": "oxford" },
+    "sweater": { "default": "turtleneck" },
+    "jacket": { "default": "jacket", "formal": "blazer" },
+    "vest": { "default": "cardigan" },
+    "pants": { "default": "trousers", "denim": "jeans" },
+    "dress": { "default": "dress" },
+    "shoe": { "default": "boots" }
+  },
+  "groups": {
+    "tops": "tshirt",
+    "bottoms": "trousers",
+    "dresses": "dress",
+    "outerwear": "jacket",
+    "shoes": "boots"
+  },
+  "unsupported": [
+    "shorts",
+    "skirt",
+    "tights",
+    "sock",
+    "underwear",
+    "bag",
+    "belt",
+    "glasses",
+    "hat",
+    "headband",
+    "scarf",
+    "glove",
+    "watch",
+    "umbrella",
+    "other"
+  ]
+}

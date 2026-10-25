@@ -30,8 +30,9 @@ Keep this terminal open while using "Generate Avatar" in the app.
 ## API
 
 - `GET /api/health` -> `{"ok": true, "blenderExists": true, "blendExists": true, "dressedScriptExists": true, "allowedGarments": [...], "slots": [...]}`
-- `POST /api/avatar/generate` with body `{"targets": {"muscle": 0.7, "legLength": 0.65}, "details": {"measure-waist-circ-incr": 0.2}, "outfit": ["turtleneck", "jeans", "boots"]}`
+- `POST /api/avatar/generate` with body `{"targets": {"muscle": 0.7, "legLength": 0.65}, "details": {"measure-waist-circ-incr": 0.2}, "outfit": ["turtleneck", "jeans", "boots"], "height_cm": 172}`
   - Whitelisted params (each a float 0.0-1.0): `gender age muscle weight height proportions cupsize firmness legLength`
+  - Optional `height_cm` (140-220): after shaping, the Blender scripts uniformly scale the character to this real-world height and report it in `metrics.heightMeters`.
   - Optional `details`: up to 128 whitelisted MPFB detail targets (each 0.0-1.0), e.g. `measure-waist-circ-incr`, `measure-hips-circ-decr`, `torso-scale-depth-incr`, `measure-thigh-circ-incr`. The allowlist lives in `backend/mpfb_targets.json` and is validated in `backend/mpfb_details.py`. Macro names are rejected here; use `targets` for those.
   - `legLength` is applied by the Blender scripts after MPFB shaping (a dedicated post-process, not an MPFB macro).
   - Detail targets are loaded after the macros and before the export copy, so the GLB and any garments are built from the adjusted body.
@@ -40,7 +41,14 @@ Keep this terminal open while using "Generate Avatar" in the app.
   - `409` if a job is already running, `422` for invalid input, `500` for Blender errors (message includes a log tail), `504` on timeout
   - Response: `{"jobId": "...", "url": "/models/generated/avatar_<jobId>.glb", "params": {...}, "details": {...}, "outfit": [...], "bytes": N, "elapsedSeconds": N, "metrics": {"shoulderToHip": 1.31, "torsoToLeg": 0.74, "heightMeters": 1.72}}`
   - With an `outfit`, the dressed generator runs instead of the bare-body one (same request/response shape).
-  - Old generated GLBs are deleted after `GENERATED_TTL_HOURS` (default 24h) on the next job; temp files older than 1h are cleaned too.
+  - Wardrobe-driven try-on: send `wardrobe_item_ids` (UUIDs from `public.items`) instead of `outfit`. The backend verifies the Supabase JWT, loads only that user's items, maps each category to a garment template, and uses the item's `color_hex`.
+  - Local development without Supabase can send `wardrobe_items` with `{wardrobe_item_id, template, label, color_hex, category}`.
+  - Every successful generation is saved as the user's last avatar. The response includes `items`, `saved`, `savedAt`, and `saveError`.
+  - Old generated GLBs are deleted after `GENERATED_TTL_HOURS` (default 24h) on the next job; saved avatars are never deleted by that cleanup.
+- `GET /api/avatar/me` with the Supabase access token -> the last saved avatar (`found`, `targets`, `details`, `outfit`, `metrics`, signed `url`).
+- `DELETE /api/avatar/me` -> remove the saved avatar.
+- Auth/storage: set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the repo-root `.env`. Without them the backend runs in single-user local mode (`AUTH_ENABLED=False`) and saves under `backend/local_data/avatars/`.
+- Apply `supabase/migrations/20261026120000_wardrobe_items.sql` and `20261026121000_user_avatars.sql`. The `avatars` Storage bucket must exist; the backend also has a Storage-metadata fallback if `public.user_avatars` has not been migrated yet.
 
 ## How a job runs
 
