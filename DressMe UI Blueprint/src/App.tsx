@@ -1,4 +1,13 @@
 import { useState } from "react";
+import { AuthProvider, useAuth } from "./features/auth/AuthProvider";
+import AuthScreen from "./features/auth/AuthScreen";
+import Onboarding from "./features/onboarding/Onboarding";
+import { Alert, FullScreenLoader } from "./features/profile/FormControls";
+import { firstName, parseLocation, userInitial } from "./features/profile/types";
+import { useUserData, UserDataProvider } from "./features/profile/UserDataProvider";
+import StyleProfile from "./features/profile/StyleProfile";
+import Settings from "./features/settings/Settings";
+import { getSupabaseConfigMessage } from "./lib/supabase";
 
 type Page =
   | "dashboard"
@@ -43,6 +52,10 @@ const navItems: { label: string; page: Page; icon: string }[] = [
 ];
 
 function Sidebar({ current, onNav }: { current: Page; onNav: (p: Page) => void }) {
+  const { profile } = useUserData();
+  const { user } = useAuth();
+  const displayName = profile?.display_name?.trim() || "Your profile";
+
   return (
     <aside className="fixed left-0 top-0 h-screen w-[260px] bg-[#1C1C1C] flex flex-col z-50">
       <div className="px-7 py-8 border-b border-white/10">
@@ -78,9 +91,9 @@ function Sidebar({ current, onNav }: { current: Page; onNav: (p: Page) => void }
           + Add Item
         </button>
         <div className="flex items-center gap-3 mt-5">
-          <div className="w-8 h-8 rounded-full bg-[#556B2F]/30 flex items-center justify-center text-xs text-[#556B2F] font-semibold">S</div>
+          <div className="w-8 h-8 rounded-full bg-[#556B2F]/30 flex items-center justify-center text-xs text-[#556B2F] font-semibold">{userInitial(profile?.display_name, user?.email)}</div>
           <div>
-            <p className="text-white/80 text-xs font-medium">Sophia L.</p>
+            <p className="text-white/80 text-xs font-medium">{displayName}</p>
             <p className="text-white/30 text-[10px]">Style Enthusiast</p>
           </div>
         </div>
@@ -107,11 +120,16 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
 }
 
 function Dashboard() {
+  const { profile } = useUserData();
+  const location = parseLocation(profile?.location ?? null);
+  const locationLabel = [location.city, location.country].filter(Boolean).join(", ") || "Tunis, Tunisia";
+  const greetingName = profile?.display_name?.trim() ? firstName(profile.display_name) : "";
+
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Good morning, Sophia.</h1>
-        <p className="text-[#8C8A82] text-sm mt-1">Thursday, September 11 · 18°C, Partly Cloudy in New York</p>
+        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Good morning{greetingName ? `, ${greetingName}` : ""}.</h1>
+        <p className="text-[#8C8A82] text-sm mt-1">Thursday, September 11 · 18°C, Partly Cloudy in {locationLabel}</p>
       </div>
 
       {/* Hero AI Recommendation */}
@@ -799,11 +817,13 @@ function ShouldIBuy() {
 }
 
 function AIStylist() {
+  const { profile } = useUserData();
+  const greetingName = profile?.display_name?.trim() ? firstName(profile.display_name) : "there";
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([
     {
       role: "ai",
-      text: "Hi Sophia! I've reviewed your wardrobe — 84 items across 8 categories. What would you like to style today? I can suggest outfits for specific occasions, help you work with a new piece, or plan a capsule wardrobe for an upcoming trip.",
+      text: `Hi ${greetingName}! I've reviewed your wardrobe — 84 items across 8 categories. What would you like to style today? I can suggest outfits for specific occasions, help you work with a new piece, or plan a capsule wardrobe for an upcoming trip.`,
     },
   ]);
 
@@ -921,96 +941,6 @@ function AIStylist() {
   );
 }
 
-function StyleProfile() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Style Profile</h1>
-        <p className="text-[#8C8A82] text-sm mt-1">Your taste, preferences, and aesthetic fingerprint</p>
-      </div>
-
-      <div className="grid grid-cols-[1fr_280px] gap-6">
-        <div className="space-y-5">
-          <div className="bg-[#F0EFEA] rounded-xl p-6">
-            <h3 className="font-display text-lg font-medium text-[#1C1C1C] mb-4">Style Aesthetics</h3>
-            {[
-              { label: "Minimalist", pct: 80 },
-              { label: "Classic / Timeless", pct: 72 },
-              { label: "Smart Casual", pct: 65 },
-              { label: "Editorial / Fashion-Forward", pct: 48 },
-              { label: "Boho / Relaxed", pct: 20 },
-            ].map((s) => (
-              <div key={s.label} className="mb-4">
-                <div className="flex justify-between text-sm mb-1.5">
-                  <span className="font-medium text-[#1C1C1C]">{s.label}</span>
-                  <span className="text-[#8C8A82]">{s.pct}%</span>
-                </div>
-                <div className="h-2 bg-[#E2E0D8] rounded-full overflow-hidden">
-                  <div className="h-full bg-[#556B2F] rounded-full transition-all" style={{ width: `${s.pct}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-2 gap-5">
-            <div className="bg-[#F0EFEA] rounded-xl p-6">
-              <h3 className="font-display text-lg font-medium text-[#1C1C1C] mb-4">Favorite Colors</h3>
-              <div className="flex gap-2 flex-wrap">
-                {[
-                  { name: "Ivory", hex: "#FFFFF0" },
-                  { name: "Camel", hex: "#C19A6B" },
-                  { name: "Charcoal", hex: "#36454F" },
-                  { name: "Olive", hex: "#556B2F" },
-                  { name: "Indigo", hex: "#4B0082" },
-                  { name: "Blush", hex: "#FFB7C5" },
-                ].map((c) => (
-                  <div key={c.name} className="flex flex-col items-center gap-1">
-                    <div className="w-8 h-8 rounded-full border border-[#E2E0D8]" style={{ backgroundColor: c.hex }} />
-                    <span className="text-[9px] text-[#8C8A82]">{c.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="bg-[#F0EFEA] rounded-xl p-6">
-              <h3 className="font-display text-lg font-medium text-[#1C1C1C] mb-4">Preferred Occasions</h3>
-              {["Work / Office", "Smart Casual", "Weekend Leisure", "Evening / Dinner", "Travel"].map((o) => (
-                <div key={o} className="flex items-center gap-2 py-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#556B2F]" />
-                  <span className="text-sm text-[#1C1C1C]">{o}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="bg-[#1C1C1C] rounded-2xl overflow-hidden h-52">
-            <img src={EDITORIAL_IMG} alt="Style profile editorial" className="w-full h-full object-cover opacity-70" />
-            <div className="absolute inset-0 flex items-end p-5" style={{ position: "relative", marginTop: "-208px" }}>
-              <div>
-                <p className="text-white/60 text-xs">Your Style Archetype</p>
-                <p className="font-display text-xl text-white font-medium">The Refined Minimalist</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-[#F0EFEA] rounded-xl p-5">
-            <p className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest mb-3">Size Profile</p>
-            {[["Top", "S / EU 36"], ["Bottom", "S / EU 36"], ["Shoes", "EU 38"], ["Dress", "XS-S"]].map(([l, v]) => (
-              <div key={l} className="flex justify-between py-2 border-b border-[#E2E0D8] last:border-0">
-                <span className="text-xs text-[#8C8A82]">{l}</span>
-                <span className="text-xs font-semibold text-[#1C1C1C]">{v}</span>
-              </div>
-            ))}
-          </div>
-          <button className="w-full bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold py-3 rounded-lg transition-colors">
-            Edit Profile
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function FindSimilar() {
   return (
     <div className="space-y-6">
@@ -1076,91 +1006,32 @@ function FindSimilar() {
   );
 }
 
-function Settings() {
-  const [notifications, setNotifications] = useState(true);
-  const [weatherSync, setWeatherSync] = useState(true);
-  const [aiTips, setAiTips] = useState(false);
-
-  const Toggle = ({ value, onChange }: { value: boolean; onChange: () => void }) => (
-    <button
-      onClick={onChange}
-      className={`w-10 h-6 rounded-full transition-colors relative ${value ? "bg-[#556B2F]" : "bg-[#E2E0D8]"}`}
-    >
-      <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${value ? "left-5" : "left-1"}`} />
-    </button>
-  );
-
+function ConfigScreen({ message }: { message: string }) {
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Settings</h1>
-        <p className="text-[#8C8A82] text-sm mt-1">Manage your account and preferences</p>
-      </div>
-
-      {[
-        {
-          title: "Account",
-          items: [
-            { label: "Full Name", value: "Sophia Laurent", type: "text" },
-            { label: "Email", value: "sophia@example.com", type: "text" },
-            { label: "Location", value: "New York, NY", type: "text" },
-          ],
-        },
-        {
-          title: "Preferences",
-          items: [
-            { label: "Default Currency", value: "USD", type: "select", opts: ["USD", "EUR", "GBP", "JPY"] },
-            { label: "Temperature Unit", value: "Celsius", type: "select", opts: ["Celsius", "Fahrenheit"] },
-            { label: "Size System", value: "EU", type: "select", opts: ["EU", "US", "UK"] },
-          ],
-        },
-      ].map((section) => (
-        <div key={section.title} className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
-          <h3 className="font-display text-lg font-medium text-[#1C1C1C]">{section.title}</h3>
-          {section.items.map((item) => (
-            <div key={item.label} className="flex items-center justify-between">
-              <label className="text-sm font-medium text-[#1C1C1C]">{item.label}</label>
-              {item.type === "text" ? (
-                <input
-                  defaultValue={item.value}
-                  className="bg-white border border-[#E2E0D8] rounded-lg px-3 py-2 text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors w-56"
-                />
-              ) : (
-                <select className="bg-white border border-[#E2E0D8] rounded-lg px-3 py-2 text-sm text-[#1C1C1C] outline-none w-56">
-                  {item.opts?.map((o) => <option key={o}>{o}</option>)}
-                </select>
-              )}
-            </div>
-          ))}
+    <div className="flex min-h-screen items-center justify-center bg-[#FAF9F6] px-6">
+      <div className="w-full max-w-lg rounded-2xl border border-[#E2E0D8] bg-white p-8">
+        <div className="flex items-baseline gap-1">
+          <span className="font-display text-2xl font-semibold italic text-[#1C1C1C]">Dress</span>
+          <span className="font-display text-2xl font-semibold text-[#556B2F]">Me</span>
         </div>
-      ))}
-
-      <div className="bg-[#F0EFEA] rounded-xl p-6 space-y-4">
-        <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Notifications & AI</h3>
-        {[
-          { label: "Daily Outfit Recommendations", sub: "Get your AI pick every morning", val: notifications, set: () => setNotifications(!notifications) },
-          { label: "Weather Sync", sub: "Auto-adjust suggestions for local forecast", val: weatherSync, set: () => setWeatherSync(!weatherSync) },
-          { label: "AI Style Tips", sub: "Weekly wardrobe insights and gap analysis", val: aiTips, set: () => setAiTips(!aiTips) },
-        ].map((s) => (
-          <div key={s.label} className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-[#1C1C1C]">{s.label}</p>
-              <p className="text-xs text-[#8C8A82]">{s.sub}</p>
-            </div>
-            <Toggle value={s.val} onChange={s.set} />
-          </div>
-        ))}
+        <h1 className="mt-5 font-display text-2xl font-semibold text-[#1C1C1C]">
+          Configuration required
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-[#8C8A82]">{message}</p>
+        <p className="mt-4 rounded-lg bg-[#F0EFEA] p-3 text-xs leading-relaxed text-[#8C8A82]">
+          Add the variables to <span className="font-mono">DressMe UI Blueprint/.env</span> and
+          restart the dev server. Only the public anon key belongs in the frontend.
+        </p>
       </div>
-
-      <button className="bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold px-8 py-3 rounded-lg transition-colors">
-        Save Changes
-      </button>
     </div>
   );
 }
 
-export default function App() {
+function AuthenticatedApp() {
+  const { signOut } = useAuth();
+  const { profile, loading, error, refresh } = useUserData();
   const [page, setPage] = useState<Page>("dashboard");
+  const [setupDismissed, setSetupDismissed] = useState(false);
 
   const renderPage = () => {
     switch (page) {
@@ -1177,14 +1048,100 @@ export default function App() {
     }
   };
 
+  if (loading) {
+    return <FullScreenLoader label="Loading your DressMe profile..." />;
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#FAF9F6] px-6">
+        <div className="w-full max-w-lg space-y-4">
+          <Alert>
+            {error ?? "We could not load your profile. Please try again."}
+          </Alert>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="rounded-lg bg-[#556B2F] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#6B8A3A]"
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="rounded-lg border border-[#E2E0D8] bg-white px-5 py-2.5 text-sm font-semibold text-[#1C1C1C] hover:bg-[#F0EFEA]"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile.onboarding_completed && !setupDismissed) {
+    return (
+      <Onboarding
+        onComplete={() => {
+          setSetupDismissed(true);
+          setPage("dashboard");
+        }}
+        onSkip={() => {
+          setSetupDismissed(true);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#FAF9F6]">
       <Sidebar current={page} onNav={setPage} />
       <main className="ml-[260px] flex-1 overflow-y-auto">
         <div className="p-10 max-w-[1200px]">
+          {!profile.onboarding_completed && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#556B2F]/20 bg-[#E8EDE0] px-5 py-4">
+              <div>
+                <p className="text-sm font-semibold text-[#1C1C1C]">Finish your style profile</p>
+                <p className="mt-0.5 text-xs text-[#556B2F]">
+                  Add your fit and style preferences so recommendations match you.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSetupDismissed(false)}
+                className="rounded-lg bg-[#556B2F] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#6B8A3A]"
+              >
+                Complete profile setup
+              </button>
+            </div>
+          )}
           {renderPage()}
         </div>
       </main>
     </div>
+  );
+}
+
+function AppShell() {
+  const { user, loading } = useAuth();
+  const configMessage = getSupabaseConfigMessage();
+
+  if (configMessage) return <ConfigScreen message={configMessage} />;
+  if (loading) return <FullScreenLoader label="Checking your session..." />;
+  if (!user) return <AuthScreen />;
+
+  return (
+    <UserDataProvider>
+      <AuthenticatedApp />
+    </UserDataProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }

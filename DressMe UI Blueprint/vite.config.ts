@@ -1,4 +1,4 @@
-import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
@@ -10,7 +10,23 @@ export default defineConfig(({ mode }) => {
   // .figma/make/deploy-preview passes `--mode development` for cached-preview builds.
   const emitSourcemaps = mode === 'development'
 
+  // The project uses SUPABASE_URL / SUPABASE_ANON_KEY. Vite only exposes
+  // VITE_* variables by default, so expose just these two public values.
+  // Never expose SUPABASE_SERVICE_ROLE_KEY to the browser.
+  const env = loadEnv(mode, process.cwd(), '')
+
   return {
+    define: {
+      'import.meta.env.SUPABASE_URL': JSON.stringify(
+        process.env.SUPABASE_URL || env.SUPABASE_URL || env.VITE_SUPABASE_URL || '',
+      ),
+      'import.meta.env.SUPABASE_ANON_KEY': JSON.stringify(
+        process.env.SUPABASE_ANON_KEY ||
+          env.SUPABASE_ANON_KEY ||
+          env.VITE_SUPABASE_ANON_KEY ||
+          '',
+      ),
+    },
     base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
