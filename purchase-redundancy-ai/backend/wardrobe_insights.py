@@ -339,3 +339,94 @@ def compose_outfits(wardrobe: List[Dict], styles: set, avoid: set, season: str, 
                                ("shoes", "shoes" in categories),
                                ("outerwear", season not in ("winter", "fall") or "outerwear" in categories)) if not ok]
     return {"outfits": chosen, "possible": matrix["good_outfits"], "pool": len(pool), "missing": missing}
+
+
+# ----------------------------------------------------------------------------
+# Outfit synergy & pairwise similarity (Outfit Studio, agent tools)
+# ----------------------------------------------------------------------------
+
+def score_outfit(pieces: List[Dict], wardrobe: Optional[List[Dict]] = None) -> Dict:
+    """Synergy score 0-100 of a set of owned pieces, with its breakdown, feedback and pieces to add.
+    completeness 30 %, then harmony 35 % (color rules), style coherence 20 % and season coherence 15 %
+    scaled by completeness, minus 15 points per piece that doubles a role (two pairs of trousers, two pairs of shoes)."""
+    if not pieces:
+        return {"score": 0, "verdict": "empty", "breakdown": {}, "feedback": ["Choisissez au moins deux pièces."], "add": []}
+    categories = Counter(p.get("category") for p in pieces)
+    has_base = categories["dresses"] >= 1 or (categories["shirts"] >= 1 and categories["pants"] >= 1)
+
+    harmony = FeatureSet.feature_17_color_harmony([_color(p) for p in pieces if _color(p)])["harmony_score"]
+    completeness = (60 if has_base else 25 if (categories["shirts"] or categories["pants"]) else 0) \
+        + (25 if categories["shoes"] else 0) + (15 if categories["outerwear"] or categories["accessories"] else 0)
+    styles = Counter(p.get("style") for p in pieces if p.get("style"))
+    coherence = (styles.most_common(1)[0][1] / sum(styles.values())) if styles else 1.0
+    seasons_used = {p.get("season") for p in pieces if p.get("season") and p.get("category") not in ("shoes", "accessories")}
+    season_ok = 0.0 if {"summer", "winter"} <= seasons_used else 1.0
+    doubled = sum(max(0, n - 1) for c, n in categories.items() if c in ("pants", "dresses", "shoes", "outerwear")) \
+        + max(0, categories["shirts"] - 2)  # a shirt under a sweater is fine, three tops are not
+
+    # Harmony, coherence and season only mean something for a complete look: they are weighted by completeness
+    score = round(0.3 * completeness + (35 * harmony + 20 * coherence + 15 * season_ok) * completeness / 100 - 15 * doubled)
+    score = max(0, min(100, score))
+
+    feedback = []
+    if not has_base:
+        feedback.append("Il manque la base : un haut et un bas, ou une robe.")
+    if not categories["shoes"]:
+        feedback.append("Ajoutez des chaussures pour terminer la tenue.")
+    if harmony < 0.6:
+        clashing = [p for p in FeatureSet.feature_17_color_harmony([_color(p) for p in pieces])["pairs"]
+                    if p["relation"] == "clashing"]
+        if clashing:
+            a, b = clashing[0]["colors"]
+            feedback.append(f"Le {COLOR_FR.get(a, a)} et le {COLOR_FR.get(b, b)} se heurtent : remplacez l'un par un neutre.")
+    if coherence < 0.6 and len(styles) > 1:
+        feedback.append("Les styles se mélangent : gardez un style dominant.")
+    if not season_ok:
+        feedback.append("Des pièces d'été et d'hiver dans la même tenue.")
+    if doubled:
+        feedback.append("Deux pièces jouent le même rôle : gardez-en une seule.")
+    if not feedback:
+        feedback.append("Tenue cohérente : couleurs, style et saison s'accordent.")
+
+    # Pieces from the wardrobe that would complete the look with the best harmony
+    add = []
+    if wardrobe:
+        chosen_ids = {p.get("id") for p in pieces}
+        wanted = ["shoes"] if not categories["shoes"] else []
+        if not has_base:
+            wanted += ["pants"] if categories["shirts"] else ["shirts"] if categories["pants"] else ["shirts", "pants"]
+        if not (categories["outerwear"] or categories["accessories"]):
+            wanted.append("accessories")
+        base_colors = [_color(p) for p in pieces if _color(p)]
+        for category in wanted:
+            options = [w for w in wardrobe if w.get("category") == category and w.get("id") not in chosen_ids]
+            options.sort(key=lambda w: FeatureSet.feature_17_color_harmony(base_colors + [_color(w)])["harmony_score"],
+                         reverse=True)
+            add += [_slim(w) for w in options[:2]]
+
+    verdict = "excellent" if score >= 85 else "good" if score >= 65 else "weak"
+    return {"score": score, "verdict": verdict,
+            "breakdown": {"harmony": round(harmony * 100), "completeness": completeness,
+                          "coherence": round(coherence * 100), "season": round(season_ok * 100), "doubled_roles": doubled},
+            "feedback": feedback, "add": add[:4]}
+
+
+def compare_pieces(a: Dict, b: Dict, engine) -> Dict:
+    """Similarity of two pieces with its breakdown - the same computation as the duplicate detection"""
+    match = engine.compare_wardrobe(a, [b], image_embedding=engine.image_embedding_for(a))
+    if match:
+        m = match[0]
+        similarity, visual, image = m["similarity"], m["visual_similarity"], m.get("image_similarity")
+        attrs = m["attribute_match"]
+    else:  # below the "similar" threshold: compute the attributes anyway
+        attrs = FeatureSet.feature_3_attribute_comparison(a, b)
+        text_sim = engine._rescale(float(engine.embed(a) @ engine.embed(b)))
+        similarity, visual, image = None, text_sim, None
+    same_color = attrs["color_match"] or not attrs.get("color_known", True)
+    duplicate = bool(similarity is not None and attrs["category_match"]
+                     and similarity >= (0.75 if same_color else 0.9))
+    return {"similarity": round(similarity, 2) if similarity is not None else None,
+            "visual_similarity": round(visual, 2), "image_similarity": round(image, 2) if image is not None else None,
+            "same_category": attrs["category_match"], "same_color": attrs["color_match"],
+            "same_style": attrs["style_match"], "same_material": attrs["material_match"], "duplicate": duplicate,
+            "a": _slim(a), "b": _slim(b)}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, asset, errorMessage } from '../api';
+import { api, asset, errorMessage, resizeImage } from '../api';
 import { track } from '../utils/analytics';
 import Icon from '../components/Icon';
 import { ColorDot, Empty, ItemCard, ScoreRing, VerdictPill } from '../components/ui';
@@ -27,6 +27,8 @@ export default function Catalog({ addToWardrobe, notify, wardrobe, stats, refres
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [photo, setPhoto] = useState(null);           // photo search: { url, matches }
+  const [searchingPhoto, setSearchingPhoto] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 350);
@@ -64,13 +66,52 @@ export default function Catalog({ addToWardrobe, notify, wardrobe, stats, refres
     <div className="page">
       <header className="page-head">
         <div>
-          <h2>Catalogue</h2>
+          <h2>Trouver similaire</h2>
           <p>
-            {stats?.products_in_catalog ?? '…'} vrais produits avec photo
-            {sources.length > 1 && ` · ${sources.length} sources`} — touchez un produit pour savoir si vous l’avez déjà.
+            Décrivez ou photographiez un vêtement : la vision CLIP retrouve les plus proches parmi {stats?.products_in_catalog ?? '…'} vrais produits
+            {sources.length > 1 && ` (${sources.length} sources)`}. Touchez un produit pour savoir si vous l’avez déjà.
           </p>
         </div>
+        <div className="photo-search">
+          {photo && <img src={photo.url} alt="Photo recherchée" />}
+          {photo && <button className="btn btn-ghost btn-sm" onClick={() => setPhoto(null)}>Effacer</button>}
+          <label className="btn btn-dark">
+            {searchingPhoto ? <span className="spinner" /> : <Icon name="camera" size={16} />} Chercher par photo
+            <input type="file" accept="image/*" hidden onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              setSearchingPhoto(true);
+              try {
+                const url = await resizeImage(file);
+                const { data } = await api.post('/camera-capture', { image_base64: url, top_k: 24 });
+                setPhoto({ url, matches: data.catalog_matches });
+                track('photo_search', 'catalog', { results: data.catalog_matches.length });
+              } catch (err) {
+                notify(errorMessage(err), 'bad');
+              } finally {
+                setSearchingPhoto(false);
+              }
+            }} />
+          </label>
+        </div>
       </header>
+
+      {photo && (
+        <section className="card">
+          <h3>Les plus proches de votre photo</h3>
+          {photo.matches.length === 0 ? <p className="muted">Aucun produit assez proche.</p> : (
+            <div className="card-grid catalog-grid" style={{ marginTop: 12 }}>
+              {photo.matches.map((p) => (
+                <ItemCard key={p.id} item={p} badge={`${Math.round(p.similarity * 100)}%`}
+                  onClick={() => setSelected({ ...p, primary_color: p.color })}>
+                  {owned.has(p.id) && <p className="item-source">Déjà dans votre garde-robe</p>}
+                </ItemCard>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="search-bar">
         <Icon name="search" />

@@ -153,6 +153,6 @@ curl -X POST http://localhost:8000/feature/17 -H "Content-Type: application/json
   ```
 - Monitoring: the **Statistiques** page, `GET /metrics` (Prometheus), `GET /analytics/system`, logs in `logs/app.log`
   (`LOG_FORMAT=json` for log aggregators).
-- Tests: `cd backend && venv/Scripts/python -m pytest ../tests -q` (136 tests).
+- Tests: `cd backend && venv/Scripts/python -m pytest ../tests -q` (146 tests).
 - Demo accounts (2 women, 2 men, ~50 real pieces each): `cd backend && venv/Scripts/python seed_demo_users.py`
   — e.g. `sofia.martin@example.com` / `karim.benali@example.com`, password `Doublon-Demo2026`.

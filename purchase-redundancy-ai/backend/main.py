@@ -50,9 +50,11 @@ from rate_limiter import RateLimiter, RateLimitMiddleware  # noqa: E402
 from validators import (  # noqa: E402
     AgentRequest, AgentRunRequest, AnalysisRequest, CameraCaptureRequest, ClientEventBatch, FeedbackRequest,
     LoginRequest, ProfileUpdate, RegisterRequest, WardrobeItemRequest, WardrobeUpdateRequest,
+    CompareRequest, OutfitSaveRequest, OutfitScoreRequest,
 )
 from wardrobe_builder import build_starter_wardrobe, plan_summary  # noqa: E402
-from wardrobe_insights import analyze_wardrobe  # noqa: E402
+from wardrobe_insights import analyze_wardrobe, compare_pieces, compose_outfits, score_outfit  # noqa: E402
+from agent_tools import AgentActions  # noqa: E402
 
 logger = logging.getLogger(__name__)
 access_logger = logging.getLogger("api.access")
@@ -229,7 +231,7 @@ async def _read_image(file: UploadFile) -> bytes:
     return contents
 
 
-def _image_catalog_matches(analysis: Dict, category: Optional[str]) -> List[Dict]:
+def _image_catalog_matches(analysis: Dict, category: Optional[str], top_k: int = 5) -> List[Dict]:
     """Photo -> catalog retrieval (CLIP image embedding vs the catalog image embeddings)"""
     import numpy as np
 
@@ -237,7 +239,7 @@ def _image_catalog_matches(analysis: Dict, category: Optional[str]) -> List[Dict
         return []
     return state["engine"].search_catalog_by_image(
         np.asarray(analysis["embedding_full"], dtype=np.float32),
-        category=category if category and category != "unknown" else "", top_k=5,
+        category=category if category and category != "unknown" else "", top_k=top_k,
     )
 
 
@@ -538,11 +540,46 @@ def _add_item(request: WardrobeItemRequest, user_id: str) -> Dict:
 
 
 @app.post("/wardrobe")
-def add_wardrobe_item(request: WardrobeItemRequest, user_id: str = Depends(current_user)):
-    """Add an item - from the catalog (product_id), a photo (attributes auto-detected) or manual fields"""
+def add_wardrobe_item(request: WardrobeItemRequest, watch: bool = Query(True, description="False for bulk imports"),
+                      user_id: str = Depends(current_user)):
+    """Add an item - from the catalog (product_id), a photo (attributes auto-detected) or manual fields.
+    The agent then checks on its own whether the new piece duplicates one already owned."""
     item = _add_item(request, user_id)
     _wardrobe_changed(user_id, "added", item)
-    return item
+    alert = _watch_new_piece(user_id, item["id"]) if watch else None
+    return dict(item, agent_alert=alert) if alert else item
+
+
+def _watch_new_piece(user_id: str, item_id: str) -> Optional[Dict]:
+    """Proactive agent step: compare a newly added piece with the rest of the wardrobe; on a duplicate,
+    raise an alert whose approval removes the new piece. Never blocks the addition."""
+    try:
+        wardrobe = _full_wardrobe(user_id)
+        new = next((w for w in wardrobe if w["id"] == item_id), None)
+        others = [w for w in wardrobe if w["id"] != item_id]
+        if not new or not others:
+            return None
+        matches = state["engine"].compare_wardrobe(new, others, image_embedding=state["engine"].image_embedding_for(new))
+        for match in matches:
+            attrs = match["attribute_match"]
+            same_color = attrs["color_match"] or not attrs.get("color_known", True)
+            if attrs["category_match"] and match["similarity"] >= (0.75 if same_color else 0.9):
+                alert = state["db"].create_action(
+                    uuid.uuid4().hex[:12], user_id, "duplicate_alert",
+                    f"« {new['name']} » ressemble à « {match['name']} » ({round(match['similarity'] * 100)} %)"[:200],
+                    "L'agent a repéré ce doublon en analysant votre nouvelle pièce. Approuvez pour retirer la nouvelle "
+                    "pièce, ou refusez pour la garder.",
+                    {"item_ids": [new["id"]], "similar_id": match["id"], "similarity": match["similarity"],
+                     "pieces": [_piece_card(new), _piece_card(match)]}, source="watcher")
+                hub.publish(user_id, "agent.action", {"id": alert["id"], "title": alert["title"]})
+                return alert
+    except Exception as e:  # the watcher must never break adding a piece
+        logger.warning(f"Duplicate watcher failed for {item_id}: {e}")
+    return None
+
+
+def _piece_card(piece: Dict) -> Dict:
+    return {k: piece.get(k) for k in ("id", "name", "category", "color", "image_url")}
 
 
 @app.patch("/wardrobe/{item_id}")
@@ -643,6 +680,144 @@ def wardrobe_insights(budget: Optional[float] = Query(None, ge=0, le=1_000_000),
     return report
 
 # --------
+# OUTFIT STUDIO & COMPARISONS
+# --------
+
+def _owned_pieces(user_id: str, item_ids: List[str]) -> List[Dict]:
+    by_id = {w["id"]: w for w in _full_wardrobe(user_id)}
+    unknown = [i for i in item_ids if i not in by_id]
+    if unknown:
+        raise HTTPException(status_code=404, detail=f"Pièce(s) introuvable(s) dans votre garde-robe : {', '.join(unknown)}")
+    return [by_id[i] for i in dict.fromkeys(item_ids)]
+
+
+@app.post("/outfits/score")
+def outfit_score(body: OutfitScoreRequest, user_id: str = Depends(current_user)):
+    """Synergy score 0-100 of owned pieces, its breakdown, feedback and pieces that would complete the look"""
+    pieces = _owned_pieces(user_id, body.item_ids)
+    return score_outfit(pieces, _full_wardrobe(user_id))
+
+
+@app.get("/outfits")
+def list_outfits(user_id: str = Depends(current_user)):
+    """Saved outfits, with their pieces (a removed piece simply disappears from the look)"""
+    by_id = {w["id"]: _piece_card(w) for w in state["db"].list_wardrobe(user_id)}
+    items = []
+    for outfit in state["db"].list_outfits(user_id):
+        outfit["pieces"] = [by_id[i] for i in outfit["item_ids"] if i in by_id]
+        items.append(outfit)
+    return {"total": len(items), "items": items}
+
+
+@app.post("/outfits", status_code=201)
+def save_outfit(body: OutfitSaveRequest, user_id: str = Depends(current_user)):
+    pieces = _owned_pieces(user_id, body.item_ids)
+    saved = state["db"].save_outfit(uuid.uuid4().hex[:12], user_id, body.name, [p["id"] for p in pieces],
+                                    body.occasion, score_outfit(pieces)["score"])
+    return dict(saved, pieces=[_piece_card(p) for p in pieces])
+
+
+@app.delete("/outfits/{outfit_id}")
+def delete_outfit(outfit_id: str, user_id: str = Depends(current_user)):
+    if not state["db"].delete_outfit(outfit_id, user_id):
+        raise HTTPException(status_code=404, detail="Tenue introuvable")
+    return {"status": "deleted"}
+
+
+@app.get("/outfits/daily")
+def daily_outfit(user_id: str = Depends(current_user)):
+    """The agent's look of the day: an everyday outfit for the current season, scored, with why it works"""
+    from agent import parse_season
+
+    wardrobe = _full_wardrobe(user_id)
+    season = parse_season("")
+    day = datetime.now().strftime("%Y-%m-%d")
+    composed = compose_outfits(wardrobe, {"casual", "classic"}, set(), season, count=3, dress_code="smart")
+    if not composed["outfits"]:
+        return {"outfit": None, "season": season, "reason": "Pas assez de pièces pour composer une tenue."}
+    # a different look each day, stable within the day
+    outfit = composed["outfits"][sum(map(ord, day + user_id)) % len(composed["outfits"])]
+    ids = [p["id"] for p in outfit["pieces"]]
+    pieces = [w for w in wardrobe if w["id"] in ids]
+    result = score_outfit(pieces, wardrobe)
+    season_fr = {"winter": "l'hiver", "summer": "l'été", "spring": "le printemps", "fall": "l'automne"}[season]
+    why = [f"Couleurs harmonieuses ({result['breakdown']['harmony']}/100)",
+           f"Adaptée à {season_fr}", f"{composed['possible']} tenues possibles avec votre garde-robe"]
+    return {"outfit": {"pieces": outfit["pieces"], "score": result["score"], "verdict": result["verdict"]},
+            "season": season, "why": why, "feedback": result["feedback"]}
+
+
+@app.post("/wardrobe/compare")
+def compare_two_pieces(body: CompareRequest, user_id: str = Depends(current_user)):
+    """Similarity score between two owned pieces (CLIP image + text, attributes) and whether they are duplicates"""
+    a, b = _owned_pieces(user_id, [body.item_a, body.item_b]) if body.item_a != body.item_b else (None, None)
+    if a is None:
+        raise HTTPException(status_code=422, detail="Choisissez deux pièces différentes.")
+    return compare_pieces(a, b, state["engine"])
+
+# --------
+# AGENT ACTIONS (proposals the user approves, proactive alerts)
+# --------
+
+def _agent_actions(user_id: str) -> AgentActions:
+    def save(name, item_ids, occasion, score):
+        return state["db"].save_outfit(uuid.uuid4().hex[:12], user_id, name, item_ids, occasion, score, source="agent")
+
+    def propose(kind, title, detail, payload):
+        action = state["db"].create_action(uuid.uuid4().hex[:12], user_id, kind, title, detail, payload)
+        hub.publish(user_id, "agent.action", {"id": action["id"], "title": action["title"]})
+        return action
+
+    return AgentActions(save_outfit=save, propose=propose)
+
+
+@app.get("/agent/actions")
+def list_agent_actions(status: Optional[Literal["pending", "done", "rejected"]] = None,
+                       user_id: str = Depends(current_user)):
+    """What the agent proposed or flagged on its own, newest first"""
+    items = state["db"].list_actions(user_id, status)
+    return {"pending": sum(a["status"] == "pending" for a in state["db"].list_actions(user_id, "pending")),
+            "items": items}
+
+
+@app.post("/agent/actions/{action_id}/approve")
+def approve_agent_action(action_id: str, user_id: str = Depends(current_user)):
+    """Run what the agent proposed: remove pieces (duplicates) or add catalog products"""
+    action = state["db"].get_action(action_id, user_id)
+    if not action:
+        raise HTTPException(status_code=404, detail="Action introuvable")
+    if action["status"] != "pending":
+        raise HTTPException(status_code=409, detail="Cette action a déjà été traitée.")
+    payload = action["payload"] or {}
+    if action["kind"] in ("remove_items", "duplicate_alert"):
+        removed = []
+        for item_id in payload.get("item_ids", []):
+            deleted = state["db"].delete_wardrobe_item(item_id, user_id=user_id)
+            if deleted:
+                _delete_photo(item_id)
+                removed.append(deleted["name"])
+        result = {"removed": removed}
+    elif action["kind"] == "add_items":
+        added = [_add_item(WardrobeItemRequest(product_id=pid), user_id)["name"] for pid in payload.get("product_ids", [])
+                 if pid in state["catalog_by_id"]]
+        result = {"added": added}
+    else:
+        raise HTTPException(status_code=422, detail=f"Action inconnue : {action['kind']}")
+    decided = state["db"].decide_action(action_id, user_id, "done", result)
+    _wardrobe_changed(user_id, "agent_action")
+    logger.info(f"Agent action {action_id} ({action['kind']}) approved: {result}")
+    return decided
+
+
+@app.post("/agent/actions/{action_id}/reject")
+def reject_agent_action(action_id: str, user_id: str = Depends(current_user)):
+    decided = state["db"].decide_action(action_id, user_id, "rejected")
+    if not decided:
+        raise HTTPException(status_code=404, detail="Action introuvable ou déjà traitée")
+    hub.publish(user_id, "agent.action", {"id": action_id, "status": "rejected"})
+    return decided
+
+# --------
 # AUTONOMOUS AGENT (streamed)
 # --------
 
@@ -653,7 +828,8 @@ def agent_run(request: AgentRunRequest, user_id: str = Depends(current_user)):
     profile = state["db"].get_user(user_id) if user_id != GUEST_USER_ID else None
     events = state["agent"].run(request.mission, wardrobe, message=request.message, item=request.item,
                                 image=request.image_base64, budget=request.budget, mode=request.mode,
-                                profile=profile, history=[t.model_dump() for t in request.history])
+                                profile=profile, history=[t.model_dump() for t in request.history],
+                                actions=_agent_actions(user_id))
 
     def stream():
         start = time.perf_counter()
@@ -752,7 +928,7 @@ def camera_capture(request: CameraCaptureRequest):
     if result.get("status") != "success":
         raise HTTPException(status_code=422, detail=result.get("error") or "Invalid image")
     attributes = result["analysis"].get("attributes", {})
-    result["catalog_matches"] = _image_catalog_matches(result["analysis"], attributes.get("category"))
+    result["catalog_matches"] = _image_catalog_matches(result["analysis"], attributes.get("category"), request.top_k)
     result["analysis"].pop("embedding_full", None)
     result["suggested_item"] = _suggested_item(attributes)
     return result

@@ -111,7 +111,7 @@ def main(argv=None) -> int:
                                                   profile["favorite_colors"], seed=profile["seed"],
                                                   near_duplicates=NEAR_DUPLICATES)
                 for product in wardrobe:
-                    client.post("/wardrobe", json={"product_id": product["id"], "size": size_for(product, profile)},
+                    client.post("/wardrobe?watch=false", json={"product_id": product["id"], "size": size_for(product, profile)},
                                 headers=headers)
             else:
                 wardrobe = [by_id[i["product_id"]] for i in existing if i.get("product_id") in by_id]

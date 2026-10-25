@@ -69,7 +69,7 @@ const MATERIAL_LABEL = lookup(MATERIALS);
 
 export const categoryLabel = (v) => CATEGORY_LABEL[v] || v || '—';
 export const colorLabel = (v) => COLOR_LABEL[v] || v || '—';
-const EXTRA_STYLES = { preppy: 'Preppy', edgy: 'Rock', romantic: 'Romantique', athletic: 'Athlétique', luxury: 'Luxe' };
+const EXTRA_STYLES = { ethnic: 'Ethnique', preppy: 'Preppy', edgy: 'Rock', romantic: 'Romantique', athletic: 'Athlétique', luxury: 'Luxe' };
 export const styleLabel = (v) => STYLE_LABEL[v] || EXTRA_STYLES[v] || v || '—';
 const EXTRA_MATERIALS = {
   jersey: 'Jersey', fleece: 'Polaire', blend: 'Mélange', spandex: 'Élasthanne', viscose: 'Viscose',
