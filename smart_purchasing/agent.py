@@ -13,6 +13,8 @@ import re
 import csv
 import json
 import uuid
+import time
+import subprocess
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -38,6 +40,11 @@ from tools import (
     PURCHASE_TOOLS_SCHEMA,
 )
 
+try:
+    from ml_model import predict_purchase_ml
+except ImportError:
+    from smart_purchasing.ml_model import predict_purchase_ml
+
 SYSTEM_PROMPT = """You are the Shopper Agent for DressMe powered by Qwen3.
 Your role:
 1. Ground your reasoning in tool execution results. Never hallucinate items or scores.
@@ -50,8 +57,44 @@ Your role:
 """
 
 
-def query_ollama(prompt: str, model_name: str = "qwen2.5:1.5b", timeout_sec: int = 120) -> Optional[str]:
-    """Queries local Ollama instance for Qwen reasoning with generous timeout (120s)."""
+def ensure_ollama_running() -> bool:
+    """Checks if Ollama is running; if not, attempts to start 'ollama serve' silently in the background."""
+    try:
+        req = urllib.request.Request("http://localhost:11434/api/tags")
+        with urllib.request.urlopen(req, timeout=1):
+            return True
+    except Exception:
+        pass
+
+    try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen(
+            ["ollama", "serve"],
+            creationflags=flags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        for _ in range(8):
+            time.sleep(0.5)
+            try:
+                req = urllib.request.Request("http://localhost:11434/api/tags")
+                with urllib.request.urlopen(req, timeout=1):
+                    return True
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[Agent Warning] Auto-launch of Ollama failed: {e}")
+
+    return False
+
+
+def query_ollama(prompt: str, model_name: str = "qwen2.5:1.5b", timeout_sec: Optional[int] = None) -> Optional[str]:
+    """Queries local Ollama instance for Qwen reasoning without an artificial time limit.
+    Qwen is given all the time needed to compute on CPU or GPU."""
+    if not ensure_ollama_running():
+        print("[Agent Warning] Ollama server is not running and could not be started automatically.")
+        return None
+
     url = "http://localhost:11434/api/chat"
     payload = {
         "model": model_name,
@@ -71,12 +114,28 @@ def query_ollama(prompt: str, model_name: str = "qwen2.5:1.5b", timeout_sec: int
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=timeout_sec) as response:
+        urlopen_kwargs = {}
+        if timeout_sec is not None:
+            urlopen_kwargs["timeout"] = timeout_sec
+
+        with urllib.request.urlopen(req, **urlopen_kwargs) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             content = res_data.get("message", {}).get("content", "").strip()
             return content if content else None
+    except urllib.error.HTTPError as e:
+        err_body = ""
+        try:
+            err_body = e.read().decode("utf-8")
+        except Exception:
+            pass
+        if "requires more system memory" in err_body:
+            print(f"[Agent Warning] Low System Memory: Ollama requires ~1.0 GiB RAM but free RAM is low ({err_body}). Attempting fallback to lightweight 0.5B model...")
+            if model_name != "qwen2.5:0.5b":
+                return query_ollama(prompt, model_name="qwen2.5:0.5b", timeout_sec=timeout_sec)
+        print(f"[Agent Warning] Ollama query failed (HTTP {e.code}): {err_body or e}")
+        return None
     except Exception as e:
-        print(f"[Agent Warning] Ollama query failed or timed out ({timeout_sec}s): {e}")
+        print(f"[Agent Warning] Ollama query failed: {e}")
         return None
 
 
@@ -88,7 +147,7 @@ class PurchaseAgent:
         self,
         wardrobe_file: Optional[str] = None,
         model_name: str = "qwen2.5:1.5b",
-        timeout_sec: int = 120
+        timeout_sec: Optional[int] = None
     ):
         self.model_name = model_name
         self.timeout_sec = timeout_sec
@@ -255,6 +314,14 @@ class PurchaseAgent:
         # =================================================================
         analyzed = analyze_item(cand)
         cand.color = analyzed["color"]
+        if analyzed.get("category") and (not cand.category or cand.category in ["unknown", "auto-detect", ""]):
+            cand.category = analyzed["category"]
+        if analyzed.get("style") and (not cand.style or cand.style == ["formal"] or cand.style == ["casual"]):
+            cand.style = analyzed["style"]
+        if analyzed.get("seasons") and not cand.seasons:
+            cand.seasons = analyzed["seasons"]
+        if analyzed.get("occasions") and not cand.occasions:
+            cand.occasions = analyzed["occasions"]
 
         # Tool 2: Wardrobe Similarity & Redundancy Search
         similar_matches = find_similar_items(cand, self.wardrobe, top_k=5)
@@ -352,7 +419,8 @@ class PurchaseAgent:
             redundancy_score=redundancy_score,
             budget=known_budget,
             user_query=user_query,
-            skip_llm=skip_llm
+            skip_llm=skip_llm,
+            analyzed=analyzed
         )
 
 
@@ -366,6 +434,7 @@ class PurchaseAgent:
         gap_res = GapAnalysisResult(**checkpoint["gap_res"])
         redundancy_score = checkpoint["redundancy_score"]
         user_query = checkpoint.get("user_query", "Should I buy this?")
+        analyzed = checkpoint.get("analyzed")
 
         # Parse user budget response
         budget = None
@@ -387,7 +456,8 @@ class PurchaseAgent:
             redundancy_score=redundancy_score,
             budget=budget,
             user_query=user_query,
-            skip_llm=skip_llm
+            skip_llm=skip_llm,
+            analyzed=analyzed
         )
 
     def _finish_step_5(
@@ -402,11 +472,27 @@ class PurchaseAgent:
         redundancy_score: float,
         budget: Optional[float],
         user_query: str = "Should I buy this?",
-        skip_llm: bool = False
+        skip_llm: bool = False,
+        analyzed: Optional[Dict[str, Any]] = None
     ) -> AgentRecommendation:
         """Step 5: Computes deterministic math score, checks constraints, and queries Qwen for contextual explanation."""
         versatility = min(100.0, 50.0 + compatible_count * 15.0)
         style_pref = 80.0
+
+        # Affordability adjustment (if budget is known)
+        budget_penalty = 0.0
+        if cand.price and budget and budget > 0 and cand.price > budget:
+            budget_penalty = min(25.0, round(((cand.price - budget) / budget) * 20.0, 2))
+
+        # Query XGBoost Machine Learning Model Tool
+        ml_res = predict_purchase_ml(
+            outfit_compatibility=avg_outfit_score,
+            wardrobe_gap=gap_res.gap_fill_score,
+            redundancy=redundancy_score,
+            versatility=versatility,
+            style_match=style_pref,
+            budget_penalty=budget_penalty
+        )
 
         # Detect direct duplicate
         is_direct_duplicate = any(m.similarity_score >= 0.85 for m in similar_matches)
@@ -422,12 +508,19 @@ class PurchaseAgent:
             price=cand.price,
             budget=budget,
             is_direct_duplicate=is_direct_duplicate,
-            color_similarity_score=top_color_sim
+            color_similarity_score=top_color_sim,
+            ml_decision=ml_res["ml_decision"],
+            ml_confidence=ml_res["confidence"],
+            ml_probabilities=ml_res["class_probabilities"]
         )
 
         evidence: List[str] = [
-            f"This item is compatible with {compatible_count} outfit(s) in your wardrobe (Average match: {avg_outfit_score:.2f}%)."
+            f"This item is compatible with {compatible_count} outfit(s) in your wardrobe (Average match: {avg_outfit_score:.2f}%).",
+            f"XGBoost ML prediction: {ml_res['ml_decision']} (Confidence: {ml_res['confidence']*100:.1f}%, Top driver: {ml_res['top_driver']})."
         ]
+        if cand.image_path and analyzed and analyzed.get("confidence", 0) > 0:
+            mask_info = "pixel segmentation mask" if analyzed.get("has_mask") else "bounding box"
+            evidence.insert(0, f"Vision model (dressme_best.pt): Detected {cand.color} {cand.category} with {analyzed['confidence']*100:.1f}% confidence ({mask_info}).")
         if similar_matches:
             top_match = similar_matches[0]
             evidence.append(
@@ -472,10 +565,11 @@ class PurchaseAgent:
                 f"Compatible Outfits: This item is compatible with {compatible_count} outfits in their wardrobe.\n"
                 f"Direct Duplicate: {'YES - User already owns the exact same item' if is_direct_duplicate else 'NO'}\n"
                 f"Calculated Score: {score_res.overall_score:.2f}/100. Decision: {score_res.decision.value}\n"
+                f"XGBoost ML Prediction: {ml_res['ml_decision']} ({ml_res['confidence']*100:.1f}% confidence, Top driver: {ml_res['top_driver']})\n"
                 f"Evidence: {'; '.join(evidence)}\n"
                 f"Budget Conflict: {'YES, exceeds budget' if is_budget_exceeded else 'NO'}\n\n"
                 f"Instruction: In 2 concise sentences, answer the user's specific question ('{user_query}'). "
-                f"Ground your advice strictly in the calculated decision ({score_res.decision.value}) and evidence. "
+                f"Ground your advice strictly in the calculated decision ({score_res.decision.value}), the XGBoost ML prediction, and evidence. "
                 f"If this is a duplicate or exceeds budget, explain that trade-off clearly!"
             )
             qwen_response = query_ollama(prompt_for_qwen, model_name=self.model_name, timeout_sec=self.timeout_sec)
@@ -544,6 +638,9 @@ class PurchaseAgent:
             detected_category=cand.category,
             detected_style=", ".join(cand.style) if cand.style else "formal",
             detected_occasion=cand.target_occasion or (cand.occasions[0] if cand.occasions else "work"),
-            user_query=user_query
+            user_query=user_query,
+            ml_decision=ml_res["ml_decision"],
+            ml_confidence=ml_res["confidence"],
+            ml_probabilities=ml_res["class_probabilities"]
         )
 

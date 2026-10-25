@@ -97,6 +97,9 @@ class PurchaseScoreBreakdown(BaseModel):
     low_redundancy_contribution: float
     budget_penalty: float = 0.0
     color_similarity_score: Optional[float] = None
+    ml_decision: Optional[str] = None
+    ml_confidence: Optional[float] = None
+    ml_probabilities: Optional[Dict[str, float]] = None
 
 
 class PurchaseScoreResult(BaseModel):
@@ -125,6 +128,9 @@ class AgentRecommendation(BaseModel):
     outfit_examples: List[OutfitRecommendation] = Field(default_factory=list)
     gap_analysis: Optional[GapAnalysisResult] = None
     score_breakdown: Optional[PurchaseScoreBreakdown] = None
+    ml_decision: Optional[str] = None
+    ml_confidence: Optional[float] = None
+    ml_probabilities: Optional[Dict[str, float]] = None
     detected_color: Optional[str] = None
     detected_category: Optional[str] = None
     detected_style: Optional[str] = None

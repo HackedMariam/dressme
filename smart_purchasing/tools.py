@@ -30,60 +30,26 @@ try:
 except ImportError:
     from smart_purchasing.color_similarity import ColorSimilarityService, compare_colors, compute_color_similarity as ciede_color_similarity
 
+try:
+    from ml_model import predict_purchase_ml, get_ml_classifier
+except ImportError:
+    from smart_purchasing.ml_model import predict_purchase_ml, get_ml_classifier
+
+try:
+    from vision_model import get_vision_model, DressMeVisionModel
+except ImportError:
+    from smart_purchasing.vision_model import get_vision_model, DressMeVisionModel
+
 
 
 # =====================================================================
-# HELPER: Vision & Embedding Utilities
+# HELPER: Vision & Embedding Utilities (Powered by dressme_best.pt)
 # =====================================================================
 
 def extract_dominant_color(image_path: str) -> str:
-    """Extracts dominant garment color by filtering out background pixels and focusing on garment center."""
-    if not image_path or not os.path.exists(image_path):
-        return "neutral"
-    try:
-        with Image.open(image_path) as img:
-            img = img.convert("RGB")
-            w, h = img.size
-            # Crop to center 60% of image where the garment is located
-            center_crop = img.crop((int(w * 0.2), int(h * 0.15), int(w * 0.8), int(h * 0.85)))
-            center_crop = center_crop.resize((60, 60))
-            pixels = list(center_crop.getdata())
-
-            # Filter out white/off-white background pixels (R, G, B > 210)
-            garment_pixels = [
-                p for p in pixels
-                if not (p[0] > 205 and p[1] > 205 and p[2] > 205)
-            ]
-
-            # If almost all pixels were background, fall back to center pixels
-            if len(garment_pixels) < 50:
-                garment_pixels = pixels
-
-            r_avg = sum(p[0] for p in garment_pixels) / len(garment_pixels)
-            g_avg = sum(p[1] for p in garment_pixels) / len(garment_pixels)
-            b_avg = sum(p[2] for p in garment_pixels) / len(garment_pixels)
-
-            # Color classification
-            if r_avg < 80 and g_avg < 80 and b_avg < 80:
-                return "black"
-            elif r_avg > 200 and g_avg > 200 and b_avg > 200:
-                return "white"
-            elif b_avg > r_avg + 10 and b_avg > g_avg and b_avg > 140 and r_avg > 115:
-                return "light_blue"
-            elif b_avg > r_avg + 15 and b_avg > g_avg:
-                return "navy" if b_avg < 110 else "blue"
-            elif abs(r_avg - g_avg) < 18 and abs(g_avg - b_avg) < 18:
-                return "grey"
-            elif r_avg > g_avg and g_avg > b_avg:
-                return "camel" if r_avg > 130 else "brown"
-            elif r_avg > g_avg + 40 and r_avg > b_avg + 40:
-                return "red"
-            elif g_avg > r_avg + 20 and g_avg > b_avg + 20:
-                return "green"
-            else:
-                return "neutral"
-    except Exception:
-        return "neutral"
+    """Extracts dominant garment color using dressme_best.pt pixel segmentation."""
+    res = get_vision_model().analyze_garment_image(image_path)
+    return res["color"]
 
 
 def normalize_color(c: Optional[str]) -> str:
@@ -98,15 +64,13 @@ def compute_color_similarity(color1: str, color2: str) -> float:
     return ColorSimilarityService.get_instance().get_color_similarity(color1, color2)
 
 
-
 def generate_embedding(text_or_path: str, dim: int = 64) -> List[float]:
-    """Generates a fast normalized pseudo-embedding (extensible with FashionCLIP)."""
-    digest = hashlib.sha256(text_or_path.encode("utf-8")).digest()
-    raw = [float(b) / 255.0 for b in digest[:dim]]
-    while len(raw) < dim:
-        raw.extend(raw[:dim - len(raw)])
-    norm = sum(x * x for x in raw) ** 0.5
-    return [x / norm for x in raw] if norm > 0 else raw
+    """Generates visual feature embedding using dressme_best.pt segmentation."""
+    vm = get_vision_model()
+    if text_or_path and os.path.exists(text_or_path):
+        res = vm.analyze_garment_image(text_or_path)
+        return res["embedding"]
+    return vm.compute_fallback_embedding(text_or_path or "garment", dim=dim)
 
 
 def cosine_sim(v1: List[float], v2: List[float]) -> float:
@@ -120,37 +84,43 @@ def cosine_sim(v1: List[float], v2: List[float]) -> float:
 
 
 # =====================================================================
-# TOOL 1: analyze_item (Vision / Attribute Extraction)
+# TOOL 1: analyze_item (Vision / Attribute Extraction via dressme_best.pt)
 # =====================================================================
 
 def analyze_item(candidate: CandidateItem) -> Dict[str, Any]:
-    """Tool 1: Analyzes garment image & metadata to verify color, category, and features."""
-    detected_color = candidate.color
-    
-    # If color is missing or unknown, extract from image
-    if (not detected_color or detected_color.lower() in ["unknown", "neutral", "auto-detect", ""]) and candidate.image_path:
-        detected_color = extract_dominant_color(candidate.image_path)
-    elif not detected_color:
-        detected_color = "neutral"
+    """Tool 1: Analyzes garment image using the trained YOLO segmentation model (dressme_best.pt).
+    Extracts category, pixel-segmented color, style, seasons, occasions, and visual embeddings.
+    """
+    vision_model = get_vision_model()
+    analysis = vision_model.analyze_garment_image(
+        image_path=candidate.image_path,
+        hint_name=candidate.name,
+        preferred_category=candidate.category if candidate.category not in ["unknown", "auto-detect", ""] else None,
+        preferred_color=candidate.color if candidate.color not in ["unknown", "auto-detect", "neutral", ""] else None,
+        preferred_style=candidate.style if candidate.style and candidate.style != ["formal"] else None,
+        preferred_occasion=candidate.target_occasion or (candidate.occasions[0] if candidate.occasions else None),
+    )
 
-    # Also check if candidate name has explicit color
-    candidate_name = (candidate.name or "").lower()
-    for c in ["light blue", "dark blue", "black", "white", "navy", "grey", "charcoal", "camel", "brown", "beige", "red", "green", "blue"]:
-        if re.search(r'\b' + c + r'\b', candidate_name):
-            detected_color = c
-            break
-
-    desc = f"{detected_color}_{candidate.category}_" + "_".join(candidate.style)
-    embedding = generate_embedding(candidate.image_path or desc)
+    detected_category = analysis["category"]
+    detected_color = analysis["color"]
+    detected_style = analysis["style"]
+    detected_seasons = analysis["seasons"]
+    detected_occasions = analysis["occasions"]
+    embedding = analysis["embedding"]
 
     return {
         "id": candidate.id,
-        "category": candidate.category.lower(),
+        "category": detected_category.lower(),
         "color": detected_color.lower(),
-        "style": [s.lower() for s in candidate.style],
-        "seasons": candidate.seasons or ["spring", "autumn"],
-        "occasions": candidate.occasions or ["work"],
+        "detected_rgb": analysis.get("detected_rgb"),
+        "color_delta_e": analysis.get("color_delta_e"),
+        "style": [s.lower() for s in detected_style],
+        "seasons": detected_seasons,
+        "occasions": detected_occasions,
         "embedding": embedding,
+        "confidence": analysis.get("confidence", 0.0),
+        "has_mask": analysis.get("has_mask", False),
+        "bbox": analysis.get("bbox"),
         "price": candidate.price,
         "image_path": candidate.image_path,
         "is_analyzed": True,
@@ -518,7 +488,10 @@ def calculate_purchase_value(
     price: Optional[float] = None,
     budget: Optional[float] = None,
     is_direct_duplicate: bool = False,
-    color_similarity_score: Optional[float] = None
+    color_similarity_score: Optional[float] = None,
+    ml_decision: Optional[str] = None,
+    ml_confidence: Optional[float] = None,
+    ml_probabilities: Optional[Dict[str, float]] = None
 ) -> PurchaseScoreResult:
     """Tool 5: Deterministic purchase score calculation with hard constraint validation.
 
@@ -579,7 +552,10 @@ def calculate_purchase_value(
         redundancy_raw_score=round(R, 2),
         low_redundancy_contribution=round(low_redundancy_contrib, 2),
         budget_penalty=budget_penalty,
-        color_similarity_score=round(color_similarity_score, 4) if color_similarity_score is not None else None
+        color_similarity_score=round(color_similarity_score, 4) if color_similarity_score is not None else None,
+        ml_decision=ml_decision,
+        ml_confidence=round(ml_confidence, 3) if ml_confidence is not None else None,
+        ml_probabilities=ml_probabilities
     )
 
     penalty_text = f", Budget Penalty: -{budget_penalty:.2f}" if budget_penalty > 0 else ""
@@ -659,6 +635,23 @@ PURCHASE_TOOLS_SCHEMA = [
                     "category": {"type": "string"}
                 },
                 "required": ["category"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "predict_purchase_ml",
+            "description": "Uses trained XGBoost classification model to predict BUY/CONSIDER/SKIP decision probabilities and confidence based on wardrobe feature signals.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "outfit_compatibility": {"type": "number"},
+                    "wardrobe_gap": {"type": "number"},
+                    "redundancy": {"type": "number"},
+                    "budget_penalty": {"type": "number"}
+                },
+                "required": ["outfit_compatibility", "wardrobe_gap", "redundancy"]
             }
         }
     },
