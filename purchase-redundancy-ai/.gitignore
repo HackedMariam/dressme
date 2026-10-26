@@ -1,0 +1,27 @@
+# Secrets - never commit (API keys, JWT signing key)
+.env
+.env.*
+!.env.example
+data/.secret_key
+
+# Runtime data: database, uploaded photos, embedding caches, logs
+data/
+logs/
+
+# Scraper download cache (~1.5 GB)
+.scrape_cache/
+database/.scrape_cache/
+database/*.parquet
+
+# Python
+__pycache__/
+*.pyc
+backend/venv/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+frontend/node_modules/
+frontend/dist/
