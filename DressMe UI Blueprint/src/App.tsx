@@ -7,6 +7,12 @@ import { firstName, parseLocation, userInitial } from "./features/profile/types"
 import { useUserData, UserDataProvider } from "./features/profile/UserDataProvider";
 import StyleProfile from "./features/profile/StyleProfile";
 import Settings from "./features/settings/Settings";
+import DashboardPage from "./features/dashboard/DashboardPage";
+import FindSimilarPage from "./features/purchase/FindSimilarPage";
+import ShouldIBuyPage from "./features/purchase/ShouldIBuyPage";
+import StylistPage from "./features/stylist/StylistPage";
+import WardrobePage from "./features/wardrobe/WardrobePage";
+import { WardrobeProvider } from "./features/wardrobe/WardrobeProvider";
 import { getSupabaseConfigMessage } from "./lib/supabase";
 
 type Page =
@@ -1035,15 +1041,15 @@ function AuthenticatedApp() {
 
   const renderPage = () => {
     switch (page) {
-      case "dashboard": return <Dashboard />;
-      case "wardrobe": return <MyWardrobe />;
+      case "dashboard": return <DashboardPage />;
+      case "wardrobe": return <WardrobePage />;
       case "outfit-studio": return <OutfitStudio />;
       case "help-me-pack": return <HelpMePack />;
       case "weather": return <WeatherPage />;
-      case "should-i-buy": return <ShouldIBuy />;
-      case "ai-stylist": return <AIStylist />;
+      case "should-i-buy": return <ShouldIBuyPage />;
+      case "ai-stylist": return <StylistPage />;
       case "style-profile": return <StyleProfile />;
-      case "find-similar": return <FindSimilar />;
+      case "find-similar": return <FindSimilarPage />;
       case "settings": return <Settings />;
     }
   };
@@ -1099,6 +1105,7 @@ function AuthenticatedApp() {
       <Sidebar current={page} onNav={setPage} />
       <main className="ml-[260px] flex-1 overflow-y-auto">
         <div className="p-10 max-w-[1200px]">
+          <WardrobeProvider>
           {!profile.onboarding_completed && (
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#556B2F]/20 bg-[#E8EDE0] px-5 py-4">
               <div>
@@ -1116,7 +1123,14 @@ function AuthenticatedApp() {
               </button>
             </div>
           )}
+          {["outfit-studio", "help-me-pack", "weather"].includes(page) && (
+            <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+              <b>Design preview.</b> This screen is not connected to a live backend on this branch
+              yet.
+            </div>
+          )}
           {renderPage()}
+          </WardrobeProvider>
         </div>
       </main>
     </div>
