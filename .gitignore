@@ -3,11 +3,22 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Checkpoints and runtime session cache
+# Caches & checkpoints
+.pytest_cache/
+.ipynb_checkpoints/
+data/checkpoints/
 smart_purchasing/data/checkpoints/
-*.log
 
-# OS generated files
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Archives & OS files
+*.rar
+*.zip
+*.tar.gz
 .DS_Store
-desktop.ini
 Thumbs.db

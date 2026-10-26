@@ -392,7 +392,7 @@ class ShopperAgentApp:
         grid.columnconfigure(0, weight=1, uniform="col")
         grid.columnconfigure(1, weight=1, uniform="col")
 
-        cats = ["jacket", "blazer", "shirt", "t-shirt", "skirt", "shorts", "shoes", "sandals",
+        cats = ["auto-detect", "jacket", "blazer", "shirt", "t-shirt", "skirt", "shorts", "shoes", "sandals",
                 "sneakers", "coat", "raincoat", "sweater", "hoodie", "cardigan", "dress",
                 "trousers", "jeans"]
         colors = ["auto-detect", "black", "white", "navy", "grey", "cream", "beige", "brown",
@@ -597,6 +597,8 @@ class ShopperAgentApp:
             color_val = "unknown"
 
         cat_val = self.category_var.get().strip().lower()
+        if cat_val == "auto-detect":
+            cat_val = "unknown"
         style_val = [self.style_var.get().strip().lower()] if self.style_var.get().strip() else ["formal"]
 
         candidate = CandidateItem(
@@ -620,11 +622,14 @@ class ShopperAgentApp:
     def _start_evaluation(self):
         self.eval_button.set_enabled(False)
         self.qwen_btn.set_enabled(False)
-        self.status_var.set("Consulting wardrobe and waiting for Qwen in Ollama (up to 120s)…")
+        self.fallback_btn.set_enabled(True)
+        self.status_var.set("Consulting wardrobe and waiting for your personal shopper (Qwen)…")
         self._t_clear()
         self._t("Working on it\n", "title")
-        self._t("Analyzing your wardrobe, calculating deterministic metrics and waiting for "
-                "Qwen's reasoning…\n", "muted")
+        self._t("Analyzing your wardrobe, calculating deterministic metrics and waiting for your "
+                "personal shopper's reasoning…\n\n"
+                "Qwen will take all the time he needs to answer. If you want instant output, "
+                "you can click 'Rule-based fallback' on the left at any time.\n", "muted")
         self._t_done()
         self.decision_pill.set("THINKING…", PAPER_CARD, fg=PAPER_MUTED, outline=PAPER_LINE)
         self.engine_badge.set("", PAPER)
@@ -755,9 +760,11 @@ class ShopperAgentApp:
             self.stars_text.config(text="")
             self.score_bar.set(0)
 
-        # Sync color_var if auto-detect was used
+        # Sync color_var and category_var if auto-detect was used
         if rec.detected_color and self.color_var.get() in ["auto-detect", "unknown", ""]:
             self.color_var.set(rec.detected_color)
+        if rec.detected_category and self.category_var.get() in ["auto-detect", "unknown", ""]:
+            self.category_var.set(rec.detected_category)
 
         self._t_clear()
 
@@ -773,13 +780,11 @@ class ShopperAgentApp:
             self._t("your personal shopper's recommendation\n", "title")
             self._t(f"{rec.qwen_summary}\n", "body")
         else:
-            self.engine_badge.set("", PAPER)
-            self.status_var.set("Personal shopper was unable to respond. Use “Rule-based fallback”.")
-            self._t("No shopper response\n", "title")
-            self._t("The personal shopper was unable to answer within the time limit.\n", "warn")
-            self._t("Press ", "muted")
-            self._t("Rule-based fallback", "accent")
-            self._t(" on the left to see the deterministic output.\n", "muted")
+            self.engine_badge.set("FALLBACK · DETERMINISTIC", PAPER_CARD, fg=C_CONSIDER, outline=C_CONSIDER)
+            self.status_var.set("Ollama LLM was unavailable (memory limit reached). Showing deterministic recommendation.")
+            self._t("Deterministic recommendation\n", "title")
+            self._t(f"{rec.fallback_summary or rec.summary}\n", "body")
+            self._t("Personal shopper (Qwen) was paused due to low free RAM on your PC (~1.0 GB required). Full metrics and ML prediction are shown below.\n", "muted")
 
         self._t(f"Session {rec.session_id}\n", "muted")
 
@@ -848,6 +853,15 @@ class ShopperAgentApp:
                 self._t("Budget overage penalty\t", "key")
                 self._t("\t", "val")
                 self._t(f"-{b.budget_penalty:.2f}\n", "warn")
+
+        # ---- Machine Learning (XGBoost) verdict
+        if rec.ml_decision:
+            self._t_heading("Machine learning (XGBoost) verdict")
+            conf_str = f"{rec.ml_confidence * 100:.1f}%" if rec.ml_confidence is not None else "N/A"
+            self._t(f"•  ML Model Recommendation: {rec.ml_decision} (Confidence: {conf_str})\n", "bullet", "accent")
+            if rec.ml_probabilities:
+                probs_str = " | ".join(f"{k}: {v*100:.1f}%" for k, v in rec.ml_probabilities.items())
+                self._t(f"•  Class Probabilities: {probs_str}\n", "bullet", "muted")
 
         self._t_done()
 
