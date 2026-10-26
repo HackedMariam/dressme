@@ -1,0 +1,142 @@
+export const TAXONOMY = {
+  classes: [
+    "top",
+    "sweater",
+    "jacket",
+    "vest",
+    "pants",
+    "shorts",
+    "skirt",
+    "dress",
+    "glasses",
+    "hat",
+    "headband",
+    "scarf",
+    "glove",
+    "watch",
+    "belt",
+    "sock",
+    "tights",
+    "shoe",
+    "bag",
+    "umbrella",
+  ],
+  class_to_group: {
+    top: "Tops",
+    sweater: "Tops",
+    vest: "Tops",
+    jacket: "Outerwear",
+    pants: "Bottoms",
+    shorts: "Bottoms",
+    skirt: "Bottoms",
+    dress: "Dresses",
+    shoe: "Shoes",
+    bag: "Bags",
+    glasses: "Accessories",
+    hat: "Accessories",
+    headband: "Accessories",
+    scarf: "Accessories",
+    glove: "Accessories",
+    watch: "Accessories",
+    belt: "Accessories",
+    sock: "Accessories",
+    tights: "Accessories",
+    umbrella: "Accessories",
+  } as Record<string, string>,
+  groups: ["Tops", "Bottoms", "Dresses", "Outerwear", "Shoes", "Bags", "Accessories"],
+  patterns: [
+    "solid",
+    "striped",
+    "checked",
+    "floral",
+    "polka dot",
+    "animal print",
+    "graphic",
+    "printed",
+    "denim",
+    "knit texture",
+    "colorblock",
+    "other",
+  ],
+  seasons: ["spring", "summer", "autumn", "winter"],
+  styles: [
+    "casual",
+    "elegant",
+    "formal",
+    "business",
+    "sporty",
+    "streetwear",
+    "bohemian",
+    "minimalist",
+    "classic",
+    "romantic",
+  ],
+  occasions: [
+    "everyday",
+    "work",
+    "party",
+    "date night",
+    "wedding",
+    "ceremony",
+    "sport",
+    "travel",
+    "beach",
+    "lounge",
+    "outdoor",
+  ],
+  colorFamilies: ["neutral", "earth", "warm", "cool", "pastel", "bright", "metallic", "multicolor"],
+}
+
+export const COLORS: Record<string, string> = {
+  black: "#1c1c1c",
+  charcoal: "#3d3d3d",
+  grey: "#8a8a8a",
+  "light grey": "#c8c8c8",
+  white: "#f5f5f2",
+  cream: "#efe6d2",
+  beige: "#d6bf98",
+  camel: "#b58a57",
+  tan: "#c9a27a",
+  brown: "#7a4a2a",
+  chocolate: "#4a2c1d",
+  khaki: "#b5a77a",
+  olive: "#6b6b2f",
+  green: "#3f8a4a",
+  "forest green": "#24452c",
+  mint: "#a8dcc2",
+  teal: "#1f7a7a",
+  navy: "#1f2a4d",
+  blue: "#3666b0",
+  "denim blue": "#4a6890",
+  "light blue": "#9cc3e6",
+  purple: "#6a3d8f",
+  lavender: "#bfa8dc",
+  burgundy: "#6e1f2e",
+  red: "#c0282d",
+  coral: "#ef7f6a",
+  pink: "#e8a0b4",
+  "hot pink": "#d63c84",
+  orange: "#e0772a",
+  mustard: "#d1a12c",
+  yellow: "#f0d43a",
+  gold: "#c9a94b",
+  silver: "#b8b8bc",
+}
+
+export const cap = (value = "") => value.charAt(0).toUpperCase() + value.slice(1)
+
+export function seasonLabel(seasons: string[] = []) {
+  if (!seasons.length) return "-"
+  if (seasons.length >= 4) return "All seasons"
+  const ordered = [...seasons].sort(
+    (a, b) => TAXONOMY.seasons.indexOf(a) - TAXONOMY.seasons.indexOf(b),
+  )
+  return ordered.map(cap).join("/")
+}
+
+export function formatDate(value?: string | null) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })
+}
