@@ -1,5 +1,10 @@
 # Dress Me — AI Style Intelligence
 
+> **Frontend consolidation in progress.** `DressMe UI Blueprint` is the canonical frontend. The
+> `frontend/` and `purchase-redundancy-ai/frontend/` apps are migration sources and will be retired
+> after feature parity. See [`docs/frontend-consolidation.md`](docs/frontend-consolidation.md) for
+> the decision log, feature matrix and remaining work.
+
 Smart wardrobe:
 photo → **YOLO11m-seg model** (`backend/models/dressme_best.pt`: category + cut-out) →
 **color measured on the pixels** → **GPT-4 (OpenAI)** which classifies the item by **occasion, style,
@@ -63,13 +68,17 @@ uvicorn app.main:app --port 8000
 
 Interactive docs: http://localhost:8000/docs — Tests: `pip install -r requirements-dev.txt && pytest`
 
-### 4. Frontend
+### 4. Frontend (canonical)
 ```bash
-cd frontend
-npm install
-npm run dev        # http://localhost:5173
-npm run build      # production build in frontend/dist
+cd "DressMe UI Blueprint"
+pnpm install
+pnpm dev           # dev server, proxies /api to http://127.0.0.1:8000
+pnpm build         # production build in "DressMe UI Blueprint/dist"
 ```
+
+The legacy `frontend/` app is kept only as a migration reference until the canonical frontend
+reaches parity. See [`docs/frontend-consolidation.md`](docs/frontend-consolidation.md) for the
+status matrix.
 
 ## API (all `/api/items*` and `/api/stats*` routes require `Authorization: Bearer <Supabase JWT>` in production)
 
