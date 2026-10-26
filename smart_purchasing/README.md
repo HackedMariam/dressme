@@ -35,11 +35,24 @@ A dynamic, tool-orchestrated Shopper Agent powered by **Qwen3 (via local Ollama)
 
 ### 1. Autonomous Live Inference (CLI & Notebook — No Ollama Needed)
 Runs on **any computer locally (GPU or CPU)** with zero API keys or secrets:
-```bash
-# Run with sample blazer or custom inputs
-python inference.py --price 35.0 --budget 50.0 --prompt "Can I wear this to work?"
 
-# Fast deterministic test without loading Qwen
+#### 📥 The 4 Inputs:
+1. **`--image`**: Garment image (Web URL or local path). *Optional: defaults to `data/sample_camel_blazer.jpg` if omitted.*
+2. **`--price`**: Candidate item price (e.g. `45.0`).
+3. **`--budget`**: User's budget (e.g. `60.0`).
+4. **`--prompt`**: Natural language question (e.g. `"Can I wear this to work?"`).
+
+```bash
+# Option A: From an Internet Image URL
+python inference.py --image "https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=500" --price 45.0 --budget 60.0 --prompt "Can I wear this to a wedding?"
+
+# Option B: From a Local Image File
+python inference.py --image "data/sample_camel_blazer.jpg" --price 80.0 --budget 100.0 --prompt "Is this suitable for office meetings?"
+
+# Option C: Quick Test with Default Fallback Image (no --image needed)
+python inference.py --price 35.0 --budget 50.0 --prompt "Should I buy this for casual wear?"
+
+# Option D: Instant Deterministic Test (Vision + XGBoost, skips Qwen load)
 python inference.py --skip-llm
 ```
 Or open **`dressme_agent_inference.ipynb`** locally, in Google Colab, or on Kaggle.

@@ -378,6 +378,37 @@ Requires Node.js and pnpm (versions pinned in `.mise.toml`).
 
 ---
 
+### Running the Smart Purchasing AI Agent (Inference)
+
+The autonomous shopping assistant evaluates candidate clothes against the user's digital wardrobe using YOLO segmentation (`dressme_best.pt`), XGBoost decision classification, and fine-tuned Qwen 2.5 3B. Runs on **any computer locally (GPU or CPU)** without requiring any secrets or tokens.
+
+#### 📥 The 4 Inputs:
+1. **`--image`**: Garment image (Web URL or local path). *Optional: defaults to `data/sample_camel_blazer.jpg` if omitted.*
+2. **`--price`**: Candidate item price (e.g. `45.0`).
+3. **`--budget`**: User's budget (e.g. `60.0`).
+4. **`--prompt`**: Natural language question (e.g. `"Can I wear this to work?"`).
+
+```bash
+cd smart_purchasing
+pip install -r requirements.txt
+
+# Option A: From an Internet Image URL
+python inference.py --image "https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=500" --price 45.0 --budget 60.0 --prompt "Can I wear this to a wedding?"
+
+# Option B: From a Local Image File
+python inference.py --image "data/sample_camel_blazer.jpg" --price 80.0 --budget 100.0 --prompt "Is this suitable for office meetings?"
+
+# Option C: Quick Test with Default Fallback Image (no --image needed)
+python inference.py --price 35.0 --budget 50.0 --prompt "Should I buy this for casual wear?"
+
+# Option D: Instant Deterministic Test (Vision + XGBoost, skips Qwen load)
+python inference.py --skip-llm
+```
+Or open `smart_purchasing/dressme_agent_inference.ipynb` locally, in Google Colab, or on Kaggle.
+
+
+---
+
 ## Disclaimer / Project Status
 
 DressMe is **under active development**. The prototype, architecture, AI components, and feature scope may change as the project progresses. The seven business objectives and the multi-agent direction described above represent the current understanding of the product and are subject to revision — they should not be read as committed technical decisions or as evidence of implemented functionality.
