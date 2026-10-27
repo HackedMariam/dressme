@@ -380,6 +380,42 @@ DATABASE_URL=postgresql://redundancy:un-mot-de-passe-solide@localhost:5433/purch
 REDIS_URL=redis://localhost:6379/0
 ```
 
+### Héberger la base sur Supabase
+
+Supabase est un PostgreSQL hébergé : le projet s'y branche sans changer de code. La base de démonstration tourne sur le projet Supabase « DressMe » (région eu-west-1).
+
+Les tables de l'application vivent dans un **schéma dédié, `dressme_ai`**, avec un **rôle dédié** :
+- le schéma `public` du projet contient déjà d'autres tables (dont `products` et `wardrobe_items`) : un schéma séparé évite toute collision ;
+- Supabase expose `public` par son API REST ; `dressme_ai` ne l'est pas, donc la table `users` n'est pas lisible depuis internet ;
+- le rôle de l'application n'a des droits que sur son schéma.
+
+1. Dans Supabase, **SQL Editor** :
+
+   ```sql
+   create role dressme_ai with login password 'un-mot-de-passe-solide';
+   grant dressme_ai to postgres;
+   create schema dressme_ai authorization dressme_ai;
+   alter role dressme_ai set search_path = dressme_ai;
+   ```
+
+2. **Connect → Session pooler** donne l'hôte (`aws-0-<région>.pooler.supabase.com`). Utilisez le port **5432** (mode session : le `search_path` du rôle est appliqué), et l'utilisateur `dressme_ai.<id du projet>`.
+3. Copier les données locales, puis mettre la même adresse dans `.env` :
+
+   ```bash
+   cd backend
+   venv/Scripts/python migrate_db.py --target "postgresql://dressme_ai.<id du projet>:<mot de passe>@aws-0-<région>.pooler.supabase.com:5432/postgres?sslmode=require"
+   ```
+
+   ```
+   DATABASE_URL=postgresql://dressme_ai.<id du projet>:<mot de passe>@aws-0-<région>.pooler.supabase.com:5432/postgres?sslmode=require
+   ```
+
+4. Redémarrer l'API : `/health` indique `"database": "postgresql"`. Les tables apparaissent dans **Table Editor**, schéma `dressme_ai`.
+
+Les clés d'API Supabase (`sb_publishable_…`, `sb_secret_…`) ne servent pas ici : le backend parle directement à PostgreSQL. Les tests restent sur une base temporaire, même quand `.env` pointe vers Supabase. Pour revenir à SQLite, commentez `DATABASE_URL`.
+
+### Notes
+
 - **Migration du schéma** : au démarrage, les tables, colonnes et index manquants sont créés automatiquement, sur SQLite comme sur PostgreSQL.
 - **Redis** partage entre les processus API :
   - les embeddings texte CLIP (24 h) ;
