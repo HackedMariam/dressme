@@ -94,6 +94,8 @@ def resolve_item(item: dict, garments: dict[str, dict]) -> dict | None:
         "color_hex": color_hex,
         "color": list(hex_to_rgb(color_hex)),
         "cutout_url": item.get("cutout_url") or item.get("image_url"),
+        "mesh_url": item.get("mesh_url"),
+        "mesh_version": item.get("mesh_version") or 0,
         "category": str(item.get("category") or ""),
     }
 
@@ -112,5 +114,7 @@ def resolve_payload(payload: dict, garments: dict[str, dict]) -> dict | None:
         "color_hex": color_hex,
         "color": list(hex_to_rgb(color_hex)),
         "cutout_url": payload.get("cutout_url"),
+        "mesh_url": payload.get("mesh_url"),
+        "mesh_version": payload.get("mesh_version") or 0,
         "category": str(payload.get("category") or ""),
     }

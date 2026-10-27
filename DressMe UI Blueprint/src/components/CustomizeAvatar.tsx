@@ -29,6 +29,8 @@ import {
   versionedUrl,
 } from "../lib/avatarApi"
 import { analyzeBodyPhotos, type PhotoPairAnalysis } from "../lib/bodyPhotos"
+import { saveGalleryPhoto } from "../lib/photoGallery"
+import { useAuth } from "../features/auth/AuthProvider"
 import { preloadPoseModel } from "../lib/pose"
 import { preloadSilhouetteModel } from "../lib/silhouette"
 import { BODY_SHAPES, CUP_SIZES, GENDERS, measurementRows } from "../lib/questionnaire"
@@ -74,6 +76,7 @@ export default function CustomizeAvatar({
   onUseParams?: (p: BodyTargets, details: DetailTargets, heightCm: number) => void
   onGoToTryOn?: () => void
 } = {}) {
+  const { user } = useAuth()
   const [mpfb, setMpb] = useState<Record<MpbParam, number>>(defaultMpbTargets)
   const [adjusted, setAdjusted] = useState<Proportions>(DEFAULT_PROPORTIONS)
   const [legLengthOverride, setLegLengthOverride] = useState<number | null>(null)
@@ -146,6 +149,16 @@ export default function CustomizeAvatar({
     preloadSilhouetteModel().catch(() => undefined)
   }, [])
 
+  useEffect(() => {
+    if (genState !== "running" && optState !== "running") return
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = "Your avatar is still being generated."
+    }
+    window.addEventListener("beforeunload", warnBeforeLeaving)
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving)
+  }, [genState, optState])
+
   const cancelOptimization = () => {
     optAbortRef.current?.abort()
     if (optTimerRef.current !== null) {
@@ -207,6 +220,11 @@ export default function CustomizeAvatar({
     }
 
     const url = URL.createObjectURL(file)
+    if (user?.id) {
+      void saveGalleryPhoto(user.id, file, "avatar").catch((error) => {
+        setPhotoError(error instanceof Error ? error.message : "Could not save this photo to your gallery.")
+      })
+    }
     if (slot === "front") {
       if (frontUrlRef.current) URL.revokeObjectURL(frontUrlRef.current)
       frontUrlRef.current = url
@@ -474,7 +492,9 @@ export default function CustomizeAvatar({
       setVisionState("success")
       setGenState("running")
 
-      const result = await generateAvatar(targets, [], controller.signal, nextDetailTargets, { heightCm })
+      const result = await generateAvatar(targets, [], controller.signal, nextDetailTargets, {
+        heightCm,
+      })
       setGeneratedUrl(versionedUrl(result.url, result.jobId))
       setLastJob(result.jobId)
       setLastResult(result)

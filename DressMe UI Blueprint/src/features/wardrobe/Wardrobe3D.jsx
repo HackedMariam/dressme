@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { asset } from '../../lib/api'
 import { cap, seasonLabel, TAXONOMY } from '../../lib/taxonomy'
 
@@ -73,7 +74,7 @@ export default function Wardrobe3D({ items, selectedId, onSelect }) {
   const colors = useMemo(() => [...new Set(items.map((i) => i.color_name).filter(Boolean))].sort(), [items])
   const [doorsOpen, setDoorsOpen] = useState(true)
 
-  const itemsKey = useMemo(() => items.map((i) => `${i.id}:${i.category}:${i.color_hex}:${i.cutout_url?.length}`).join('|'), [items])
+  const itemsKey = useMemo(() => items.map((i) => `${i.id}:${i.category}:${i.color_hex}:${i.cutout_url?.length}:${i.mesh_url?.length || 0}:${i.mesh_version || 0}`).join('|'), [items])
 
   // ---------- one-time scene setup ----------
   useEffect(() => {
@@ -130,7 +131,7 @@ export default function Wardrobe3D({ items, selectedId, onSelect }) {
       const r = renderer.domElement.getBoundingClientRect()
       pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
       raycaster.setFromCamera(pointer, camera)
-      const hit = raycaster.intersectObjects(ctx.current.pickables || [], false)[0]
+      const hit = raycaster.intersectObjects(ctx.current.pickables || [], true)[0]
       const id = hit?.object.userData.itemId || null
       if (id !== hovered) {
         hovered = id
@@ -263,6 +264,7 @@ export default function Wardrobe3D({ items, selectedId, onSelect }) {
 
     const loader = new THREE.TextureLoader()
     loader.setCrossOrigin('anonymous')
+    const gltfLoader = new GLTFLoader()
     const nodes = [], pickables = []
 
     const addItem = (item, zone, h, place) => {
@@ -275,7 +277,14 @@ export default function Wardrobe3D({ items, selectedId, onSelect }) {
       plane.position.y = zone === 'rail' ? -0.1 - h / 2 : h / 2
       node.add(plane)
       if (zone === 'rail') node.add(makeHanger(hangerMat))
-      if (item.cutout_url) {
+
+      const loadCutout = () => {
+        mat.opacity = 1
+        mat.needsUpdate = true
+        if (!item.cutout_url) {
+          mat.color.set(item.color_hex || '#999')
+          return
+        }
         loader.load(asset(item.cutout_url), (tex) => {
           tex.colorSpace = THREE.SRGBColorSpace
           tex.anisotropy = 4
@@ -288,8 +297,37 @@ export default function Wardrobe3D({ items, selectedId, onSelect }) {
           plane.scale.set(w, hh, 1)
           plane.position.y = zone === 'rail' ? -0.1 - hh / 2 : hh / 2
         })
+      }
+
+      if (item.mesh_url) {
+        mat.opacity = 0
+        mat.needsUpdate = true
+        const sep = item.mesh_url.includes('?') ? '&' : '?'
+        const url = `${asset(item.mesh_url)}${sep}v=${item.mesh_version || 0}`
+        gltfLoader.load(url, (gltf) => {
+          if (node.parent !== content) return
+          const model = gltf.scene
+          model.traverse((o) => {
+            if (o.isMesh) {
+              o.castShadow = true
+              o.receiveShadow = true
+              o.userData.itemId = item.id
+            }
+          })
+          const box = new THREE.Box3().setFromObject(model)
+          const size = box.getSize(new THREE.Vector3())
+          const scale = h / Math.max(size.y, 0.001)
+          model.scale.setScalar(scale)
+          const scaled = new THREE.Box3().setFromObject(model)
+          const center = scaled.getCenter(new THREE.Vector3())
+          model.position.x -= center.x
+          model.position.z -= center.z
+          model.position.y += (zone === 'rail' ? -0.1 - h : 0) - scaled.min.y
+          node.add(model)
+          pickables.push(model)
+        }, undefined, loadCutout)
       } else {
-        mat.color.set(item.color_hex || '#999')
+        loadCutout()
       }
       place(node)
       node.userData = { ...node.userData, itemId: item.id, zone, mat, baseRot: node.rotation.y, baseZ: node.position.z, phase: Math.random() * 6 }

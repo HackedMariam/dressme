@@ -9,9 +9,10 @@ Run:
   cd backend
   venv\Scripts\activate
   pip install -r requirements.txt
-  uvicorn main:app --host 127.0.0.1 --port 8000
+  uvicorn main:app --host 127.0.0.1 --port 8001
 """
 
+import base64
 import json
 import os
 import re
@@ -22,8 +23,9 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -58,6 +60,7 @@ TEMP_DIR = BACKEND_DIR / "temp"
 JOB_TIMEOUT_SECONDS = int(os.environ.get("JOB_TIMEOUT_SECONDS", "300"))
 GENERATED_TTL_HOURS = float(os.environ.get("GENERATED_TTL_HOURS", "24"))
 CATALOG_PATH = BACKEND_DIR.parent / "DressMe UI Blueprint" / "src" / "lib" / "garments.json"
+WARDROBE_API_URL = os.environ.get("WARDROBE_API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
 def load_garment_catalog() -> tuple[dict[str, dict], list[str]]:
@@ -110,6 +113,8 @@ class WardrobeItemInput(BaseModel):
     material: str | None = None
     formality: int | None = None
     cutout_url: str | None = None
+    mesh_url: str | None = None
+    mesh_version: int | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -142,6 +147,8 @@ class SavedAvatarItem(BaseModel):
     label: str
     color_hex: str
     cutout_url: str | None = None
+    mesh_url: str | None = None
+    mesh_version: int = 0
     category: str = ""
 
 
@@ -312,6 +319,8 @@ def _template_spec(template: str) -> dict:
         "color_hex": str(meta.get("swatch") or "#9a9a9a"),
         "color": list(meta.get("color") or tryon_mapping.hex_to_rgb(meta.get("swatch"))),
         "cutout_url": None,
+        "mesh_url": None,
+        "mesh_version": 0,
         "category": "",
     }
 
@@ -389,6 +398,8 @@ def _blender_spec(specs: list[dict]) -> list[dict]:
             "color": spec["color"],
             "label": spec["label"],
             "wardrobe_item_id": spec.get("wardrobe_item_id") or "",
+            "texture_path": spec.get("texture_path"),
+            "mesh_path": spec.get("mesh_path"),
         }
         for spec in specs
     ]
@@ -403,10 +414,67 @@ def _snapshot(specs: list[dict]) -> list[SavedAvatarItem]:
             label=str(spec["label"]),
             color_hex=str(spec.get("color_hex") or "#9a9a9a"),
             cutout_url=spec.get("cutout_url"),
+            mesh_url=spec.get("mesh_url"),
+            mesh_version=int(spec.get("mesh_version") or 0),
             category=str(spec.get("category") or ""),
         )
         for spec in specs
     ]
+
+
+def _cutout_bytes(url: str) -> bytes:
+    url = url.strip()
+    if url.startswith("data:"):
+        header, _, encoded = url.partition(",")
+        if ";base64" not in header:
+            raise ValueError("unsupported data URL")
+        return base64.b64decode(encoded)
+    if url.startswith("/"):
+        url = WARDROBE_API_URL + url
+    if url.startswith("http://") or url.startswith("https://"):
+        response = httpx.get(url, timeout=25.0, follow_redirects=True)
+        response.raise_for_status()
+        return response.content
+    raise ValueError("unsupported cutout URL")
+
+
+def _materialise_textures(specs: list[dict], job_id: str) -> list[Path]:
+    """Download item cutouts to local files so Blender does not need network access."""
+    written: list[Path] = []
+    for index, spec in enumerate(specs):
+        url = str(spec.get("cutout_url") or "").strip()
+        if not url:
+            continue
+        path = TEMP_DIR / f"texture_{job_id}_{index}.png"
+        try:
+            path.write_bytes(_cutout_bytes(url))
+        except Exception as exc:  # noqa: BLE001 - fall back to the item colour
+            print(f"[avatar] could not load cutout for {spec.get('label')}: {exc}", flush=True)
+            continue
+        spec["texture_path"] = str(path)
+        written.append(path)
+    return written
+
+
+def _materialise_meshes(specs: list[dict], job_id: str) -> list[Path]:
+    """Download generated item meshes for Blender without giving it network access."""
+    written: list[Path] = []
+    for index, spec in enumerate(specs):
+        url = str(spec.get("mesh_url") or "").strip()
+        if not url:
+            continue
+        path = TEMP_DIR / f"mesh_{job_id}_{index}.glb"
+        try:
+            data = _cutout_bytes(url)
+            if data[:4] != b"glTF":
+                raise ValueError("mesh URL did not return a valid GLB")
+            path.write_bytes(data)
+        except Exception as exc:  # noqa: BLE001 - template fitting remains available
+            print(f"[avatar] could not load mesh for {spec.get('label')}: {exc}", flush=True)
+            continue
+        spec["mesh_path"] = str(path)
+        written.append(path)
+    return written
 
 
 def _avatar_response(row: dict) -> dict:
@@ -571,7 +639,11 @@ def generate(
         temp_glb = TEMP_DIR / f"avatar_{job_id}.glb"
         params_path.write_text(json.dumps(targets), encoding="utf-8")
         details_path.write_text(json.dumps(details), encoding="utf-8")
+        texture_paths: list[Path] = []
+        mesh_paths: list[Path] = []
         if specs:
+            texture_paths = _materialise_textures(specs, job_id)
+            mesh_paths = _materialise_meshes(specs, job_id)
             spec_path.write_text(json.dumps(_blender_spec(specs)), encoding="utf-8")
 
         cmd = [
@@ -612,6 +684,10 @@ def generate(
                 params_path.unlink(missing_ok=True)
                 details_path.unlink(missing_ok=True)
                 spec_path.unlink(missing_ok=True)
+                for texture_path in texture_paths:
+                    texture_path.unlink(missing_ok=True)
+                for mesh_path in mesh_paths:
+                    mesh_path.unlink(missing_ok=True)
             except OSError:
                 pass
 

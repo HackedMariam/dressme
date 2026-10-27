@@ -25,6 +25,12 @@ export interface WardrobeItem {
   enrichment_source?: string | null
   image_url?: string | null
   cutout_url?: string | null
+  mesh_url?: string | null
+  mesh_status?: string | null
+  mesh_source?: string | null
+  mesh_version?: number | null
+  mesh_meta?: Record<string, unknown> | null
+  mesh_error?: string | null
   created_at?: string | null
   updated_at?: string | null
 }
@@ -37,6 +43,10 @@ export interface Health {
   auth: boolean
   llm: boolean
   llm_model?: string
+  mesh_builder?: boolean
+  mesh_provider?: string
+  mesh_providers?: string[]
+  hf_3d?: boolean
 }
 
 export interface AccuracyRow {
@@ -66,6 +76,16 @@ export interface DuplicateResult {
 
 export interface AnalyzeResponse {
   items: WardrobeItem[]
+}
+
+export interface ItemMeshStatus {
+  mesh_url: string | null
+  mesh_status: "none" | "queued" | "building" | "ready" | "failed"
+  mesh_source: string | null
+  mesh_version: number
+  mesh_meta: Record<string, unknown> | null
+  mesh_error: string | null
+  queued?: boolean
 }
 
 export interface QuickDetection {

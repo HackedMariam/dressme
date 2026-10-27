@@ -12,6 +12,7 @@ create table if not exists public.user_avatars (
   metrics     jsonb not null default '{}'::jsonb,
   glb_path    text not null,
   glb_bytes   integer check (glb_bytes is null or glb_bytes >= 0),
+  height_cm   double precision,
   generated_at timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -37,7 +38,7 @@ values (
   'avatars',
   false,
   52428800,
-  array['model/gltf-binary', 'application/octet-stream']
+  array['model/gltf-binary', 'application/octet-stream', 'application/json']
 )
 on conflict (id) do update set
   public = false,

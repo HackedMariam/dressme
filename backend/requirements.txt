@@ -14,3 +14,4 @@ scikit-learn
 openai>=1.60
 supabase>=2.10
 python-dotenv
+gradio_client>=1.0

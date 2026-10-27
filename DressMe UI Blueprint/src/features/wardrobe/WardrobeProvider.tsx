@@ -52,6 +52,28 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     void reload()
   }, [reload])
 
+  useEffect(() => {
+    const pending = items.some(
+      (item) => item.mesh_status === "queued" || item.mesh_status === "building",
+    )
+    if (!pending) return
+    let active = true
+    const timer = window.setInterval(() => {
+      api
+        .list()
+        .then((next) => {
+          if (active) setItems(next)
+        })
+        .catch(() => {
+          // keep polling while the Blender queue is busy
+        })
+    }, 2500)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [items])
+
   const addItems = useCallback((incoming: WardrobeItem[]) => {
     if (!incoming.length) return
     setItems((previous) => {

@@ -5,6 +5,7 @@ import type {
   AnalyzeResponse,
   DuplicateResult,
   Health,
+  ItemMeshStatus,
   PhotoMatch,
   QuickDetection,
   WardrobeItem,
@@ -116,6 +117,14 @@ export const api = {
 
   reclassify: (id: string) =>
     request<WardrobeItem>(`/api/items/${id}/reclassify`, { method: "POST" }),
+
+  itemMesh: (id: string) => request<ItemMeshStatus>(`/api/items/${id}/mesh`),
+
+  generateItemMesh: (id: string, force = false, provider?: string) => {
+    const query = new URLSearchParams({ force: String(force) })
+    if (provider) query.set("provider", provider)
+    return request<ItemMeshStatus>(`/api/items/${id}/mesh?${query}`, { method: "POST" })
+  },
 
   searchByPhoto: (file: File | Blob) =>
     request<PhotoMatch>("/api/search/photo", { method: "POST", body: fileBody(file) }),

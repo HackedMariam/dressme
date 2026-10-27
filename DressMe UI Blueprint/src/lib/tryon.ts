@@ -17,6 +17,8 @@ export type WardrobeItemLike = {
   formality?: number | null
   cutout_url?: string | null
   image_url?: string | null
+  mesh_url?: string | null
+  mesh_version?: number | null
 }
 
 export type TryOnItem = {
@@ -26,6 +28,8 @@ export type TryOnItem = {
   label: string
   colorHex: string
   cutoutUrl: string | null
+  meshUrl: string | null
+  meshVersion: number
   category: string
   categoryGroup: string
   subcategory: string | null
@@ -40,6 +44,8 @@ export type TryOnItemSnapshot = {
   label: string
   color_hex: string
   cutout_url?: string | null
+  mesh_url?: string | null
+  mesh_version?: number | null
   category?: string
 }
 
@@ -49,6 +55,9 @@ export type WardrobeItemPayload = {
   slot: GarmentSlot
   label: string
   color_hex: string
+  cutout_url?: string | null
+  mesh_url?: string | null
+  mesh_version?: number
   category: string
 }
 
@@ -96,6 +105,8 @@ export function resolveTryOnItem(item: WardrobeItemLike): TryOnItem | null {
     label: item.name?.trim() || meta.label,
     colorHex: cleanHex(item.color_hex),
     cutoutUrl: item.cutout_url || item.image_url || null,
+    meshUrl: item.mesh_url || null,
+    meshVersion: Number(item.mesh_version ?? 0),
     category,
     categoryGroup: group,
     subcategory: item.subcategory ?? null,
@@ -123,6 +134,8 @@ export function tryOnItemsFromSnapshots(
       label: snapshot.label || meta.label,
       colorHex: cleanHex(snapshot.color_hex),
       cutoutUrl: snapshot.cutout_url ?? null,
+      meshUrl: snapshot.mesh_url ?? null,
+      meshVersion: Number(snapshot.mesh_version ?? 0),
       category: snapshot.category ?? "",
       categoryGroup: "",
       subcategory: null,
@@ -177,6 +190,8 @@ export function tryOnSnapshots(selection: TryOnItem[]): TryOnItemSnapshot[] {
     label: item.label,
     color_hex: item.colorHex,
     cutout_url: item.cutoutUrl,
+    mesh_url: item.meshUrl,
+    mesh_version: item.meshVersion,
     category: item.category,
   }))
 }
@@ -188,6 +203,9 @@ export function tryOnPayload(selection: TryOnItem[]): WardrobeItemPayload[] {
     slot: item.slot,
     label: item.label,
     color_hex: item.colorHex,
+    cutout_url: item.cutoutUrl,
+    mesh_url: item.meshUrl,
+    mesh_version: item.meshVersion,
     category: item.category,
   }))
 }

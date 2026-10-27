@@ -30,12 +30,17 @@ def item(**overrides):
     return base
 
 
-def test_top_maps_to_tshirt():
-    resolved = tryon_mapping.resolve_item(item(), main.GARMENT_CATALOG)
+def test_top_maps_to_tshirt_and_preserves_mesh_metadata():
+    resolved = tryon_mapping.resolve_item(
+        item(mesh_url="https://example.test/mesh.glb", mesh_version=3),
+        main.GARMENT_CATALOG,
+    )
     assert resolved["template"] == "tshirt"
     assert resolved["slot"] == "top"
     assert resolved["color_hex"] == "#123456"
     assert resolved["color"] == pytest.approx([0x12 / 255, 0x34 / 255, 0x56 / 255])
+    assert resolved["mesh_url"] == "https://example.test/mesh.glb"
+    assert resolved["mesh_version"] == 3
 
 
 def test_formal_top_maps_to_oxford():
@@ -51,9 +56,18 @@ def test_denim_pants_map_to_jeans():
     assert resolved["template"] == "jeans"
 
 
-@pytest.mark.parametrize("category", ["skirt", "shorts", "bag", "belt", "watch"])
+@pytest.mark.parametrize("category", ["bag", "belt", "watch"])
 def test_unsupported_categories_are_rejected(category):
     assert tryon_mapping.resolve_item(item(category=category), main.GARMENT_CATALOG) is None
+
+
+@pytest.mark.parametrize("category,template", [("skirt", "skirt"), ("shorts", "shorts")])
+def test_supported_bottom_categories_map_to_templates(category, template):
+    resolved = tryon_mapping.resolve_item(
+        item(category=category, category_group="Bottoms"),
+        main.GARMENT_CATALOG,
+    )
+    assert resolved["template"] == template
 
 
 def test_local_payload_resolves_template_and_colour():
@@ -71,6 +85,22 @@ def test_local_payload_resolves_template_and_colour():
     assert resolved["color"] == [0.0, 0.0, 0.0]
 
 
+def test_local_payload_preserves_provider_mesh():
+    resolved = tryon_mapping.resolve_payload(
+        {
+            "wardrobe_item_id": "abc",
+            "template": "tshirt",
+            "label": "AI tee",
+            "color_hex": "#abcdef",
+            "mesh_url": "https://example.test/tee.glb",
+            "mesh_version": 4,
+        },
+        main.GARMENT_CATALOG,
+    )
+    assert resolved["mesh_url"] == "https://example.test/tee.glb"
+    assert resolved["mesh_version"] == 4
+
+
 def test_resolve_tryon_specs_rejects_unsupported_wardrobe_item(tmp_path, monkeypatch):
     monkeypatch.setattr(avatar_store.settings, "LOCAL_AVATAR_DIR", tmp_path / "avatars")
     monkeypatch.setattr(main, "AVATAR_STORE", avatar_store.LocalAvatarStore(tmp_path))
@@ -80,8 +110,8 @@ def test_resolve_tryon_specs_rejects_unsupported_wardrobe_item(tmp_path, monkeyp
         wardrobe_items=[
             main.WardrobeItemInput(
                 wardrobe_item_id="legacy-item",
-                label="Pleated skirt",
-                category="skirt",
+                label="Wrist watch",
+                category="watch",
                 category_group="Bottoms",
             )
         ],

@@ -105,6 +105,16 @@ export default function TryOnStudio({
   }, [initialAvatar?.url])
 
   useEffect(() => {
+    if (genState !== "running") return
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = "Your avatar is still being generated."
+    }
+    window.addEventListener("beforeunload", warnBeforeLeaving)
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving)
+  }, [genState])
+
+  useEffect(() => {
     let active = true
     checkAvatarBackend()
       .then((result) => {
@@ -253,7 +263,14 @@ export default function TryOnStudio({
                 >
                   <ItemThumb item={item} />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-semibold text-[#1C1C1C] truncate">{item.label}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="block text-xs font-semibold text-[#1C1C1C] truncate">{item.label}</span>
+                      {item.meshUrl && (
+                        <span className="shrink-0 rounded-full bg-[#E8EDE0] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#556B2F]">
+                          3D
+                        </span>
+                      )}
+                    </span>
                     <span className="block text-[10px] text-[#8C8A82] truncate">
                       {meta?.label ?? item.templateId} · {item.colorHex}
                     </span>

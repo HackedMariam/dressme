@@ -96,7 +96,9 @@ class SupabaseStore:
         self.db.table("items").delete().eq("id", item_id).eq("user_id", user_id).execute()
         folder = item_folder(user_id, item_id)
         try:
-            self.db.storage.from_(self.bucket).remove([f"{folder}/original.jpg", f"{folder}/cutout.png"])
+            self.db.storage.from_(self.bucket).remove(
+                [f"{folder}/original.jpg", f"{folder}/cutout.png", f"{folder}/mesh.glb"]
+            )
         except Exception:
             pass
 
@@ -177,7 +179,7 @@ class LocalStore:
             d["corrections"] = [c for c in d["corrections"] if c["item_id"] != item_id]
             self._save(d)
         folder = self._file(item_folder(user_id, item_id))
-        for name in ("original.jpg", "cutout.png"):
+        for name in ("original.jpg", "cutout.png", "mesh.glb"):
             (folder / name).unlink(missing_ok=True)
         try:
             folder.rmdir()

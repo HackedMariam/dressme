@@ -37,6 +37,11 @@ import traceback
 import bpy
 from mathutils import Vector
 
+BLENDER_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if BLENDER_SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, BLENDER_SCRIPT_DIR)
+
+
 
 def clamp01(value: float) -> float:
     return min(1.0, max(0.0, value))

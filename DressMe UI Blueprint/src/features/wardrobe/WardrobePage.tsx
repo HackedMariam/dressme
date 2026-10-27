@@ -5,6 +5,8 @@ import type { WardrobeItem } from "../../lib/types"
 import ItemDrawer from "./ItemDrawer"
 import LiveScan from "./LiveScan"
 import { useWardrobe } from "./WardrobeProvider"
+import { useAuth } from "../auth/AuthProvider"
+import { saveGalleryPhoto } from "../../lib/photoGallery"
 
 const Wardrobe3D = lazy(() => import("./Wardrobe3D"))
 
@@ -107,6 +109,7 @@ function ItemCard({
 }
 
 export default function WardrobePage() {
+  const { user } = useAuth()
   const { items, health, loading, error, reload, addItems, updateItem, reclassifyItem, deleteItem } =
     useWardrobe()
 
@@ -174,6 +177,11 @@ export default function WardrobePage() {
     }
     setAddError("")
     for (const file of files) {
+      if (user?.id) {
+        void saveGalleryPhoto(user.id, file, "wardrobe").catch((error) => {
+          setAddError(error instanceof Error ? error.message : "Could not save this photo to your gallery.")
+        })
+      }
       const jobId = Math.random().toString(36).slice(2)
       const preview = URL.createObjectURL(file)
       setJobs((previous) => [...previous, { id: jobId, preview }])
@@ -540,7 +548,7 @@ export default function WardrobePage() {
       )}
 
       {scanning && (
-        <LiveScan onAdded={addItems} onClose={() => setScanning(false)} />
+        <LiveScan userId={user?.id} onAdded={addItems} onClose={() => setScanning(false)} />
       )}
 
       {selected && (
@@ -555,6 +563,7 @@ export default function WardrobePage() {
             await deleteItem(id)
             setSelectedId(null)
           }}
+          onMeshUpdated={() => void reload()}
         />
       )}
     </div>

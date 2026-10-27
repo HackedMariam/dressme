@@ -29,6 +29,7 @@ Run (same contract as generate_avatar.py):
 import argparse
 import importlib
 import json
+import math
 import os
 import re
 import sys
@@ -39,6 +40,11 @@ from pathlib import Path
 import bmesh
 import bpy
 from mathutils import Vector
+
+BLENDER_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if BLENDER_SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, BLENDER_SCRIPT_DIR)
+
 
 ALLOWED_PARAMS = {
     "gender", "age", "muscle", "weight",
@@ -91,12 +97,24 @@ def read_spec(path):
                     raise ValueError(f"Garment {template} colour channels must be numbers")
                 values.append(min(1.0, max(0.0, float(channel))))
             color = tuple(values)
+        texture = entry.get("texture_path")
+        if texture:
+            texture = str(texture)
+            if not Path(texture).is_file():
+                texture = None
+        mesh = entry.get("mesh_path")
+        if mesh:
+            mesh = str(mesh)
+            if not Path(mesh).is_file():
+                mesh = None
         cleaned.append(
             {
                 "template": template,
                 "color": color,
                 "label": str(entry.get("label") or template),
                 "wardrobe_item_id": str(entry.get("wardrobe_item_id") or ""),
+                "texture_path": texture,
+                "mesh_path": mesh,
             }
         )
     return cleaned
@@ -172,6 +190,7 @@ def load_garment_configs() -> dict:
             "enclose": float(garment.get("enclose", 1.0)),
             "hull": bool(garment.get("hull", False)),
             "roughness": float(garment.get("roughness", 0.8)),
+            "shape": garment.get("shape"),
         }
     return configs
 
@@ -415,8 +434,235 @@ def make_material(name, color, roughness=0.8):
     return mat
 
 
-def build_garment(body_obj, landmarks, garment_id, color=None):
+def make_textured_material(name, texture_path, color, roughness=0.8):
+    mat = bpy.data.materials.get(name)
+    if mat is None:
+        mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    if bsdf is not None:
+        bsdf.inputs["Base Color"].default_value = (*color, 1.0)
+        if "Roughness" in bsdf.inputs:
+            bsdf.inputs["Roughness"].default_value = roughness
+        if "Metallic" in bsdf.inputs:
+            bsdf.inputs["Metallic"].default_value = 0.0
+
+    image = bpy.data.images.load(texture_path, check_existing=True)
+    image.pack()
+    tex = nodes.new("ShaderNodeTexImage")
+    tex.image = image
+    tex.interpolation = "Linear"
+    tex.extension = "CLIP"
+    if bsdf is not None:
+        links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        if "Alpha" in bsdf.inputs:
+            links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+    try:
+        mat.blend_method = "CLIP"
+    except Exception:
+        pass
+    try:
+        mat.surface_render_method = "DITHERED"
+    except Exception:
+        pass
+    mat.use_backface_culling = False
+    mat.diffuse_color = (*color, 1.0)
+    return mat
+
+
+def _world_bounds(obj):
+    points = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+    if not points:
+        raise RuntimeError(f"Mesh {obj.name!r} has no vertices")
+    return (
+        min(point.x for point in points), max(point.x for point in points),
+        min(point.y for point in points), max(point.y for point in points),
+        min(point.z for point in points), max(point.z for point in points),
+    )
+
+
+def _fit_mesh_to_envelope(obj, body_obj, landmarks, garment_id):
+    """Fit a normalized provider mesh to the current body before surface wrapping."""
+    slot = GARMENTS[garment_id]["slot"]
+    shoulder_l = _lm(landmarks, "l-shoulder")
+    shoulder_r = _lm(landmarks, "r-shoulder")
+    hip_l = _lm(landmarks, "l-upper-leg")
+    hip_r = _lm(landmarks, "r-upper-leg")
+    ankle_l = _lm(landmarks, "l-ankle")
+    ankle_r = _lm(landmarks, "r-ankle")
+    shoulder_mid = (shoulder_l + shoulder_r) * 0.5
+    hip_mid = (hip_l + hip_r) * 0.5
+    shoulder_width = max((shoulder_l - shoulder_r).length, 0.12)
+    hip_width = max((hip_l - hip_r).length, 0.10)
+    ankle_width = max((ankle_l - ankle_r).length, 0.08)
+    body_bounds = _world_bounds(body_obj)
+    body_depth = max(body_bounds[3] - body_bounds[2], 0.12)
+
+    if slot in {"top", "outerwear"}:
+        min_z = hip_mid.z - (0.10 if slot == "top" else 0.14)
+        max_z = shoulder_mid.z + (0.06 if slot == "top" else 0.10)
+        target_width = shoulder_width * (1.10 if slot == "top" else 1.16)
+        target_center = shoulder_mid
+    elif slot == "bottom":
+        min_z = min(ankle_l.z, ankle_r.z)
+        max_z = hip_mid.z + 0.05
+        target_width = hip_width * 1.14
+        target_center = hip_mid
+    elif slot == "dress":
+        min_z = min(ankle_l.z, ankle_r.z)
+        max_z = shoulder_mid.z + 0.06
+        target_width = max(shoulder_width, hip_width) * 1.12
+        target_center = (shoulder_mid + hip_mid) * 0.5
+    elif slot == "shoes":
+        min_z = min(ankle_l.z, ankle_r.z)
+        max_z = min_z + 0.12
+        target_width = ankle_width * 0.72
+        target_center = (ankle_l + ankle_r) * 0.5
+    else:
+        min_z = hip_mid.z - 0.12
+        max_z = shoulder_mid.z + 0.04
+        target_width = shoulder_width * 0.55
+        target_center = shoulder_mid
+
+    bounds = _world_bounds(obj)
+    current_width = max(bounds[1] - bounds[0], 1e-5)
+    current_depth = max(bounds[3] - bounds[2], 1e-5)
+    current_height = max(bounds[5] - bounds[4], 1e-5)
+    target_height = max(max_z - min_z, 0.08)
+    target_depth = body_depth * (1.12 if slot in {"top", "outerwear", "dress"} else 1.08)
+    sx = target_width / current_width
+    sy = target_depth / current_depth
+    sz = target_height / current_height
+    inverse = obj.matrix_world.inverted()
+    for vertex in obj.data.vertices:
+        world = obj.matrix_world @ vertex.co
+        world.x = target_center.x + (world.x - (bounds[0] + bounds[1]) * 0.5) * sx
+        world.y = (body_bounds[2] + body_bounds[3]) * 0.5 + (
+            world.y - (bounds[2] + bounds[3]) * 0.5
+        ) * sy
+        world.z = min_z + (world.z - bounds[4]) * sz
+        vertex.co = inverse @ world
+    obj.data.update()
+
+
+def fit_provider_mesh(body_obj, landmarks, garment_id, mesh_path, color):
+    """Import, fit, and surface-wrap a provider mesh around the generated avatar."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=mesh_path)
+    imported = [obj for obj in bpy.data.objects if obj not in before and obj.type == "MESH"]
+    if not imported:
+        raise RuntimeError(f"Provider mesh for {garment_id!r} contains no mesh objects")
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in imported:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = imported[0]
+    bpy.ops.object.join()
+    garment = imported[0]
+    garment.name = f"provider_garment_{garment_id}"
+    _fit_mesh_to_envelope(garment, body_obj, landmarks, garment_id)
+
+    shrinkwrap = garment.modifiers.new("FitToAvatar", "SHRINKWRAP")
+    shrinkwrap.target = body_obj
+    shrinkwrap.wrap_method = "NEAREST_SURFACEPOINT"
+    shrinkwrap.wrap_mode = "OUTSIDE"
+    shrinkwrap.offset = max(float(GARMENTS[garment_id]["offset"]), 0.006)
+    bpy.context.view_layer.objects.active = garment
+    bpy.ops.object.modifier_apply(modifier=shrinkwrap.name)
+    garment.data.validate(verbose=False)
+    if not garment.data.polygons:
+        raise RuntimeError(f"Provider mesh for {garment_id!r} became empty after fitting")
+    if not garment.data.materials:
+        garment.data.materials.append(
+            make_material(
+                f"provider_mat_{garment_id}",
+                color or GARMENTS[garment_id]["color"],
+                GARMENTS[garment_id]["roughness"],
+            )
+        )
+    for polygon in garment.data.polygons:
+        polygon.use_smooth = True
+    return garment
+
+
+def build_skirt(body_obj, landmarks, garment_id, color=None, texture_path=None):
+    """A skirt cannot be made from the two leg tubes, so build a simple flared ring."""
     cfg = GARMENTS[garment_id]
+    l_hip = _lm(landmarks, "l-upper-leg")
+    r_hip = _lm(landmarks, "r-upper-leg")
+    hip_center = (l_hip + r_hip) * 0.5
+    hip_width = (l_hip - r_hip).length
+    waist_z = cfg["min_z"](landmarks)
+    hem_z = cfg["hem_z"](landmarks)
+    if hem_z >= waist_z:
+        raise RuntimeError("Skirt hem must be below the waist")
+
+    offset = cfg["offset"]
+    waist_rx = hip_width * 1.02 + offset
+    waist_ry = hip_width * 0.68 + offset
+    hem_rx = hip_width * 1.35 + offset
+    hem_ry = hip_width * 0.92 + offset
+    segments = 48
+
+    bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    rings = []
+    for z, rx, ry in ((waist_z, waist_rx, waist_ry), (hem_z, hem_rx, hem_ry)):
+        ring = []
+        for i in range(segments):
+            angle = 2.0 * 3.141592653589793 * i / segments
+            x = hip_center.x + math.cos(angle) * rx
+            y = hip_center.y + math.sin(angle) * ry
+            ring.append(bm.verts.new((x, y, z)))
+        rings.append(ring)
+
+    for i in range(segments):
+        nxt = (i + 1) % segments
+        face = bm.faces.new((rings[0][i], rings[0][nxt], rings[1][nxt], rings[1][i]))
+        for loop, uv in zip(
+            face.loops,
+            ((i / segments, 0.0), ((i + 1) / segments, 0.0),
+             ((i + 1) / segments, 1.0), (i / segments, 1.0)),
+        ):
+            loop[uv_layer].uv = uv
+
+    bm.normal_update()
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    new_mesh = bpy.data.meshes.new(f"garment_{garment_id}")
+    bm.to_mesh(new_mesh)
+    bm.free()
+
+    if texture_path:
+        material = make_textured_material(
+            f"mat_{garment_id}", texture_path, color or cfg["color"], cfg["roughness"]
+        )
+    else:
+        material = make_material(f"mat_{garment_id}", color or cfg["color"], cfg["roughness"])
+    new_mesh.materials.append(material)
+    for poly in new_mesh.polygons:
+        poly.use_smooth = True
+
+    obj = bpy.data.objects.new(f"garment_{garment_id}", new_mesh)
+    obj.matrix_world = body_obj.matrix_world.copy()
+    bpy.context.scene.collection.objects.link(obj)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    solid = obj.modifiers.new("Solidify", "SOLIDIFY")
+    solid.thickness = cfg["thickness"]
+    solid.offset = 1.0
+    bpy.ops.object.modifier_apply(modifier=solid.name)
+    obj.data.validate(verbose=False)
+    return obj
+
+
+def build_garment(body_obj, landmarks, garment_id, color=None, texture_path=None):
+    cfg = GARMENTS[garment_id]
+    if cfg.get("shape") == "skirt":
+        return build_skirt(body_obj, landmarks, garment_id, color, texture_path)
     segments = build_segments(landmarks)
 
     src = body_obj.data
@@ -487,13 +733,33 @@ def build_garment(body_obj, landmarks, garment_id, color=None):
         for v in bm.verts:
             v.co = centre + (v.co - centre) * enclose
 
+    if bm.verts:
+        xs = [v.co.x for v in bm.verts]
+        zs = [v.co.z for v in bm.verts]
+        min_x, max_x = min(xs), max(xs)
+        min_z, max_z = min(zs), max(zs)
+        span_x = max(1e-6, max_x - min_x)
+        span_z = max(1e-6, max_z - min_z)
+        uv_layer = bm.loops.layers.uv.verify()
+        for face in bm.faces:
+            for loop in face.loops:
+                co = loop.vert.co
+                loop[uv_layer].uv = ((co.x - min_x) / span_x, (co.z - min_z) / span_z)
+
     new_mesh = bpy.data.meshes.new(f"garment_{garment_id}")
     bm.to_mesh(new_mesh)
     bm.free()
 
-    new_mesh.materials.append(
-        make_material(f"mat_{garment_id}", color or cfg["color"], cfg["roughness"])
-    )
+    if texture_path:
+        material = make_textured_material(
+            f"mat_{garment_id}",
+            texture_path,
+            color or cfg["color"],
+            cfg["roughness"],
+        )
+    else:
+        material = make_material(f"mat_{garment_id}", color or cfg["color"], cfg["roughness"])
+    new_mesh.materials.append(material)
     for poly in new_mesh.polygons:
         poly.use_smooth = True
 
@@ -508,6 +774,7 @@ def build_garment(body_obj, landmarks, garment_id, color=None):
     solid.thickness = cfg["thickness"]
     solid.offset = 1.0
     bpy.ops.object.modifier_apply(modifier=solid.name)
+    obj.data.validate(verbose=False)
     return obj
 
 
@@ -537,11 +804,19 @@ def main():
 
     spec = read_spec(args.spec)
     if spec is not None:
-        outfit_specs = [(entry["template"], entry["color"]) for entry in spec]
+        outfit_specs = [
+            (
+                entry["template"],
+                entry["color"],
+                entry.get("texture_path"),
+                entry.get("mesh_path"),
+            )
+            for entry in spec
+        ]
         outfit = [entry["template"] for entry in spec]
     else:
         outfit = [g.strip() for g in args.outfit.split(",") if g.strip()]
-        outfit_specs = [(g, None) for g in outfit]
+        outfit_specs = [(g, None, None, None) for g in outfit]
     unknown_g = [g for g in outfit if g not in GARMENTS]
     if unknown_g:
         raise ValueError(f"Unsupported garments: {unknown_g}. Allowed: {sorted(GARMENTS)}")
@@ -614,10 +889,20 @@ def main():
     export_basemesh.data.materials.clear()
     export_basemesh.data.materials.append(skin_mat)
 
-    garments = [
-        build_garment(export_basemesh, garment_landmarks, g, color)
-        for g, color in outfit_specs
-    ]
+    garments = []
+    fitted_items = []
+    for g, color, texture_path, mesh_path in outfit_specs:
+        if mesh_path:
+            try:
+                garments.append(
+                    fit_provider_mesh(export_basemesh, garment_landmarks, g, mesh_path, color)
+                )
+                fitted_items.append({"template": g, "mode": "provider-mesh"})
+                continue
+            except Exception as exc:
+                print(f"[avatar] provider mesh fitting failed for {g}: {exc}", flush=True)
+        garments.append(build_garment(export_basemesh, garment_landmarks, g, color, texture_path))
+        fitted_items.append({"template": g, "mode": "procedural-fallback"})
 
     bpy.ops.object.select_all(action="DESELECT")
     export_root.select_set(True)
@@ -658,6 +943,7 @@ def main():
             }
             for entry in (spec or [])
         ],
+        "fitted_items": fitted_items,
         "output": args.output,
         "bytes": size,
         "metrics": metrics,

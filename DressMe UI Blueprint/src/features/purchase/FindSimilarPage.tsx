@@ -3,6 +3,8 @@ import { api, asset } from "../../lib/api"
 import { cap, seasonLabel } from "../../lib/taxonomy"
 import type { WardrobeItem } from "../../lib/types"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
+import { useAuth } from "../auth/AuthProvider"
+import { saveGalleryPhoto } from "../../lib/photoGallery"
 
 function ResultCard({ item, reason }: { item: WardrobeItem; reason?: string }) {
   return (
@@ -34,6 +36,7 @@ function ResultCard({ item, reason }: { item: WardrobeItem; reason?: string }) {
 }
 
 export default function FindSimilarPage() {
+  const { user } = useAuth()
   const { items } = useWardrobe()
   const [query, setQuery] = useState("")
   const [match, setMatch] = useState<WardrobeItem | null | undefined>(undefined)
@@ -54,6 +57,9 @@ export default function FindSimilarPage() {
 
   const searchPhoto = async (file: File | undefined) => {
     if (!file) return
+    if (user?.id) {
+      void saveGalleryPhoto(user.id, file, "find-similar").catch(() => undefined)
+    }
     reset()
     setMode("photo")
     setBusy(true)

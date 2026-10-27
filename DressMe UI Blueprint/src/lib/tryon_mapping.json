@@ -6,6 +6,8 @@
     "jacket": { "default": "jacket", "formal": "blazer" },
     "vest": { "default": "cardigan" },
     "pants": { "default": "trousers", "denim": "jeans" },
+    "shorts": { "default": "shorts" },
+    "skirt": { "default": "skirt" },
     "dress": { "default": "dress" },
     "shoe": { "default": "boots" }
   },
@@ -17,8 +19,6 @@
     "shoes": "boots"
   },
   "unsupported": [
-    "shorts",
-    "skirt",
     "tights",
     "sock",
     "underwear",

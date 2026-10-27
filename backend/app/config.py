@@ -52,7 +52,42 @@ LOCAL_USER_ID = "local"
 # Local fallback storage (used when Supabase isn't configured)
 LOCAL_DATA_DIR = Path(os.getenv("LOCAL_DATA_DIR", BASE_DIR / "local_data"))
 
+# --- Per-item 3D meshes -----------------------------------------------------
+BLENDER_PATH = Path(os.getenv(
+    "BLENDER_PATH",
+    r"C:\Users\maria\Downloads\blender-5.4.0-alpha+main.29ff43161222-windows.amd64-release"
+    r"\blender-5.4.0-alpha+main.29ff43161222-windows.amd64-release\blender.exe",
+))
+ITEM_MESH_SCRIPT = BASE_DIR / "blender" / "generate_item_mesh.py"
+ITEM_TEXTURE_SCRIPT = BASE_DIR / "blender" / "texture_item_mesh.py"
+ITEM_NORMALIZE_SCRIPT = BASE_DIR / "blender" / "normalize_item_mesh.py"
+ITEM_MESH_TIMEOUT_SECONDS = int(os.getenv("ITEM_MESH_TIMEOUT_SECONDS", "120"))
+ITEM_MESH_GRID = int(os.getenv("ITEM_MESH_GRID", "160"))
+ITEM_MESH_TARGET_FACES = int(os.getenv("ITEM_MESH_TARGET_FACES", "30000"))
+ITEM_MESH_WORK_DIR = Path(os.getenv("ITEM_MESH_WORK_DIR", BASE_DIR / "temp" / "item_mesh"))
+
+# Optional image-to-3D provider. "cutout-2.5d" is the fast CPU fallback.
+# "hunyuan3d" calls the official Tencent/Hunyuan3D-2.1 Hugging Face Space.
+ITEM_MESH_PROVIDER = os.getenv("ITEM_MESH_PROVIDER", "cutout-2.5d").strip().lower()
+HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
+HF_3D_SPACE = os.getenv("HF_3D_SPACE", "tencent/Hunyuan3D-2.1").strip()
+HF_3D_API_NAME = os.getenv("HF_3D_API_NAME", "/generation_all").strip()
+HF_3D_TIMEOUT_SECONDS = int(os.getenv("HF_3D_TIMEOUT_SECONDS", "900"))
+HF_3D_STEPS = int(os.getenv("HF_3D_STEPS", "30"))
+HF_3D_OCTREE_RESOLUTION = int(os.getenv("HF_3D_OCTREE_RESOLUTION", "256"))
+HF_3D_CAPTION = os.getenv("HF_3D_CAPTION", "").strip()
+HF_3D_TARGET_FACES = int(os.getenv("HF_3D_TARGET_FACES", "30000"))
+HF_3D_SHAPE_FALLBACK = _bool("HF_3D_SHAPE_FALLBACK", True)
+MESH_PROVIDERS = ("cutout-2.5d", "hunyuan3d")
+
 # --- HTTP -----------------------------------------------------------------
-CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+CORS_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:8443,http://127.0.0.1:8443,http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if o.strip()
+]
 PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "http://localhost:8000").rstrip("/")
 MAX_UPLOAD_MB = _float("MAX_UPLOAD_MB", 15)

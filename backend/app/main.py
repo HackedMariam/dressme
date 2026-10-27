@@ -16,14 +16,14 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import agent, config
+from . import agent, config, item_mesh
 from .auth import User, current_user
 from .colors import COLOR_NAMES
 from .detector import GarmentDetector
@@ -89,7 +89,11 @@ def health() -> dict:
         model_ok = False
     return {"ok": model_ok, "model_loaded": model_ok, "model": config.MODEL_PATH.name,
             "store": store.kind, "auth": config.AUTH_ENABLED,
-            "llm": bool(config.OPENAI_API_KEY), "llm_model": config.LLM_MODEL}
+            "llm": bool(config.OPENAI_API_KEY), "llm_model": config.LLM_MODEL,
+            "mesh_builder": item_mesh.mesh_builder_available(),
+            "mesh_provider": config.ITEM_MESH_PROVIDER,
+            "mesh_providers": item_mesh.available_providers(),
+            "hf_3d": item_mesh.hf_3d_configured()}
 
 
 @app.get("/api/taxonomy")
@@ -163,7 +167,8 @@ async def _read_upload(file: UploadFile) -> bytes:
 
 
 @app.post("/api/items/analyze")
-async def analyze(file: UploadFile = File(...),
+async def analyze(background_tasks: BackgroundTasks,
+                  file: UploadFile = File(...),
                   all_items: bool = Query(False, description="Save every garment found in the photo"),
                   save: bool = Query(True, description="False = preview only, nothing stored"),
                   fast: bool = Query(False, description="Skip the GPT-4 step for an instant save "
@@ -171,7 +176,12 @@ async def analyze(file: UploadFile = File(...),
                                      "in the rest. Used by the live camera scan."),
                   user: User = Depends(current_user)) -> dict[str, Any]:
     data = await _read_upload(file)
-    return await run_in_threadpool(_analyze_sync, data, all_items, save, fast, user)
+    result = await run_in_threadpool(_analyze_sync, data, all_items, save, fast, user)
+    if save:
+        for item in result.get("items", []):
+            if item.get("id"):
+                background_tasks.add_task(item_mesh.enqueue_item_mesh, user.id, str(item["id"]))
+    return result
 
 
 def _analyze_sync(data: bytes, all_items: bool, save: bool, fast: bool, user: User) -> dict[str, Any]:
@@ -209,6 +219,7 @@ def _analyze_sync(data: bytes, all_items: bool, save: bool, fast: bool, user: Us
         item_id = str(uuid.uuid4())
         row = {"id": item_id, "user_id": user.id, **classify_fields(d, llm)}
         if save:
+            row["mesh_status"] = "queued" if item_mesh.mesh_builder_available() else "none"
             folder = item_folder(user.id, item_id)
             row["image_url"] = store.upload(f"{folder}/original.jpg", orig_bytes, "image/jpeg")
             row["cutout_url"] = store.upload(f"{folder}/cutout.png", det.cutout_png, "image/png")
@@ -227,8 +238,16 @@ def _analyze_sync(data: bytes, all_items: bool, save: bool, fast: bool, user: Us
 
 
 @app.get("/api/items")
-def list_items(user: User = Depends(current_user)) -> list[dict]:
-    return store.list_items(user.id)
+def list_items(background_tasks: BackgroundTasks,
+               user: User = Depends(current_user)) -> list[dict]:
+    items = store.list_items(user.id)
+    if item_mesh.mesh_builder_available():
+        for item in items:
+            status = item.get("mesh_status") or "none"
+            if status == "none" and not item.get("mesh_url") and item.get("cutout_url"):
+                background_tasks.add_task(item_mesh.enqueue_item_mesh, user.id, str(item["id"]))
+                item["mesh_status"] = "queued"
+    return items
 
 
 @app.post("/api/items/quick-detect")
@@ -344,6 +363,27 @@ def _get_or_404(user: User, item_id: str) -> dict:
 @app.get("/api/items/{item_id}")
 def get_item(item_id: str, user: User = Depends(current_user)) -> dict:
     return _get_or_404(user, item_id)
+
+
+@app.get("/api/items/{item_id}/mesh")
+def get_item_mesh(item_id: str, user: User = Depends(current_user)) -> dict:
+    item = _get_or_404(user, item_id)
+    return item_mesh.mesh_fields(item)
+
+
+@app.post("/api/items/{item_id}/mesh")
+def generate_item_mesh(item_id: str, force: bool = Query(False),
+                       provider: str | None = Query(None, description="cutout-2.5d or hunyuan3d"),
+                       user: User = Depends(current_user)) -> dict:
+    item = _get_or_404(user, item_id)
+    try:
+        queued = item_mesh.enqueue_item_mesh(user.id, item_id, force=force, provider=provider)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    item = store.get_item(user.id, item_id) or item
+    return {**item_mesh.mesh_fields(item), "queued": queued}
 
 
 class ItemPatch(BaseModel):

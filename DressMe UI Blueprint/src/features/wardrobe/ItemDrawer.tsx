@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
-import { asset } from "../../lib/api"
+import { api, asset } from "../../lib/api"
 import { COLORS, TAXONOMY, cap } from "../../lib/taxonomy"
-import type { Health, WardrobeItem } from "../../lib/types"
+import type { Health, ItemMeshStatus, WardrobeItem } from "../../lib/types"
+import Item3DPreview from "./Item3DPreview"
 
 interface ItemDrawerProps {
   item: WardrobeItem
@@ -10,6 +11,7 @@ interface ItemDrawerProps {
   onSave: (id: string, fields: Record<string, unknown>, confirm?: boolean) => Promise<unknown>
   onReclassify: (id: string) => Promise<unknown>
   onDelete: (id: string) => Promise<void>
+  onMeshUpdated?: () => void
 }
 
 interface FormState {
@@ -88,14 +90,57 @@ export default function ItemDrawer({
   onSave,
   onReclassify,
   onDelete,
+  onMeshUpdated,
 }: ItemDrawerProps) {
   const [form, setForm] = useState<FormState>(() => emptyForm(item))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const [pendingProvider, setPendingProvider] = useState<string | null>(null)
+  const [mesh, setMesh] = useState<ItemMeshStatus>({
+    mesh_url: item.mesh_url ?? null,
+    mesh_status: (item.mesh_status as ItemMeshStatus["mesh_status"]) ?? (item.mesh_url ? "ready" : "none"),
+    mesh_source: item.mesh_source ?? null,
+    mesh_version: item.mesh_version ?? 0,
+    mesh_meta: item.mesh_meta ?? null,
+    mesh_error: item.mesh_error ?? null,
+  })
 
   useEffect(() => {
     setForm(emptyForm(item))
+    setMesh({
+      mesh_url: item.mesh_url ?? null,
+      mesh_status: (item.mesh_status as ItemMeshStatus["mesh_status"]) ?? (item.mesh_url ? "ready" : "none"),
+      mesh_source: item.mesh_source ?? null,
+      mesh_version: item.mesh_version ?? 0,
+      mesh_meta: item.mesh_meta ?? null,
+      mesh_error: item.mesh_error ?? null,
+    })
   }, [item])
+
+  useEffect(() => {
+    if (mesh.mesh_status !== "queued" && mesh.mesh_status !== "building") return
+    let active = true
+    const timer = window.setInterval(() => {
+      api
+        .itemMesh(item.id)
+        .then((next) => {
+          if (!active) return
+          setMesh((previous) => {
+            if (next.mesh_status === "ready" && previous.mesh_status !== "ready") {
+              onMeshUpdated?.()
+            }
+            return next
+          })
+        })
+        .catch(() => {
+          // keep polling; the backend may still be starting
+        })
+    }, 1800)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [item.id, mesh.mesh_status, onMeshUpdated])
 
   const original = useMemo(() => emptyForm(item), [item])
   const changed = useMemo(() => {
@@ -125,6 +170,18 @@ export default function ItemDrawer({
   }
 
   const save = (fields: Record<string, unknown>) => run(() => onSave(item.id, fields))
+
+  const buildMesh = (provider?: string) => {
+    setPendingProvider(provider || health?.mesh_provider || "cutout-2.5d")
+    return run(async () => {
+      const next = await api.generateItemMesh(item.id, true, provider)
+      setMesh(next)
+      if (next.mesh_status === "ready") onMeshUpdated?.()
+    }).finally(() => setPendingProvider(null))
+  }
+
+  const aiAvailable = health?.mesh_providers?.includes("hunyuan3d") ?? false
+  const isBuilding = mesh.mesh_status === "queued" || mesh.mesh_status === "building"
 
   const remove = async () => {
     if (!window.confirm("Delete this item?")) return
@@ -195,6 +252,88 @@ export default function ItemDrawer({
           ) : (
             <div className="flex aspect-[4/5] items-center justify-center rounded-xl bg-[#F0EFEA] text-sm text-[#8C8A82]">
               No image
+            </div>
+          )}
+
+          {mesh.mesh_status === "ready" && mesh.mesh_url ? (
+            <div className="space-y-2">
+              <Item3DPreview
+                url={`${mesh.mesh_url}${mesh.mesh_url.includes("?") ? "&" : "?"}v=${mesh.mesh_version}`}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[11px] text-[#8C8A82]">
+                  <span className="rounded-full bg-[#E8EDE0] px-2 py-0.5 font-semibold uppercase tracking-wide text-[#556B2F]">
+                    {mesh.mesh_source?.startsWith("hunyuan3d") ? "Hunyuan3D" : "2.5D"}
+                  </span>
+                  Generated from this item’s cutout.
+                </span>
+                <span className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void buildMesh()}
+                    className="text-[11px] font-semibold text-[#556B2F] hover:underline disabled:opacity-40"
+                  >
+                    Rebuild
+                  </button>
+                  {aiAvailable && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void buildMesh("hunyuan3d")}
+                      className="text-[11px] font-semibold text-[#7A5B1E] hover:underline disabled:opacity-40"
+                    >
+                      AI rebuild
+                    </button>
+                  )}
+                </span>
+              </div>
+              {typeof mesh.mesh_meta?.fallback_reason === "string" && (
+                <p className="text-[10px] text-[#7A5B1E]">
+                  AI 3D failed, so this uses the fast mesh:{" "}
+                  {String(mesh.mesh_meta.fallback_reason).slice(0, 180)}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-[#E2E0D8] bg-white/60 px-4 py-4">
+              <p className="text-xs font-semibold text-[#1C1C1C]">3D model</p>
+              <p className="mt-1 text-[11px] text-[#8C8A82]">
+                {isBuilding
+                  ? pendingProvider === "hunyuan3d"
+                    ? "Hunyuan3D is reconstructing the mesh from the cutout… (~1–2 minutes)"
+                    : "Building a 3D version of this item from its cutout…"
+                  : mesh.mesh_status === "failed"
+                    ? mesh.mesh_error || "The 3D model could not be built."
+                    : "Turn this cutout into a 3D item for the wardrobe view."}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy || isBuilding}
+                  onClick={() => void buildMesh()}
+                  className="rounded-lg bg-[#556B2F] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#6B8A3A] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {isBuilding ? "Building 3D…" : "Create 3D model"}
+                </button>
+                {aiAvailable && (
+                  <button
+                    type="button"
+                    disabled={busy || isBuilding}
+                    onClick={() => void buildMesh("hunyuan3d")}
+                    className="rounded-lg border border-[#D8C9A8] bg-[#F5EDDC] px-3 py-2 text-xs font-semibold text-[#7A5B1E] transition-colors hover:bg-[#EFE3C8] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isBuilding && pendingProvider === "hunyuan3d"
+                      ? "Hunyuan3D working…"
+                      : "Generate AI 3D"}
+                  </button>
+                )}
+              </div>
+              {aiAvailable && (
+                <p className="mt-2 text-[10px] text-[#8C8A82]">
+                  AI 3D uses Hunyuan3D-2.1 through Hugging Face and takes about 1–2 minutes per item.
+                </p>
+              )}
             </div>
           )}
 

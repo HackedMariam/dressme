@@ -49,6 +49,14 @@ create table if not exists public.items (
   zone              text default 'rail' check (zone in ('rail','shelf','floor')),
   position_3d       jsonb,                  -- optional manual placement override
 
+  -- generated per-item 3D asset (2.5D extrusion of the cutout)
+  mesh_url          text,
+  mesh_status       text not null default 'none',
+  mesh_source       text,
+  mesh_version      integer not null default 0,
+  mesh_meta         jsonb,
+  mesh_error        text,
+
   -- raw outputs, kept for debugging / retraining
   detection         jsonb,                  -- YOLO result
   predicted         jsonb,                  -- snapshot of first prediction (to compare with corrections)
@@ -57,6 +65,12 @@ create table if not exists public.items (
 
 -- upgrade path for databases created with an earlier version of this file
 alter table public.items add column if not exists color_family text;
+alter table public.items add column if not exists mesh_url text;
+alter table public.items add column if not exists mesh_status text not null default 'none';
+alter table public.items add column if not exists mesh_source text;
+alter table public.items add column if not exists mesh_version integer not null default 0;
+alter table public.items add column if not exists mesh_meta jsonb;
+alter table public.items add column if not exists mesh_error text;
 
 create index if not exists items_user_idx     on public.items (user_id, created_at desc);
 create index if not exists items_group_idx    on public.items (category_group);

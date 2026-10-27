@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, asset } from '../../lib/api'
 import { cap } from '../../lib/taxonomy'
+import { saveGalleryPhoto } from '../../lib/photoGallery'
 
 const POLL_MS = 600       // how often we ask the server "what's in frame right now"
 const STABLE_MS = 1400    // how long the same item must hold steady before we save it
@@ -12,7 +13,7 @@ const MIN_CONFIDENCE = 0.35
 // via /api/items/analyze?fast=true (rule-based classification) so there's no multi-second
 // wait. The full GPT-4 classification is then requested in the background per item via
 // /reclassify, and the card updates itself whenever that resolves.
-export default function LiveScan({ onAdded, onClose }) {
+export default function LiveScan({ onAdded, onClose, userId }) {
   const videoRef = useRef()
   const previewCanvasRef = useRef()
   const captureCanvasRef = useRef()
@@ -101,6 +102,7 @@ export default function LiveScan({ onAdded, onClose }) {
         const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.92))
         if (!blob) throw new Error('Could not capture the frame')
         const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' })
+        if (userId) saveGalleryPhoto(userId, file, 'wardrobe').catch(() => undefined)
         const { items: added } = await api.analyze(file, { fast: true })
         if (cancelled) return
         onAdded(added)

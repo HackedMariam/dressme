@@ -202,6 +202,63 @@
       }
     },
     {
+      "id": "shorts",
+      "label": "Tailored Shorts",
+      "slot": "bottom",
+      "swatch": "#6B6B5A",
+      "hint": "Waist to mid-thigh, split legs",
+      "wardrobeIds": [],
+      "color": [
+        0.42,
+        0.42,
+        0.35
+      ],
+      "offset": 0.012,
+      "thickness": 0.005,
+      "roughness": 0.88,
+      "region": [
+        "hips",
+        "thigh_L",
+        "thigh_R"
+      ],
+      "fill": [],
+      "hem": {
+        "anchor": "pelvis",
+        "offset": -0.18
+      },
+      "min": {
+        "anchor": "knee",
+        "offset": 0.2
+      }
+    },
+    {
+      "id": "skirt",
+      "label": "A-Line Skirt",
+      "slot": "bottom",
+      "swatch": "#7A4A5A",
+      "hint": "Waist to knee, flared shell",
+      "wardrobeIds": [],
+      "color": [
+        0.48,
+        0.29,
+        0.35
+      ],
+      "offset": 0.02,
+      "thickness": 0.005,
+      "roughness": 0.85,
+      "region": [],
+      "fill": [],
+      "shape": "skirt",
+      "hem": {
+        "anchor": "knee",
+        "offset": 0.14
+      },
+      "min": {
+        "anchor": "pelvis",
+        "offset": 0.14
+      }
+    },
+    {
       "id": "dress",
       "label": "Silk Slip Dress",
       "slot": "dress",

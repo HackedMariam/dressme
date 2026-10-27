@@ -4,7 +4,8 @@ import { isSupabaseConfigured, supabase } from "./supabase"
 
 export type { GarmentId }
 
-export const API_BASE = "http://127.0.0.1:8000"
+const configuredAvatarBase = import.meta.env.VITE_AVATAR_API_URL?.trim() || ""
+export const API_BASE = configuredAvatarBase.replace(/\/$/, "") || "http://127.0.0.1:8001"
 
 export type MpbParam =
   | "gender"
@@ -66,6 +67,9 @@ export type WardrobeItemRequest = {
   slot: GarmentSlot
   label: string
   color_hex: string
+  cutout_url?: string | null
+  mesh_url?: string | null
+  mesh_version?: number | null
   category: string
 }
 
@@ -76,6 +80,8 @@ export type SavedAvatarItem = {
   label: string
   color_hex: string
   cutout_url?: string | null
+  mesh_url?: string | null
+  mesh_version?: number
   category?: string
 }
 
@@ -445,7 +451,7 @@ export async function generateAvatar(
     })
   } catch {
     throw new Error(
-      "Cannot reach the local avatar backend. Start it with: cd backend && venv\\Scripts\\activate && uvicorn main:app --host 127.0.0.1 --port 8000",
+      "Cannot reach the local avatar backend. Start it with: cd backend && venv\\Scripts\\activate && uvicorn main:app --host 127.0.0.1 --port 8001",
     )
   }
   if (!res.ok) {
@@ -517,7 +523,7 @@ export async function startAvatarOptimization(
     })
   } catch {
     throw new Error(
-      "Cannot reach the local avatar backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8000",
+      "Cannot reach the local avatar backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8001",
     )
   }
   if (!res.ok) throw new Error(await readApiError(res))
@@ -566,7 +572,7 @@ export async function scanBodyQuestionnaire(
     })
   } catch {
     throw new Error(
-      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8000",
+      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8001",
     )
   }
   if (!res.ok) throw new Error(await readApiError(res))
@@ -593,7 +599,7 @@ export async function analyzeBodyVision(
     })
   } catch {
     throw new Error(
-      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8000",
+      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8001",
     )
   }
   if (!res.ok) throw new Error(await readApiError(res))
@@ -614,7 +620,7 @@ export async function scanBodyMeasurements(
     })
   } catch {
     throw new Error(
-      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8000",
+      "Cannot reach the local body-scan backend. Start it with: cd backend && uvicorn main:app --host 127.0.0.1 --port 8001",
     )
   }
   if (!res.ok) throw new Error(await readApiError(res))

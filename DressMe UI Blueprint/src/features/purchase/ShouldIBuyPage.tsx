@@ -3,8 +3,11 @@ import { api, asset } from "../../lib/api"
 import { cap, seasonLabel } from "../../lib/taxonomy"
 import type { DuplicateResult, WardrobeItem } from "../../lib/types"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
+import { useAuth } from "../auth/AuthProvider"
+import { saveGalleryPhoto } from "../../lib/photoGallery"
 
 export default function ShouldIBuyPage() {
+  const { user } = useAuth()
   const { items, health, addItems } = useWardrobe()
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState("")
@@ -55,6 +58,11 @@ export default function ShouldIBuyPage() {
   }
 
   const analyzeFile = async (selected: File) => {
+    if (user?.id) {
+      void saveGalleryPhoto(user.id, selected, "should-i-buy").catch((reason) => {
+        setError(reason instanceof Error ? reason.message : "Could not save this photo to your gallery.")
+      })
+    }
     reset()
     setFile(selected)
     const objectUrl = URL.createObjectURL(selected)

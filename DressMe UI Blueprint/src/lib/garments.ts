@@ -8,6 +8,8 @@ export type GarmentId =
   | "turtleneck"
   | "trousers"
   | "jeans"
+  | "shorts"
+  | "skirt"
   | "dress"
   | "cardigan"
   | "jacket"

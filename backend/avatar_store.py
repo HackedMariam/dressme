@@ -21,6 +21,19 @@ _client_lock = threading.Lock()
 _store: "AvatarStore | None" = None
 _store_lock = threading.Lock()
 
+AVATAR_COLUMNS = {
+    "user_id",
+    "targets",
+    "details",
+    "outfit",
+    "metrics",
+    "glb_path",
+    "glb_bytes",
+    "height_cm",
+    "generated_at",
+    "updated_at",
+}
+
 
 def get_supabase():
     global _client
@@ -104,10 +117,12 @@ class SupabaseAvatarStore(AvatarStore):
     def _save_metadata_fallback(self, row: dict) -> None:
         """Keep the last-avatar metadata next to the GLB when the table is absent."""
         data = json.dumps(row, ensure_ascii=False).encode("utf-8")
+        # `application/octet-stream` is allowed by the private avatars bucket even
+        # when the bucket's MIME allow-list has not been extended to application/json.
         self.db.storage.from_(self.bucket).upload(
             self._metadata_path(str(row["user_id"])),
             data,
-            {"content-type": "application/json", "upsert": "true"},
+            {"content-type": "application/octet-stream", "upsert": "true"},
         )
 
     def save_avatar(self, user_id: str, payload: dict, glb: bytes) -> dict:
@@ -124,10 +139,11 @@ class SupabaseAvatarStore(AvatarStore):
             "glb_bytes": len(glb),
             "updated_at": _now_iso(),
         }
+        db_row = {key: value for key, value in row.items() if key in AVATAR_COLUMNS}
         try:
             result = (
                 self.db.table(settings.AVATARS_TABLE)
-                .upsert(row, on_conflict="user_id")
+                .upsert(db_row, on_conflict="user_id")
                 .execute()
             )
             saved = dict((result.data or [row])[0])

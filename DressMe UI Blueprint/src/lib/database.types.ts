@@ -62,6 +62,12 @@ export type WardrobeItemRow = {
   cutout_url: string | null
   zone: string | null
   position_3d: Json | null
+  mesh_url: string | null
+  mesh_status: string
+  mesh_source: string | null
+  mesh_version: number
+  mesh_meta: Json | null
+  mesh_error: string | null
   detection: Json | null
   predicted: Json | null
   enrichment_source: string | null
@@ -76,6 +82,7 @@ export type UserAvatarRow = {
   metrics: Json
   glb_path: string
   glb_bytes: number | null
+  height_cm: number | null
   generated_at: string
   updated_at: string
 }

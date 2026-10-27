@@ -23,7 +23,7 @@ Paths can be overridden with env vars `BLENDER_PATH`, `AVATAR_BLEND`, `GENERATED
 
     cd "C:\Users\maria\Desktop\5eme esprit\Dressme\backend"
     venv\Scripts\activate
-    uvicorn main:app --host 127.0.0.1 --port 8000
+    uvicorn main:app --host 127.0.0.1 --port 8001
 
 Keep this terminal open while using "Generate Avatar" in the app.
 
@@ -48,7 +48,16 @@ Keep this terminal open while using "Generate Avatar" in the app.
 - `GET /api/avatar/me` with the Supabase access token -> the last saved avatar (`found`, `targets`, `details`, `outfit`, `metrics`, signed `url`).
 - `DELETE /api/avatar/me` -> remove the saved avatar.
 - Auth/storage: set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the repo-root `.env`. Without them the backend runs in single-user local mode (`AUTH_ENABLED=False`) and saves under `backend/local_data/avatars/`.
-- Apply `supabase/migrations/20261026120000_wardrobe_items.sql` and `20261026121000_user_avatars.sql`. The `avatars` Storage bucket must exist; the backend also has a Storage-metadata fallback if `public.user_avatars` has not been migrated yet.
+- Generated item meshes are normalized before upload: empty meshes are rejected,
+  oversized meshes are decimated, transforms are applied, and the item is
+  centered on the wardrobe preview ground plane. `ITEM_MESH_TARGET_FACES`
+  controls the polygon budget (default `30000`).
+- When a selected wardrobe item has a generated GLB, avatar generation downloads
+  it server-side, fits it to the selected avatar's slot envelope using the
+  current shoulders, hips, ankles, and body depth, then applies Blender
+  Shrinkwrap with an outward garment offset. If loading or fitting fails, that
+  item falls back to the procedural body-derived garment and the job continues.
+- Apply `supabase/migrations/20261026120000_wardrobe_items.sql`, `20261026121000_user_avatars.sql`, `20261027120000_item_meshes.sql`, and `20261027121000_user_avatars_height_and_mime.sql`. The `avatars` Storage bucket must exist; the backend also has a Storage-metadata fallback if `public.user_avatars` has not been migrated yet.
 
 ## How a job runs
 
@@ -152,7 +161,7 @@ How it works:
 
 A full 36-evaluation run takes roughly 3-5 minutes on this machine (~7 s per Blender
 evaluation). The optimizer is a coarse fit, not an exact reconstruction: clothing,
-pose, hair, and segmentation noise still limit the result.
+pose and segmentation noise still limit the result.
 
 The optimized macro targets *and* detail targets are carried into the Try On page, so
 the dressed avatar is regenerated from the same personalized body rather than falling
@@ -160,7 +169,7 @@ back to macros only. The Customize page also exposes a "Download customized GLB"
 
 ## Test from a terminal
 
-    curl -X POST http://127.0.0.1:8000/api/avatar/generate -H "Content-Type: application/json" -d "{\"targets\": {\"weight\": 0.2}}"
+    curl -X POST http://127.0.0.1:8001/api/avatar/generate -H "Content-Type: application/json" -d "{\"targets\": {\"weight\": 0.2}}"
 
 ## Avatar audit (stable format)
 
@@ -199,6 +208,31 @@ and morph targets are not needed while the avatar is rebuilt per request.
 
 The base outfit shown before the first generation lives at
 `DressMe UI Blueprint/public/models/dressed_avatar.glb`.
+
+## Per-item 3D assets
+
+Each wardrobe item can own a GLB generated from its cutout PNG. Two providers
+are available:
+
+- `cutout-2.5d` (default, offline): `backend/blender/generate_item_mesh.py`
+  samples the cutout alpha on a grid, extrudes the silhouette, maps the cutout
+  as a texture, and exports a GLB.
+- `hunyuan3d`: calls the official `tencent/Hunyuan3D-2.1` Hugging Face Space
+  through `gradio_client` and returns a true textured mesh. It needs `HF_TOKEN`
+  in the repo-root `.env` and takes roughly 1-2 minutes per item. If the call
+  fails, the worker falls back to the 2.5D mesh.
+
+`backend/app/item_mesh.py` queues one job at a time, uploads the GLB to
+`{user}/{item}/mesh.glb`, and records `mesh_url`, `mesh_status`, `mesh_source`,
+`mesh_version`, and `mesh_meta` on the item row.
+
+- `POST /api/items/{item_id}/mesh?provider=cutout-2.5d` queues or rebuilds a
+  mesh (`force=true` to rebuild). Use `provider=hunyuan3d` for AI 3D.
+- `GET /api/items/{item_id}/mesh` returns the current status and URL.
+- `GET /api/health` reports `mesh_providers` and `hf_3d`.
+
+The main wardrobe backend runs on port 8000. The avatar backend runs on port
+8001; set `VITE_AVATAR_API_URL=http://127.0.0.1:8001` in the frontend `.env`.
 
 `backend/blender/render_preview.py` renders front / three-quarter / side PNGs of any
 GLB - useful for eyeballing fit:

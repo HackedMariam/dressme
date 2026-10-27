@@ -14,12 +14,14 @@ import { firstName, parseLocation, userInitial } from "./features/profile/types"
 import { useUserData, UserDataProvider } from "./features/profile/UserDataProvider";
 import StyleProfile from "./features/profile/StyleProfile";
 import Settings from "./features/settings/Settings";
-import DashboardPage from "./features/dashboard/DashboardPage";
 import FindSimilarPage from "./features/purchase/FindSimilarPage";
 import ShouldIBuyPage from "./features/purchase/ShouldIBuyPage";
 import StylistPage from "./features/stylist/StylistPage";
+import GalleryPage from "./features/gallery/GalleryPage";
 import WardrobePage from "./features/wardrobe/WardrobePage";
-import { WardrobeProvider } from "./features/wardrobe/WardrobeProvider";
+import { WardrobeProvider, useWardrobe } from "./features/wardrobe/WardrobeProvider";
+import { TAXONOMY } from "./lib/taxonomy";
+import type { WardrobeItem } from "./lib/types";
 import { getSupabaseConfigMessage } from "./lib/supabase";
 
 type Page =
@@ -34,7 +36,8 @@ type Page =
   | "weather"
   | "customize-avatar"
   | "try-on"
-  | "settings";
+  | "settings"
+  | "gallery";
 
 const OUTFIT_IMG = "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=600&h=800&fit=crop&auto=format";
 const WARDROBE_IMG = "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&h=500&fit=crop&auto=format";
@@ -55,6 +58,7 @@ const navItems: { label: string; page: Page; icon: string }[] = [
   { label: "Customize My Avatar", page: "customize-avatar", icon: "◍" },
   { label: "Try On Outfits", page: "try-on", icon: "◑" },
   { label: "Settings", page: "settings", icon: "⊙" },
+  { label: "My Photo Gallery", page: "gallery", icon: "▧" },
 ];
 
 function Sidebar({ current, onNav }: { current: Page; onNav: (p: Page) => void }) {
@@ -125,18 +129,64 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
   );
 }
 
-function Dashboard() {
+function Dashboard({ outfitsCreated }: { outfitsCreated: number }) {
   const { profile } = useUserData();
+  const { items, loading, error } = useWardrobe();
   const location = parseLocation(profile?.location ?? null);
   const locationLabel = [location.city, location.country].filter(Boolean).join(", ") || "Tunis, Tunisia";
   const greetingName = profile?.display_name?.trim() ? firstName(profile.display_name) : "";
+
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString("en", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+
+  const totalItems = items.length;
+  const categoryCount = new Set(items.map((item) => item.category)).size;
+
+  const gaps = TAXONOMY.groups
+    .map((group) => {
+      const count = items.filter((item) => item.category_group === group).length;
+      return {
+        cat: group,
+        count,
+        pct: totalItems ? Math.round((count / totalItems) * 100) : 0,
+      };
+    })
+    .sort((a, b) => a.count - b.count)
+    .slice(0, 4);
+
+  const duplicatePairs: { a: WardrobeItem; b: WardrobeItem; sim: number }[] = [];
+  for (let i = 0; i < items.length; i += 1) {
+    for (let j = i + 1; j < items.length; j += 1) {
+      const a = items[i];
+      const b = items[j];
+      if (a.category !== b.category) continue;
+      let sim = 60;
+      if (a.color_family && a.color_family === b.color_family) sim += 15;
+      if (a.color_name && a.color_name === b.color_name) sim += 10;
+      if (a.pattern && a.pattern === b.pattern) sim += 8;
+      if (a.material && a.material === b.material) sim += 7;
+      duplicatePairs.push({ a, b, sim });
+    }
+  }
+  duplicatePairs.sort((x, y) => y.sim - x.sim);
+  const duplicates = duplicatePairs.slice(0, 3);
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Good morning{greetingName ? `, ${greetingName}` : ""}.</h1>
-        <p className="text-[#8C8A82] text-sm mt-1">Thursday, September 11 · 18°C, Partly Cloudy in {locationLabel}</p>
+        <p className="text-[#8C8A82] text-sm mt-1">{dateLabel} · 18°C, Partly Cloudy in {locationLabel}</p>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Hero AI Recommendation */}
       <div className="bg-[#1C1C1C] rounded-2xl overflow-hidden flex min-h-[360px]">
@@ -183,9 +233,9 @@ function Dashboard() {
       {/* Insights Row */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: "Total Items", value: "84", sub: "across 8 categories" },
+          { label: "Total Items", value: loading ? "…" : String(totalItems), sub: `across ${categoryCount} categories` },
           { label: "Avg Cost-Per-Wear", value: "$4.20", sub: "down 12% this month" },
-          { label: "Outfits Created", value: "31", sub: "this season" },
+          { label: "Outfits Created", value: String(outfitsCreated), sub: "this season" },
           { label: "Wardrobe Value", value: "$6,840", sub: "est. retail" },
         ].map((s) => (
           <div key={s.label} className="bg-[#F0EFEA] rounded-xl p-5">
@@ -201,39 +251,46 @@ function Dashboard() {
         <div className="bg-[#F0EFEA] rounded-xl p-6">
           <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Wardrobe Gaps</h3>
           <p className="text-[#8C8A82] text-xs mt-1 mb-4">Categories underrepresented in your wardrobe</p>
-          {[
-            { cat: "Formal Dresses", pct: 15 },
-            { cat: "Activewear", pct: 22 },
-            { cat: "Evening Shoes", pct: 30 },
-            { cat: "Accessories", pct: 38 },
-          ].map((g) => (
-            <div key={g.cat} className="mb-3">
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-[#1C1C1C] font-medium">{g.cat}</span>
-                <span className="text-[#8C8A82]">{g.pct}% coverage</span>
+          {!totalItems ? (
+            <p className="text-[#8C8A82] text-sm">
+              {loading ? "Loading your wardrobe..." : "Add items to see wardrobe gaps."}
+            </p>
+          ) : (
+            gaps.map((g) => (
+              <div key={g.cat} className="mb-3">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-[#1C1C1C] font-medium">{g.cat}</span>
+                  <span className="text-[#8C8A82]">{g.pct}% coverage</span>
+                </div>
+                <div className="h-1.5 bg-[#E2E0D8] rounded-full overflow-hidden">
+                  <div className="h-full bg-[#556B2F] rounded-full" style={{ width: `${g.pct}%` }} />
+                </div>
               </div>
-              <div className="h-1.5 bg-[#E2E0D8] rounded-full overflow-hidden">
-                <div className="h-full bg-[#556B2F] rounded-full" style={{ width: `${g.pct}%` }} />
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
         <div className="bg-[#F0EFEA] rounded-xl p-6">
           <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Potential Duplicates</h3>
           <p className="text-[#8C8A82] text-xs mt-1 mb-4">Similar items that may overlap in function</p>
-          {[
-            { a: "Ivory Turtleneck", b: "Cream Ribbed Knit", sim: 87 },
-            { a: "Camel Blazer", b: "Tan Longline Coat", sim: 74 },
-            { a: "Indigo Jeans #1", b: "Indigo Jeans #2", sim: 91 },
-          ].map((d) => (
-            <div key={d.a} className="flex items-center justify-between py-3 border-b border-[#E2E0D8] last:border-0">
-              <div>
-                <p className="text-xs font-medium text-[#1C1C1C]">{d.a}</p>
-                <p className="text-[10px] text-[#8C8A82] mt-0.5">vs. {d.b}</p>
+          {!duplicates.length ? (
+            <p className="text-[#8C8A82] text-sm">
+              {loading
+                ? "Loading your wardrobe..."
+                : totalItems < 2
+                  ? "Add at least two items to check for duplicates."
+                  : "No likely duplicates found."}
+            </p>
+          ) : (
+            duplicates.map((d) => (
+              <div key={`${d.a.id}-${d.b.id}`} className="flex items-center justify-between py-3 border-b border-[#E2E0D8] last:border-0">
+                <div>
+                  <p className="text-xs font-medium text-[#1C1C1C]">{d.a.name}</p>
+                  <p className="text-[10px] text-[#8C8A82] mt-0.5">vs. {d.b.name}</p>
+                </div>
+                <span className="text-xs font-semibold text-[#556B2F] bg-[#E8EDE0] px-2 py-0.5 rounded-full">{d.sim}% similar</span>
               </div>
-              <span className="text-xs font-semibold text-[#556B2F] bg-[#E8EDE0] px-2 py-0.5 rounded-full">{d.sim}% similar</span>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -1072,7 +1129,10 @@ function AuthenticatedApp() {
     snapshot: latestAvatar,
     refresh: refreshLatestAvatar,
   } = useLatestAvatar(profile?.id);
-  const [page, setPage] = useState<Page>("dashboard");
+  const [page, setPage] = useState<Page>(() => {
+    const saved = window.localStorage.getItem("dressme.current-page");
+    return navItems.some((item) => item.page === saved) ? (saved as Page) : "dashboard";
+  });
   const [avatarParams, setAvatarParams] = useState<BodyTargets>(defaultBodyTargets);
   const [avatarDetails, setAvatarDetails] = useState<DetailTargets>({});
   const [avatarHeightCm, setAvatarHeightCm] = useState(170);
@@ -1081,6 +1141,10 @@ function AuthenticatedApp() {
   const [savedLooks, setSavedLooks] = useState<SavedLook[]>(loadLooks);
   const [setupDismissed, setSetupDismissed] = useState(false);
   const restoredLatest = useRef(false);
+
+  useEffect(() => {
+    window.localStorage.setItem("dressme.current-page", page);
+  }, [page]);
 
   useEffect(() => {
     if (!latestAvatar) return;
@@ -1099,7 +1163,7 @@ function AuthenticatedApp() {
 
   const renderPage = () => {
     switch (page) {
-      case "dashboard": return <DashboardPage />;
+      case "dashboard": return <Dashboard outfitsCreated={savedLooks.length} />;
       case "wardrobe": return <WardrobePage />;
       case "outfit-studio": return <OutfitStudio savedLooks={savedLooks} />;
       case "help-me-pack": return <HelpMePack />;
@@ -1109,36 +1173,11 @@ function AuthenticatedApp() {
       case "style-profile": return <StyleProfile />;
       case "find-similar": return <FindSimilarPage />;
       case "customize-avatar":
-        return (
-          <CustomizeAvatar
-            initialUrl={latestAvatar && latestAvatar.outfit.length === 0 ? latestAvatar.url : undefined}
-            onUseParams={(p, d, heightCm) => {
-              setAvatarParams(p);
-              setAvatarDetails(d);
-              setAvatarHeightCm(heightCm);
-              setHasCustomized(true);
-              void refreshLatestAvatar();
-            }}
-            onGoToTryOn={() => setPage("try-on")}
-          />
-        );
+        return null;
       case "try-on":
-        return (
-          <TryOnStudio
-            params={avatarParams}
-            details={avatarDetails}
-            heightCm={avatarHeightCm}
-            selection={tryOnSelection}
-            onSelectionChange={setTryOnSelection}
-            savedLooks={savedLooks}
-            onSaveLook={(look) => setSavedLooks(saveLook(look))}
-            hasCustomized={hasCustomized}
-            initialAvatar={latestAvatar}
-            onAvatarSaved={() => void refreshLatestAvatar()}
-            onBack={() => setPage("customize-avatar")}
-          />
-        );
+        return null;
       case "settings": return <Settings />;
+      case "gallery": return <GalleryPage />;
     }
   };
 
@@ -1218,6 +1257,34 @@ function AuthenticatedApp() {
             </div>
           )}
           {renderPage()}
+          <div className={page === "customize-avatar" ? "" : "hidden"} aria-hidden={page !== "customize-avatar"}>
+            <CustomizeAvatar
+              initialUrl={latestAvatar && latestAvatar.outfit.length === 0 ? latestAvatar.url : undefined}
+              onUseParams={(p, d, heightCm) => {
+                setAvatarParams(p);
+                setAvatarDetails(d);
+                setAvatarHeightCm(heightCm);
+                setHasCustomized(true);
+                void refreshLatestAvatar();
+              }}
+              onGoToTryOn={() => setPage("try-on")}
+            />
+          </div>
+          <div className={page === "try-on" ? "" : "hidden"} aria-hidden={page !== "try-on"}>
+            <TryOnStudio
+              params={avatarParams}
+              details={avatarDetails}
+              heightCm={avatarHeightCm}
+              selection={tryOnSelection}
+              onSelectionChange={setTryOnSelection}
+              savedLooks={savedLooks}
+              onSaveLook={(look) => setSavedLooks(saveLook(look))}
+              hasCustomized={hasCustomized}
+              initialAvatar={latestAvatar}
+              onAvatarSaved={() => void refreshLatestAvatar()}
+              onBack={() => setPage("customize-avatar")}
+            />
+          </div>
           </WardrobeProvider>
         </div>
       </main>
