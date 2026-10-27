@@ -34,6 +34,8 @@ export default defineConfig(({ mode }) => {
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
+      // BO3 gap agent API (backend/api.py).
+      proxy: { '/api': process.env.API_URL || 'http://localhost:8000' },
     },
     preview: {
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',

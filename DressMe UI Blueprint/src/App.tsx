@@ -1,8 +1,11 @@
 import { useState } from "react";
+import GapsCard from "@/features/wardrobegaps/GapsCard";
+import WardrobeGapsPage from "@/features/wardrobegaps/WardrobeGapsPage";
 
 type Page =
   | "dashboard"
   | "wardrobe"
+  | "wardrobe-gaps"
   | "outfit-studio"
   | "help-me-pack"
   | "style-profile"
@@ -32,6 +35,7 @@ const wardrobeItems = [
 const navItems: { label: string; page: Page; icon: string }[] = [
   { label: "Dashboard", page: "dashboard", icon: "⊞" },
   { label: "My Wardrobe", page: "wardrobe", icon: "◫" },
+  { label: "Wardrobe Gaps", page: "wardrobe-gaps", icon: "◐" },
   { label: "Outfit Studio", page: "outfit-studio", icon: "✦" },
   { label: "Help Me Pack", page: "help-me-pack", icon: "◈" },
   { label: "Style Profile", page: "style-profile", icon: "◉" },
@@ -106,7 +110,7 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
   );
 }
 
-function Dashboard() {
+function Dashboard({ onNav }: { onNav: (p: Page) => void }) {
   return (
     <div className="space-y-8">
       <div>
@@ -174,26 +178,7 @@ function Dashboard() {
 
       {/* Analytics */}
       <div className="grid grid-cols-2 gap-6">
-        <div className="bg-[#F0EFEA] rounded-xl p-6">
-          <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Wardrobe Gaps</h3>
-          <p className="text-[#8C8A82] text-xs mt-1 mb-4">Categories underrepresented in your wardrobe</p>
-          {[
-            { cat: "Formal Dresses", pct: 15 },
-            { cat: "Activewear", pct: 22 },
-            { cat: "Evening Shoes", pct: 30 },
-            { cat: "Accessories", pct: 38 },
-          ].map((g) => (
-            <div key={g.cat} className="mb-3">
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-[#1C1C1C] font-medium">{g.cat}</span>
-                <span className="text-[#8C8A82]">{g.pct}% coverage</span>
-              </div>
-              <div className="h-1.5 bg-[#E2E0D8] rounded-full overflow-hidden">
-                <div className="h-full bg-[#556B2F] rounded-full" style={{ width: `${g.pct}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <GapsCard onOpen={() => onNav("wardrobe-gaps")} />
         <div className="bg-[#F0EFEA] rounded-xl p-6">
           <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Potential Duplicates</h3>
           <p className="text-[#8C8A82] text-xs mt-1 mb-4">Similar items that may overlap in function</p>
@@ -1164,8 +1149,9 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case "dashboard": return <Dashboard />;
+      case "dashboard": return <Dashboard onNav={setPage} />;
       case "wardrobe": return <MyWardrobe />;
+      case "wardrobe-gaps": return <WardrobeGapsPage />;
       case "outfit-studio": return <OutfitStudio />;
       case "help-me-pack": return <HelpMePack />;
       case "weather": return <WeatherPage />;
