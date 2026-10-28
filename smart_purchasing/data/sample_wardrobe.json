@@ -1,0 +1,167 @@
+[
+  {
+    "id": "garment_001",
+    "name": "Classic Black Tailored Blazer",
+    "category": "blazer",
+    "color": "black",
+    "style": ["formal", "smart_casual", "business"],
+    "seasons": ["autumn", "winter", "spring"],
+    "occasions": ["work", "formal_event", "dinner"],
+    "image_path": "black_blazer.jpg",
+    "tags": ["structured", "wool-blend", "double-breasted"]
+  },
+  {
+    "id": "garment_002",
+    "name": "Navy Blue Wool Trousers",
+    "category": "trousers",
+    "color": "navy",
+    "style": ["formal", "smart_casual"],
+    "seasons": ["autumn", "winter", "spring"],
+    "occasions": ["work", "meeting", "dinner"],
+    "image_path": "navy_trousers.jpg",
+    "tags": ["tailored", "pleated"]
+  },
+  {
+    "id": "garment_003",
+    "name": "Crisp White Button-Down Cotton Shirt",
+    "category": "shirt",
+    "color": "white",
+    "style": ["formal", "smart_casual", "casual"],
+    "seasons": ["spring", "summer", "autumn", "winter"],
+    "occasions": ["work", "casual_outing", "dinner", "meeting"],
+    "image_path": "white_shirt.jpg",
+    "tags": ["100% cotton", "slim fit"]
+  },
+  {
+    "id": "garment_004",
+    "name": "Beige Cashmere Crewneck Sweater",
+    "category": "knitwear",
+    "color": "beige",
+    "style": ["casual", "smart_casual"],
+    "seasons": ["autumn", "winter", "spring"],
+    "occasions": ["casual_outing", "weekend", "work"],
+    "image_path": "beige_sweater.jpg",
+    "tags": ["cashmere", "soft", "layering"]
+  },
+  {
+    "id": "garment_005",
+    "name": "Dark Wash Straight Leg Jeans",
+    "category": "jeans",
+    "color": "dark_blue",
+    "style": ["casual", "smart_casual"],
+    "seasons": ["spring", "summer", "autumn", "winter"],
+    "occasions": ["casual_outing", "weekend", "dinner"],
+    "image_path": "dark_jeans.jpg",
+    "tags": ["denim", "classic"]
+  },
+  {
+    "id": "garment_006",
+    "name": "Brown Leather Loafers",
+    "category": "shoes",
+    "color": "brown",
+    "style": ["smart_casual", "formal"],
+    "seasons": ["spring", "summer", "autumn"],
+    "occasions": ["work", "dinner", "casual_outing"],
+    "image_path": "brown_loafers.jpg",
+    "tags": ["leather", "penny loafer"]
+  },
+  {
+    "id": "garment_007",
+    "name": "White Leather Minimalist Sneakers",
+    "category": "shoes",
+    "color": "white",
+    "style": ["casual", "smart_casual"],
+    "seasons": ["spring", "summer", "autumn"],
+    "occasions": ["casual_outing", "weekend", "travel"],
+    "image_path": "white_sneakers.jpg",
+    "tags": ["leather", "low-top"]
+  },
+  {
+    "id": "garment_008",
+    "name": "Charcoal Overcoat",
+    "category": "outerwear",
+    "color": "charcoal",
+    "style": ["formal", "smart_casual"],
+    "seasons": ["winter", "autumn"],
+    "occasions": ["work", "formal_event", "dinner"],
+    "image_path": "charcoal_overcoat.jpg",
+    "tags": ["wool", "long-coat"]
+  },
+  {
+    "id": "garment_009",
+    "name": "Olive Green Bomber Jacket",
+    "category": "outerwear",
+    "color": "olive",
+    "style": ["casual"],
+    "seasons": ["spring", "autumn"],
+    "occasions": ["casual_outing", "weekend"],
+    "image_path": "olive_bomber.jpg",
+    "tags": ["lightweight", "casual"]
+  },
+  {
+    "id": "garment_010",
+    "name": "Light Blue Oxford Cotton Shirt",
+    "category": "shirt",
+    "color": "light_blue",
+    "style": ["smart_casual", "casual", "business"],
+    "seasons": ["spring", "summer", "autumn", "winter"],
+    "occasions": ["work", "meeting", "casual_outing"],
+    "image_path": "light_blue_oxford.jpg",
+    "tags": ["oxford cloth", "button-collar"]
+  },
+  {
+    "id": "garment_011",
+    "name": "Black Leather Chelsea Boots",
+    "category": "shoes",
+    "color": "black",
+    "style": ["smart_casual", "formal"],
+    "seasons": ["autumn", "winter"],
+    "occasions": ["work", "dinner", "evening"],
+    "image_path": "black_chelsea_boots.jpg",
+    "tags": ["leather", "ankle boot"]
+  },
+  {
+    "id": "garment_012",
+    "name": "Charcoal Grey Slim Suit Trousers",
+    "category": "trousers",
+    "color": "charcoal",
+    "style": ["formal", "business"],
+    "seasons": ["spring", "autumn", "winter"],
+    "occasions": ["work", "meeting", "formal_event"],
+    "image_path": "charcoal_trousers.jpg",
+    "tags": ["suit pants", "slim fit"]
+  },
+  {
+    "id": "garment_013",
+    "name": "Grey Melange Cotton T-Shirt",
+    "category": "t-shirt",
+    "color": "grey",
+    "style": ["casual"],
+    "seasons": ["spring", "summer", "autumn"],
+    "occasions": ["casual_outing", "weekend", "lounge"],
+    "image_path": "grey_tshirt.jpg",
+    "tags": ["cotton", "crewneck"]
+  },
+  {
+    "id": "garment_014",
+    "name": "Camel Trench Coat",
+    "category": "outerwear",
+    "color": "camel",
+    "style": ["smart_casual", "formal"],
+    "seasons": ["spring", "autumn"],
+    "occasions": ["work", "dinner", "travel"],
+    "image_path": "camel_trench.jpg",
+    "tags": ["double-breasted", "belted", "water-resistant"]
+  },
+  {
+    "id": "garment_015",
+    "name": "Black Silk Midi Dress",
+    "category": "dress",
+    "color": "black",
+    "style": ["formal", "evening", "smart_casual"],
+    "seasons": ["spring", "summer", "autumn", "winter"],
+    "occasions": ["dinner", "formal_event", "cocktail"],
+    "image_path": "black_silk_dress.jpg",
+    "tags": ["silk", "elegant", "midi"]
+  }
+]

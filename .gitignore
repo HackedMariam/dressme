@@ -15,3 +15,32 @@ __pycache__/
 venv/
 backend/local_data/
 supabase/.temp/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches & checkpoints
+.pytest_cache/
+.ipynb_checkpoints/
+data/checkpoints/
+smart_purchasing/data/checkpoints/
+
+# Environments & secrets
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Local Notebooks (kept locally, not tracked on GitHub)
+*inference.ipynb
+dressme_agent_inference.ipynb
+create_inference_notebook.py
+
+# Archives & OS files
+*.rar
+*.zip
+*.tar.gz
+.DS_Store
+Thumbs.db

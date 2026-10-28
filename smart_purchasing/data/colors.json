@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "description": "Representative RGB values and color families for common fashion clothing garments.",
+  "colors": {
+    "white": {
+      "rgb": [255, 255, 255],
+      "family": "white",
+      "description": "Pure crisp optical white"
+    },
+    "ivory": {
+      "rgb": [255, 253, 240],
+      "family": "white",
+      "description": "Warm soft white with delicate cream/yellow undertones"
+    },
+    "off_white": {
+      "rgb": [250, 249, 246],
+      "family": "white",
+      "description": "Muted chalky white with gentle warm undertones"
+    },
+    "cream": {
+      "rgb": [253, 244, 227],
+      "family": "white",
+      "description": "Rich warm white with pale butter undertones"
+    },
+    "beige": {
+      "rgb": [245, 235, 215],
+      "family": "neutral",
+      "description": "Light warm sandy neutral"
+    },
+    "camel": {
+      "rgb": [193, 154, 107],
+      "family": "brown",
+      "description": "Warm golden tan/brown camel hair hue"
+    },
+    "tan": {
+      "rgb": [210, 180, 140],
+      "family": "brown",
+      "description": "Medium warm tawny brown"
+    },
+    "khaki": {
+      "rgb": [195, 176, 145],
+      "family": "neutral",
+      "description": "Earthy light yellowish-brown twill shade"
+    },
+    "taupe": {
+      "rgb": [179, 139, 109],
+      "family": "neutral",
+      "description": "Muted brownish-grey neutral"
+    },
+    "brown": {
+      "rgb": [120, 65, 30],
+      "family": "brown",
+      "description": "Classic deep earth and leather brown"
+    },
+    "black": {
+      "rgb": [15, 15, 15],
+      "family": "black",
+      "description": "Deep true black textile"
+    },
+    "charcoal": {
+      "rgb": [54, 60, 66],
+      "family": "grey",
+      "description": "Dark suit charcoal grey"
+    },
+    "grey": {
+      "rgb": [128, 128, 128],
+      "family": "grey",
+      "description": "Medium neutral melange grey"
+    },
+    "light_blue": {
+      "rgb": [173, 216, 230],
+      "family": "blue",
+      "description": "Soft pale sky / oxford blue"
+    },
+    "blue": {
+      "rgb": [30, 90, 180],
+      "family": "blue",
+      "description": "Vibrant classic blue"
+    },
+    "dark_blue": {
+      "rgb": [20, 45, 95],
+      "family": "blue",
+      "description": "Deep indigo / denim blue"
+    },
+    "navy": {
+      "rgb": [10, 25, 60],
+      "family": "blue",
+      "description": "Classic dark nautical navy"
+    },
+    "olive": {
+      "rgb": [107, 114, 56],
+      "family": "green",
+      "description": "Muted military / army olive green"
+    },
+    "green": {
+      "rgb": [34, 139, 34],
+      "family": "green",
+      "description": "Classic forest / emerald green"
+    },
+    "burgundy": {
+      "rgb": [128, 0, 32],
+      "family": "red",
+      "description": "Deep rich wine / oxblood red"
+    },
+    "red": {
+      "rgb": [200, 30, 30],
+      "family": "red",
+      "description": "Classic bold red"
+    },
+    "pink": {
+      "rgb": [245, 180, 195],
+      "family": "pink",
+      "description": "Soft pastel clothing pink"
+    }
+  }
+}
