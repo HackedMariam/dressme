@@ -1,0 +1,26 @@
+# Services appelés par l'orchestrateur DressMe (plan des ports d'INTEGRATION.md).
+# timeout : délai maximum d'un appel, en secondes. Aucune clé ici : seulement le NOM d'une variable
+# d'environnement (api_key_env), lue au moment de l'appel et jamais affichée.
+services:
+  bo1:
+    label: "BO1 Garde-robe (Arij)"
+    url: "http://localhost:8000"
+    timeout: 10
+  stylist:
+    label: "BO4 Stylist (Nourhene)"
+    url: "http://127.0.0.1:8061"
+    timeout: 120          # premier tour : chargement d'Ollama par le Stylist
+  purchase:
+    label: "Purchase Redundancy (Zied)"
+    url: "http://127.0.0.1:8040"
+    timeout: 30
+  bo5:
+    label: "BO5 RAG (Mariam)"
+    url: "http://127.0.0.1:8010"
+    timeout: 120
+    api_key_env: "BO5_API_KEY"   # facultatif : en-tête X-API-Key si BO5 a un RAG_API_KEY
+  ollama:
+    label: "Ollama qwen2.5:3b"
+    url: "http://localhost:11434"
+    timeout: 60
+    model: "qwen2.5:3b"
