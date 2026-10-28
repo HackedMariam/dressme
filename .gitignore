@@ -9,12 +9,17 @@ __pycache__/
 data/checkpoints/
 smart_purchasing/data/checkpoints/
 
-# Environments
+# Environments & secrets
 .env
 .venv
 env/
 venv/
 ENV/
+
+# Local Notebooks (kept locally, not tracked on GitHub)
+*inference.ipynb
+dressme_agent_inference.ipynb
+create_inference_notebook.py
 
 # Archives & OS files
 *.rar

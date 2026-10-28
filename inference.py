@@ -1,10 +1,10 @@
 """Standalone Universal Inference Pipeline for DressMe Fashion Agent.
 
-Runs on ANY computer locally (NVIDIA GPU or standard CPU) without requiring secrets.
-Uses:
+Powered by:
 - YOLO segmentation model ('dressme_best.pt') for garment detection & CIEDE2000 color extraction.
 - Wardrobe combinatorics & XGBoost ML tool ('xgb_purchase_model.json').
-- Fine-tuned Qwen 2.5 3B (Hugging Face) with automatic CPU fallback.
+- Hugging Face Serverless Inference API for Qwen reasoning (0 GB downloaded, 0 MB RAM, fast).
+  Reads 'HF_TOKEN' automatically from your .env file.
 """
 
 import os
@@ -25,6 +25,39 @@ PROJECT_DIR = CURRENT_DIR / "smart_purchasing" if (CURRENT_DIR / "smart_purchasi
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
+
+def load_dotenv(env_path: Optional[Path] = None):
+    """Loads environment variables from .env without requiring external libraries."""
+    if env_path is None:
+        candidates = [
+            Path(".env"),
+            CURRENT_DIR / ".env",
+            PROJECT_DIR / ".env",
+            CURRENT_DIR.parent / ".env",
+        ]
+        for c in candidates:
+            if c.exists():
+                env_path = c
+                break
+
+    if env_path and env_path.exists():
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k and k not in os.environ and v:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+
+# Automatically load .env on startup
+load_dotenv()
+
 # Domain tools & schemas
 from schemas import CandidateItem, Garment
 from tools import (
@@ -36,8 +69,8 @@ from tools import (
 )
 from ml_model import predict_purchase_ml
 
-BASE_MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
-HF_LORA_REPO = "meriemgharbi123/dressme_qwen3b_lora"
+# Default models on Hugging Face Serverless API
+DEFAULT_HF_MODEL = os.environ.get("HF_MODEL_ID", "Qwen/Qwen2.5-72B-Instruct")
 
 SYSTEM_PROMPT = (
     "You are DressMe Shopping Assistant, an expert AI fashion and wardrobe consultant. "
@@ -129,18 +162,18 @@ def load_wardrobe_from_csv(file_path: Path) -> List[Garment]:
 
 
 class DressMeInferenceEngine:
-    """Manages model loading and end-to-end evaluation."""
+    """Manages model loading and end-to-end evaluation using Hugging Face Inference API."""
 
-    def __init__(self, skip_llm: bool = False):
+    def __init__(self, skip_llm: bool = False, hf_token: Optional[str] = None, model_id: Optional[str] = None):
         self.skip_llm = skip_llm
-        self.tokenizer = None
-        self.agent_model = None
-        self.device = "cpu"
+        self.hf_token = hf_token or os.environ.get("HF_TOKEN")
+        self.model_id = model_id or DEFAULT_HF_MODEL
         self.wardrobe: List[Garment] = []
+        self.client = None
 
         self._load_wardrobe()
         if not self.skip_llm:
-            self._load_qwen_model()
+            self._init_hf_client()
 
     def _load_wardrobe(self):
         """Loads wardrobe from wardrobe.csv."""
@@ -165,59 +198,22 @@ class DressMeInferenceEngine:
         else:
             print("[Wardrobe Warning] wardrobe.csv not found; wardrobe list is empty.")
 
-    def _load_qwen_model(self):
-        """Loads Qwen 2.5 3B with automatic GPU 4-bit quantization or CPU float32 fallback."""
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-        from peft import PeftModel
+    def _init_hf_client(self):
+        """Initializes Hugging Face InferenceClient using HF_TOKEN from .env."""
+        if not self.hf_token:
+            print("[Model Notice] No HF_TOKEN found in .env or environment.")
+            print("               To enable cloud Qwen reasoning, paste your free token in .env:")
+            print("               HF_TOKEN=hf_your_token_here")
+            print("               Running in deterministic evaluation mode...")
+            return
 
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"[Model Loader] Target device: {self.device.upper()}")
-        print(f"[Model Loader] Loading base tokenizer & model: {BASE_MODEL_ID}...")
-
-        self.tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.tokenizer.padding_side = "right"
-
-        if self.device == "cuda":
-            # Fast 4-bit quantization for NVIDIA GPUs (~2.5 GB VRAM)
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=True,
-            )
-            base_model = AutoModelForCausalLM.from_pretrained(
-                BASE_MODEL_ID,
-                quantization_config=bnb_config,
-                device_map="auto",
-                trust_remote_code=True,
-            )
-        else:
-            # Universal CPU fallback: runs on any standard computer without GPU
-            print("[Model Loader] No CUDA GPU detected. Running on CPU in float32...")
-            base_model = AutoModelForCausalLM.from_pretrained(
-                BASE_MODEL_ID,
-                torch_dtype=torch.float32,
-                device_map={"": "cpu"},
-                trust_remote_code=True,
-            )
-
-        # Attach LoRA adapter
-        print(f"[Model Loader] Attaching fine-tuned LoRA adapter from: {HF_LORA_REPO}...")
         try:
-            self.agent_model = PeftModel.from_pretrained(base_model, HF_LORA_REPO)
-            print("[Model Loader] Successfully attached Hugging Face fine-tuned LoRA adapter!")
+            from huggingface_hub import InferenceClient
+            self.client = InferenceClient(token=self.hf_token)
+            print(f"[Model Loader] Connected to Hugging Face Serverless API ({self.model_id})")
         except Exception as e:
-            print(f"[Model Loader Notice] Could not load from '{HF_LORA_REPO}' ({e}).")
-            local_lora = PROJECT_DIR / "dressme_qwen3b_lora"
-            if local_lora.exists():
-                self.agent_model = PeftModel.from_pretrained(base_model, str(local_lora))
-                print("[Model Loader] Loaded local LoRA adapter successfully.")
-            else:
-                self.agent_model = base_model
-                print("[Model Loader] Using base model directly.")
+            print(f"[Model Notice] Could not initialize Hugging Face client: {e}")
+            self.client = None
 
     @staticmethod
     def infer_occasion_and_style(user_prompt: str, detected_category: str) -> Tuple[str, List[str]]:
@@ -324,9 +320,9 @@ class DressMeInferenceEngine:
             ml_confidence=ml_res["confidence"],
         )
 
-        # 5. Fine-Tuned Qwen Reasoning
-        if not self.skip_llm and self.agent_model is not None and self.tokenizer is not None:
-            import torch
+        # 5. Qwen Reasoning via Hugging Face Serverless API
+        agent_output = None
+        if not self.skip_llm and self.client is not None:
             scenario_prompt = (
                 f"Scenario ID: IMG-{int(time.time())%10000}\n"
                 f"Proposed Item: {color.title()} {category.title()} (Image Analysis), Price: ${price:.0f}, Style: {', '.join(styles)}\n"
@@ -340,42 +336,44 @@ class DressMeInferenceEngine:
                 f"GapScore={gap_score:.1f}, CalculatedScore={val_res.overall_score:.1f}, ML_Decision={ml_res['ml_decision']}.\n"
                 f"Instruction: In your reasons, cite the exact item IDs (e.g. {paired_ids_str}) of the clothes that pair into complete outfits."
             )
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": scenario_prompt},
-            ]
-            prompt_text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            inputs = self.tokenizer(prompt_text, return_tensors="pt").to(self.agent_model.device)
-
-            with torch.no_grad():
-                outputs = self.agent_model.generate(
-                    **inputs,
-                    max_new_tokens=180,
+            try:
+                print(f"[API] Querying {self.model_id} on Hugging Face Serverless API...")
+                response = self.client.chat.completions.create(
+                    model=self.model_id,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": scenario_prompt},
+                    ],
+                    max_tokens=220,
                     temperature=0.1,
-                    do_sample=False,
-                    pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
                 )
-            raw_response = self.tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True).strip()
+                raw_response = response.choices[0].message.content.strip()
 
-            cleaned = raw_response
-            if "```" in cleaned:
-                m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
+                cleaned = raw_response
+                if "```" in cleaned:
+                    m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
+                    if m:
+                        cleaned = m.group(1).strip()
+                m = re.search(r"(\{[\s\S]*\})", cleaned)
                 if m:
                     cleaned = m.group(1).strip()
-            m = re.search(r"(\{[\s\S]*\})", cleaned)
-            if m:
-                cleaned = m.group(1).strip()
-            try:
-                agent_output = json.loads(cleaned)
-            except Exception:
-                agent_output = {
-                    "decision": val_res.decision.value,
-                    "score": val_res.overall_score,
-                    "reasons": [raw_response],
-                    "uncertainties": [],
-                }
-        else:
-            # Deterministic fallback without LLM
+
+                try:
+                    agent_output = json.loads(cleaned)
+                except Exception:
+                    agent_output = {
+                        "decision": val_res.decision.value,
+                        "score": val_res.overall_score,
+                        "reasons": [raw_response],
+                        "uncertainties": [],
+                    }
+            except Exception as e:
+                print(f"[API Warning] Hugging Face API query failed: {e}")
+                print("[API Warning] Falling back to deterministic output.")
+                agent_output = None
+
+        if agent_output is None:
+            # Deterministic output
             agent_output = {
                 "decision": val_res.decision.value,
                 "score": val_res.overall_score,
@@ -421,12 +419,14 @@ class DressMeInferenceEngine:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="DressMe Autonomous Inference Pipeline")
+    parser = argparse.ArgumentParser(description="DressMe Autonomous Inference Pipeline (Hugging Face API)")
     parser.add_argument("--image", type=str, default=None, help="Path to local image or image URL")
     parser.add_argument("--price", type=float, default=35.0, help="Item price (default: 35.0)")
     parser.add_argument("--budget", type=float, default=50.0, help="User budget (default: 50.0)")
     parser.add_argument("--prompt", type=str, default="Should I buy this black t-shirt for casual weekend wear?", help="User query")
-    parser.add_argument("--skip-llm", action="store_true", help="Run only vision + deterministic ML tools without loading Qwen")
+    parser.add_argument("--hf-token", type=str, default=None, help="Hugging Face API token (or set in .env)")
+    parser.add_argument("--model", type=str, default=None, help="HF model ID (default: Qwen/Qwen2.5-72B-Instruct)")
+    parser.add_argument("--skip-llm", action="store_true", help="Run only vision + deterministic ML tools without querying LLM")
     args = parser.parse_args()
 
     # Default sample image if none provided
@@ -447,7 +447,11 @@ def main():
     print(f"Prompt: \"{args.prompt}\"")
     print("----------------------------------------------------------------")
 
-    engine = DressMeInferenceEngine(skip_llm=args.skip_llm)
+    engine = DressMeInferenceEngine(
+        skip_llm=args.skip_llm,
+        hf_token=args.hf_token,
+        model_id=args.model,
+    )
     result = engine.evaluate(
         image_path=img,
         price=args.price,

@@ -380,18 +380,25 @@ Requires Node.js and pnpm (versions pinned in `.mise.toml`).
 
 ### Running the Smart Purchasing AI Agent (Inference)
 
-The autonomous shopping assistant evaluates candidate clothes against the user's digital wardrobe using YOLO segmentation (`dressme_best.pt`), XGBoost decision classification, and fine-tuned Qwen 2.5 3B. Runs on **any computer locally (GPU or CPU)** without requiring any secrets or tokens.
+The autonomous shopping assistant evaluates candidate clothes against the user's digital wardrobe using YOLO segmentation (`dressme_best.pt`), XGBoost decision classification, and fine-tuned Qwen reasoning. Runs on **any computer locally (GPU or CPU)** without memory overloads.
 
-#### 📥 The 4 Inputs:
+#### ⚡ Step 1: Install Dependencies (Required Before Running)
+Before running `inference.py`, you must install all project dependencies:
+```bash
+cd smart_purchasing
+pip install -r requirements.txt
+```
+*(Optionally, copy `.env.example` to `.env` and add your free Hugging Face token `HF_TOKEN=hf_...` to enable cloud Qwen reasoning).*
+
+#### 🚀 Step 2: Run Inference
+
+**The 4 Inputs:**
 1. **`--image`**: Garment image (Web URL or local path). *Optional: defaults to `data/sample_camel_blazer.jpg` if omitted.*
 2. **`--price`**: Candidate item price (e.g. `45.0`).
 3. **`--budget`**: User's budget (e.g. `60.0`).
 4. **`--prompt`**: Natural language question (e.g. `"Can I wear this to work?"`).
 
 ```bash
-cd smart_purchasing
-pip install -r requirements.txt
-
 # Option A: From an Internet Image URL
 python inference.py --image "https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=500" --price 45.0 --budget 60.0 --prompt "Can I wear this to a wedding?"
 
@@ -404,7 +411,6 @@ python inference.py --price 35.0 --budget 50.0 --prompt "Should I buy this for c
 # Option D: Instant Deterministic Test (Vision + XGBoost, skips Qwen load)
 python inference.py --skip-llm
 ```
-Or open `smart_purchasing/dressme_agent_inference.ipynb` locally, in Google Colab, or on Kaggle.
 
 
 ---
