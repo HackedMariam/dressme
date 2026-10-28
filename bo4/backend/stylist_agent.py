@@ -150,6 +150,15 @@ DEFAULT_DRESS_CODE = {"university": "casual", "work": "smart_casual", "evening":
 # (formalité moyenne minimale de la tenue, formalité minimale de chaque pièce), échelle BO1 1..5.
 DRESS_CODE_RULES = {"casual": (None, None), "smart_casual": (2.5, None), "business": (3.0, 2),
                     "formal": (4.0, 3)}
+# O3 : coupes jugées trop courtes pour un dress code business ou formal, quelle que soit la formalité
+# donnée par BO1. Repérées par mots-clés dans le nom et la sous-catégorie BO1 (heuristique).
+STRICT_DRESS_CODES = {"business", "formal"}
+SHORT_CUT_PATTERN = r"\b(mini|minijupe|shorts|hot ?pants)\b"
+# O2 : en business ou formal, une veste structurée est exigée dès que l'utilisateur en possède une.
+# Structurée = blazer, ou veste (jacket) de formalité BO1 >= 4. Les manteaux ne comptent pas : une
+# règle ferme imposerait sinon un manteau à la belle saison.
+STRUCTURED_JACKET_CATEGORIES = {"blazer"}
+STRUCTURED_JACKET_MIN_FORMALITY = 4
 NEGATION_PATTERN = (r"\b(?:(?:sans|pas de|rien de|aucune?|ni|no|without|not|nor)\s+|pas d'"
                     r"|evite[rz]?\s+(?:(?:le|la|les|de|des)\s+|l')?)"
                     r"(\w+)")
@@ -171,6 +180,7 @@ class StylistState(TypedDict, total=False):
     last_outfits: list[list[str]]     # tenues du dernier tour proposant des tenues (rang 1, 2, 3)
     feedback_note: str                # accusé de réception d'un retour (I76)
     dress_code_relaxed: bool         # aucune tenue conforme : on montre les plus proches
+    no_structured_jacket: bool        # business ou formal sans veste structurée dans la garde-robe
     weather: dict                     # prévision utilisée au dernier tour (si disponible)
     advice: dict                      # conseil BO5 du tour : {"question", "answer", "sources"}
     error: str
@@ -367,19 +377,43 @@ def ground_llm_output(clean: dict, message: str) -> tuple[dict, list[str]]:
     return grounded, rejected
 
 
-def dress_code_check(items: list[dict], code: Optional[str]) -> tuple[bool, Optional[float]]:
+def is_short_cut(item: dict) -> bool:
+    """Short ou pièce « mini » (catégorie BO4, nom ou sous-catégorie BO1)."""
+    if str(item.get("category") or "").lower() == "shorts":
+        return True
+    text = f"{item.get('name') or ''} {item.get('subcategory') or ''}".lower()
+    return re.search(SHORT_CUT_PATTERN, text) is not None
+
+
+def is_structured_jacket(item: dict) -> bool:
+    """Blazer, ou veste de formalité BO1 >= STRUCTURED_JACKET_MIN_FORMALITY (O2)."""
+    category = str(item.get("category") or "").lower()
+    formality = item.get("formality")
+    return category in STRUCTURED_JACKET_CATEGORIES or (
+        category == "jacket" and isinstance(formality, (int, float)) and not isinstance(formality, bool)
+        and formality >= STRUCTURED_JACKET_MIN_FORMALITY)
+
+
+def dress_code_check(items: list[dict], code: Optional[str],
+                     require_structured_jacket: bool = False) -> tuple[bool, Optional[float]]:
     """Vérifie une tenue contre un dress code avec le champ `formality` (1..5) fourni par BO1.
-    Renvoie (conforme, formalité moyenne). Sans aucune formalité connue : non vérifiable, accepté."""
+    Renvoie (conforme, formalité moyenne). Sans aucune formalité connue : non vérifiable, accepté.
+    En business et formal, un short ou une pièce « mini » rend la tenue non conforme (O3), comme
+    l'absence de veste structurée quand `require_structured_jacket` est vrai (O2)."""
     levels = [item["formality"] for item in items
               if isinstance(item.get("formality"), (int, float)) and not isinstance(item.get("formality"), bool)]
-    if not levels:
-        return True, None
-    mean = sum(levels) / len(levels)
-    if not code:
-        return True, round(mean, 1)
+    mean = sum(levels) / len(levels) if levels else None
+    shown = round(mean, 1) if levels else None
+    if code in STRICT_DRESS_CODES and any(is_short_cut(item) for item in items):
+        return False, shown
+    if (code in STRICT_DRESS_CODES and require_structured_jacket
+            and not any(is_structured_jacket(item) for item in items)):
+        return False, shown
+    if not levels or not code:
+        return True, shown
     min_mean, min_item = DRESS_CODE_RULES[code]
     ok = (min_mean is None or mean >= min_mean) and (min_item is None or min(levels) >= min_item)
-    return ok, round(mean, 1)
+    return ok, shown
 
 
 class WeatherError(RuntimeError):
@@ -632,6 +666,10 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             state_trace = None
         code = request.get("dress_code")
         candidates = state.get("candidates") or []
+        strict = code in STRICT_DRESS_CODES
+        # Exigée seulement si une veste structurée reste disponible (« sans veste » la désactive).
+        require_jacket = strict and any(is_structured_jacket(item) for item in candidates)
+        no_jacket = strict and not any(is_structured_jacket(item) for item in state.get("wardrobe") or [])
         user = request_user(config)
         profile = feedback_store.profile(user) if feedback_store else None
         rejected = feedback_store.disliked_outfits(user) if feedback_store else set()
@@ -641,7 +679,7 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             if ids in already or ids in rejected:
                 continue
             items = _outfit_items(outfit, candidates)
-            ok, level = dress_code_check(items, code)
+            ok, level = dress_code_check(items, code, require_structured_jacket=require_jacket)
             bonus = stylist_feedback.personal_bonus(items, profile)
             annotated.append({**outfit, "dress_code_ok": ok, "formality": level, "personal_bonus": bonus,
                               "personal_score": round(float(outfit["score"]) + bonus, 1)})
@@ -652,11 +690,13 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
         fresh = diversify(compliant or annotated, k=3)
         shown = shown + [sorted(_outfit_ids(o)) for o in fresh]
         line = state_trace or (f"recommend -> {len(ranked)} tenues classées par BO4, dress code {code} : "
-                               f"{len(compliant)}/{len(annotated)} conformes, {len(fresh)} retenues "
+                               f"{len(compliant)}/{len(annotated)} conformes"
+                               f"{' (veste structurée exigée)' if require_jacket else ''}, {len(fresh)} retenues "
                                f"(déjà montrées : {len(already)}, rejetées : {len(rejected)}, "
                                f"profil : {profile['likes'] if profile else 0} like / "
                                f"{profile['dislikes'] if profile else 0} dislike)")
         return {"outfits": fresh, "shown": shown, "dress_code_relaxed": relaxed,
+                "no_structured_jacket": no_jacket,
                 "last_outfits": [_outfit_ids(o) for o in fresh] or state.get("last_outfits", []),
                 "trace": state.get("trace", []) + [line]}
 
@@ -767,7 +807,23 @@ MAX_OVERLAP = 0.5  # I89 : part maximale de pièces communes entre deux tenues p
 MIN_PROPOSALS = 2  # I89 : on ne complète avec des tenues trop proches que jusqu'à ce minimum
 
 
-def overlap(a: list[str], b: list[str]) -> float:
+def piece_key(item: Any) -> Any:
+    """Identité d'une pièce pour la diversification : deux vêtements de même catégorie, couleur et nom
+    de base (sans le « n° k » d'affichage) comptent comme une seule pièce, par exemple la même photo
+    envoyée deux fois à BO1. Sans nom ni catégorie, l'identifiant reste la clé."""
+    if not isinstance(item, dict):
+        return str(item)
+    name = re.sub(r"\s*n°\s*\d+$", "", str(item.get("name") or "")).strip().lower()
+    if not name or not item.get("category"):
+        return str(item.get("id"))
+    return (str(item["category"]).lower(), str(item.get("color") or "").lower(), name)
+
+
+def _piece_keys(outfit: dict) -> list[Any]:
+    return [piece_key(item) for item in outfit.get("items", [])]
+
+
+def overlap(a: list[Any], b: list[Any]) -> float:
     """Part de pièces communes, rapportée à la plus petite tenue (1.0 = l'une contient l'autre)."""
     a, b = set(a), set(b)
     return len(a & b) / min(len(a), len(b)) if a and b else 0.0
@@ -777,14 +833,15 @@ def diversify(outfits: list[dict], k: int = 3, max_overlap: float = MAX_OVERLAP,
               min_proposals: int = MIN_PROPOSALS) -> list[dict]:
     """I89 : sélection gloutonne dans l'ordre du classement. Une tenue trop proche d'une tenue
     déjà retenue est repoussée ; on ne complète avec elle que jusqu'à `min_proposals` tenues :
-    mieux vaut 2 tenues vraiment différentes que 3 presque identiques.
+    mieux vaut 2 tenues vraiment différentes que 3 presque identiques. Les pièces sont comparées
+    par `piece_key` : deux doublons d'un même vêtement ne rendent pas deux tenues différentes.
     Le résultat est trié par `personal_score` décroissant (sinon `score`), tri stable."""
     picked, postponed = [], []
     for outfit in outfits:
         if len(picked) == k:
             break
-        ids = _outfit_ids(outfit)
-        if any(overlap(ids, _outfit_ids(p)) > max_overlap for p in picked):
+        keys = _piece_keys(outfit)
+        if any(overlap(keys, _piece_keys(p)) > max_overlap for p in picked):
             postponed.append(outfit)
         else:
             picked.append(outfit)
@@ -864,6 +921,9 @@ def format_response(state: StylistState) -> str:
     if request.get("dress_code"):
         lines.append(f"Dress code : {DRESS_CODE_FR[request['dress_code']]} "
                      f"({request['dress_code_source']}).")
+    if state.get("no_structured_jacket"):
+        lines.append("Ta garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, "
+                     "c'est la pièce à ajouter.")
     if request["exclude_categories"] or request["exclude_colors"]:
         refused = [EXCLUDE_FR[c] for c in request["exclude_categories"]] + request["exclude_colors"]
         lines.append(f"Contraintes respectées : sans {', '.join(refused)} "
@@ -960,7 +1020,8 @@ def bo5_advice(base_url: Optional[str]) -> Optional[Callable[[str], dict]]:
 def new_turn(message: str) -> dict:
     """Entrée d'un tour : on remet à zéro ce qui ne doit pas survivre d'un tour à l'autre."""
     return {"user_message": message, "trace": [], "outfits": [], "response": "", "error": "",
-            "weather": {}, "dress_code_relaxed": False, "feedback_note": "", "advice": {}}
+            "weather": {}, "dress_code_relaxed": False, "no_structured_jacket": False, "feedback_note": "",
+            "advice": {}}
 
 
 def chat(graph, message: str, thread_id: str, show_trace: bool = False) -> str:

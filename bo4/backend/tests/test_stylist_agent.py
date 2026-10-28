@@ -286,6 +286,114 @@ def test_dress_code_without_formality_is_not_blocking():
     assert sa.dress_code_check([{"id": "1"}, {"id": "2", "formality": None}], "formal") == (True, None)
 
 
+@pytest.mark.parametrize("item", [
+    {"category": "shorts", "name": "Linen Bermuda"},
+    {"category": "skirt", "name": "Plaid Wool Skirt", "subcategory": "mini skirt"},
+    {"category": "dress", "name": "Black Mini Dress"},
+    {"category": "skirt", "name": "Mini-jupe en jean"},
+    {"category": "trousers", "name": "Denim Hot Pants"},
+])
+@pytest.mark.parametrize("code", ["business", "formal"])
+def test_short_cuts_break_business_and_formal(item, code):
+    outfit = [{"id": "1", "formality": 5, **item}, {"id": "2", "formality": 5, "category": "top", "name": "Silk Blouse"}]
+    assert sa.dress_code_check(outfit, code) == (False, 5.0)
+
+
+@pytest.mark.parametrize("item", [
+    {"category": "skirt", "name": "Black Skirt", "subcategory": "a-line midi skirt"},
+    {"category": "top", "name": "Short-Sleeve Shirt", "subcategory": "short sleeve shirt"},
+    {"category": "sweater", "name": "Grey Knit", "style": "minimalist"},
+])
+def test_midi_skirt_and_short_sleeves_stay_business(item):
+    assert sa.dress_code_check([{"id": "1", "formality": 3, **item}], "business") == (True, 3.0)
+
+
+@pytest.mark.parametrize("code", ["casual", "smart_casual", None])
+def test_short_cuts_are_fine_without_strict_dress_code(code):
+    outfit = [{"id": "1", "formality": 3, "category": "skirt", "subcategory": "mini skirt"}]
+    assert sa.dress_code_check(outfit, code) == (True, 3.0)
+
+
+def test_short_cut_without_formality_is_still_refused():
+    assert sa.dress_code_check([{"id": "1", "category": "shorts"}], "business") == (False, None)
+
+
+def test_interview_never_proposes_a_mini_skirt(make_graph, wardrobe_by_id):
+    keep = {"Light Blue Shirt", "Grey Knit", "Navy Blazer", "Beige Chinos", "Black Skirt"}
+
+    def with_mini():
+        # Deux bas seulement : sans O3, la mini-jupe (formalité 3, conforme à l'ancienne règle) est proposée.
+        wardrobe, report = fixture_loader()
+        wardrobe = [item for item in wardrobe if item["name"] in keep]
+        for item in wardrobe:
+            if item["name"] == "Black Skirt":
+                item.update(name="Plaid Mini Skirt", subcategory="mini skirt")
+        return wardrobe, report
+    mini_id = next(i["id"] for i in with_mini()[0] if i["name"] == "Plaid Mini Skirt")
+    state = run(make_graph(loader=with_mini), "J'ai un entretien demain")
+    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert all(mini_id not in sa._outfit_ids(o) for o in state["outfits"])
+    weekend = run(make_graph(loader=with_mini), "Une tenue décontractée pour le week-end", thread="t2")
+    assert weekend["request"]["dress_code"] == "casual"
+
+
+@pytest.mark.parametrize("item, expected", [
+    ({"category": "blazer"}, True),
+    ({"category": "jacket", "formality": 4}, True),
+    ({"category": "jacket", "formality": 3}, False),      # biker, bomber, veste militaire d'Arij
+    ({"category": "jacket"}, False),
+    ({"category": "coat", "formality": 5}, False),        # un manteau n'est pas une veste de costume
+    ({"category": "top", "formality": 5}, False),
+])
+def test_is_structured_jacket(item, expected):
+    assert sa.is_structured_jacket(item) is expected
+
+
+def test_dress_code_check_with_required_jacket():
+    shirt, chinos = {"id": "1", "category": "shirt", "formality": 3}, {"id": "2", "category": "trousers", "formality": 3}
+    blazer = {"id": "3", "category": "blazer", "formality": 4}
+    assert sa.dress_code_check([shirt, chinos], "business", require_structured_jacket=True) == (False, 3.0)
+    assert sa.dress_code_check([shirt, chinos, blazer], "business", require_structured_jacket=True)[0]
+    assert sa.dress_code_check([shirt, chinos], "smart_casual", require_structured_jacket=True)[0]
+    assert sa.dress_code_check([shirt, chinos], "business")[0]
+
+
+NO_JACKET_MESSAGE = "pas de veste structurée"
+
+
+def _without_blazer():
+    wardrobe, report = fixture_loader()
+    return [item for item in wardrobe if item["name"] != "Navy Blazer"], report
+
+
+def test_interview_requires_the_blazer_when_owned(make_graph, wardrobe_by_id):
+    state = run(make_graph(), "J'ai un entretien demain")
+    assert state["outfits"] and not state["dress_code_relaxed"]
+    for items in outfit_items(state, wardrobe_by_id):
+        assert any(item["name"] == "Navy Blazer" for item in items)
+    assert NO_JACKET_MESSAGE not in state["response"]
+
+
+def test_interview_without_structured_jacket_explains_it(make_graph):
+    state = run(make_graph(loader=_without_blazer), "J'ai un entretien demain")
+    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert state["no_structured_jacket"] and NO_JACKET_MESSAGE in state["response"]
+
+
+@pytest.mark.parametrize("message", ["Une tenue pour une soirée", "Une tenue pour aller en cours"])
+def test_no_jacket_message_only_for_business_or_formal(make_graph, message):
+    state = run(make_graph(loader=_without_blazer), message)
+    assert not state["no_structured_jacket"] and NO_JACKET_MESSAGE not in state["response"]
+
+
+def test_without_jacket_constraint_disables_the_requirement(make_graph, wardrobe_by_id):
+    state = run(make_graph(), "J'ai un entretien demain, sans veste")
+    assert state["outfits"] and not state["dress_code_relaxed"]
+    for items in outfit_items(state, wardrobe_by_id):
+        assert all(item["category"] not in {"blazer", "jacket"} for item in items)
+    assert NO_JACKET_MESSAGE not in state["response"]
+
+
 def _formality_ok(items, min_mean, min_item):
     levels = [item["formality"] for item in items]
     return sum(levels) / len(levels) >= min_mean and min(levels) >= min_item
@@ -564,6 +672,48 @@ def test_diversify_sorts_by_personal_score():
               {**_o("dress"), "personal_score": 85.0}]
     picked = sa.diversify(ranked, k=3)
     assert [o["personal_score"] for o in picked] == [90.0, 85.0, 80.0]
+
+
+def _piece(item_id, category, color, name):
+    return {"id": item_id, "category": category, "color": color, "name": name}
+
+
+def test_piece_key():
+    assert sa.piece_key(_piece("a", "skirt", "grey", "Plaid Mini Skirt n° 2")) == \
+        sa.piece_key(_piece("b", "Skirt", "Grey", "plaid mini skirt"))
+    assert sa.piece_key(_piece("a", "skirt", "grey", "Plaid Skirt")) != \
+        sa.piece_key(_piece("b", "skirt", "black", "Plaid Skirt"))
+    assert sa.piece_key({"id": "x"}) == "x" and sa.piece_key("y") == "y"
+
+
+def test_diversify_treats_identical_pieces_as_one():
+    top = _piece("t", "top", "black", "Turtleneck")
+    twin_1, twin_2 = _piece("s1", "skirt", "grey", "Plaid Skirt"), _piece("s2", "skirt", "grey", "Plaid Skirt")
+    trousers = _piece("p", "trousers", "brown", "Wide Trousers")
+    ranked = [{"items": [top, twin_1], "score": 98.5}, {"items": [top, twin_2], "score": 98.5},
+              {"items": [top, trousers], "score": 96.3}]
+    picked = sa.diversify(ranked, k=3)
+    assert [sa._outfit_ids(o) for o in picked] == [["t", "s1"], ["t", "p"]]
+
+
+def test_diversify_keeps_same_name_in_another_color():
+    top = _piece("t", "top", "black", "Turtleneck")
+    grey, black = _piece("s1", "skirt", "grey", "Plaid Skirt"), _piece("s2", "skirt", "black", "Plaid Skirt")
+    picked = sa.diversify([{"items": [top, grey], "score": 90.0}, {"items": [top, black], "score": 89.0}], k=3)
+    assert len(picked) == 2
+
+
+def test_duplicated_garment_is_not_proposed_twice(make_graph):
+    def twin_skirts():
+        wardrobe, report = fixture_loader()
+        skirt = next(item for item in wardrobe if item["name"] == "Black Skirt")
+        return wardrobe + [{**skirt, "id": "skirt-twin"}], report
+    state = run(make_graph(loader=twin_skirts), "J'ai un entretien demain")
+    keys = [sorted(map(repr, sa._piece_keys(o))) for o in state["outfits"]]
+    assert state["outfits"] and len(keys) == len({tuple(k) for k in keys})
+    for i in range(len(keys)):
+        for j in range(i + 1, len(keys)):
+            assert sa.overlap(keys[i], keys[j]) <= sa.MAX_OVERLAP
 
 
 def test_too_similar_outfits_are_announced(make_graph):

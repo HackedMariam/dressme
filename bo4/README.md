@@ -33,7 +33,7 @@ START → extract_intent ─┬─ occasion manquante ──→ clarify ──�
 | `get_weather` | prévision Open-Meteo (ville par défaut : Tunis) pour déduire la saison |
 | `fetch_wardrobe` | lit la garde-robe dans BO1 : `GET /api/items` |
 | `apply_constraints` | retire les vêtements refusés (« sans veste », « pas de noir », « évite les jupes »…) |
-| `recommend` | appelle `outfit_engine.recommend_outfits`, applique le dress code, le profil et la diversité |
+| `recommend` | appelle `outfit_engine.recommend_outfits`, applique le dress code, le profil et la diversité ; en business ou formal : pas de short ni de pièce « mini », et veste structurée exigée si l'utilisateur en possède une |
 | `style_advice` | conseil de style BO5 (RAG), **désactivé par défaut** |
 | `respond` | réponse construite uniquement à partir des tenues classées par le moteur |
 
@@ -134,11 +134,11 @@ Extraits du dataset H&M (Kaggle) à usage académique ; à retirer si le dépôt
 Depuis `bo4/backend` :
 
 ```powershell
-# Tous les tests (dataset H&M en place : 1061 réussis, 25 ignorés)
+# Tous les tests (dataset H&M en place : 1095 réussis, 25 ignorés)
 .\.venv\Scripts\python.exe -m pytest -q
 # Moteur BO4 (301 tests)
 .\.venv\Scripts\python.exe -m pytest tests/test_outfit_engine.py tests/test_layers_and_conflicts.py tests/test_ranking_determinism.py -q
-# Stylist Agent (5 fichiers, 255 tests)
+# Stylist Agent (5 fichiers, 289 tests)
 .\.venv\Scripts\python.exe -m pytest tests/test_stylist_agent.py tests/test_stylist_web.py tests/test_stylist_feedback.py tests/test_bo1_api_adapter.py tests/test_bo5_client.py -q
 ```
 
@@ -188,8 +188,8 @@ Le script ne télécharge jamais de modèle : si `qwen2.5:3b` est absent, il le 
 
 ## Résultats
 
-- **Tests** : 1061 réussis, 25 ignorés (tests PostgreSQL d'intégration sans base) ; 301 tests du moteur ;
-  255 tests du Stylist Agent (dont 67 pour l'adaptateur BO1 et 11 pour le multi-utilisateur).
+- **Tests** : 1095 réussis, 25 ignorés (tests PostgreSQL d'intégration sans base) ; 301 tests du moteur ;
+  289 tests du Stylist Agent (dont 67 pour l'adaptateur BO1 et 11 pour le multi-utilisateur).
 - **Extraction d'intention (I79)**, `backend/evaluation/intent/report.md` : système complet (règles + LLM + garde-fou)
   - 50 phrases : 39/50 demandes entièrement correctes avant corrections, 46/50 après (chiffre **optimiste**,
     corrections faites en regardant ces phrases) ;
@@ -207,6 +207,16 @@ Le script ne télécharge jamais de modèle : si `qwen2.5:3b` est absent, il le 
   (« TD à l'amphi », « pique-nique »).
 - Évaluations sur peu de phrases et un seul annotateur ; latence mesurée sur un PC portable (RTX 2050, 8 Go de RAM).
 - Le profil de style est un fichier JSON local, sans authentification (démo mono-utilisateur).
+- **Dress code business / formal par mots-clés** : les shorts et les pièces « mini » sont repérés par la catégorie,
+  le nom et la sous-catégorie BO1 (`mini`, `minijupe`, `shorts`, `hot pants`). Une pièce courte nommée autrement
+  passe ; une coupe peu adaptée sans mot-clé (par exemple un pull épaules dénudées classé « elegant » par BO1) aussi,
+  faute d'attribut de coupe ou d'encolure dans BO1.
+- **Veste structurée** : blazer, ou veste de formalité BO1 ≥ 4. Elle est exigée en business ou formal seulement si
+  l'utilisateur en possède une ; les manteaux ne comptent pas. Le moteur BO4 lui-même ne valorise pas la veste
+  (ajouter une veste ne fait presque jamais monter le score) : c'est la règle de dress code qui l'impose.
+- **Doublons à corriger côté BO1** : une même photo envoyée deux fois crée deux vêtements identiques (même photo
+  d'origine, même découpe). Le Stylist ne propose plus deux tenues qui ne diffèrent que par ce doublon, mais il
+  reste dans la garde-robe : BO1 devrait refuser une photo déjà analysée (même empreinte d'image).
 
 ## Données personnelles et fichiers non publiés
 
