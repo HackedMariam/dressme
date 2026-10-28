@@ -1,0 +1,32 @@
+{
+  "form_version": "7d5eec339ec8",
+  "taxonomy_version": "e2-taxonomy/1",
+  "taxonomy_sha256": "a324e53304b3aaa9a1a18fb190464e57ecd730287477c4f4ba6209f467da972c",
+  "items": [
+    {
+      "article_id": "0781758009",
+      "image_path": "images/078/0781758009.jpg",
+      "image_sha256": "6710002a38090fe78414f53a01e5bee3469d80ec0147c73906cb309e2291f989"
+    },
+    {
+      "article_id": "0783144006",
+      "image_path": "images/078/0783144006.jpg",
+      "image_sha256": "909dfd613ea829c43266cfdd913bc01ad68b20371778c630bd96bcaa54a6a2f6"
+    },
+    {
+      "article_id": "0801843006",
+      "image_path": "images/080/0801843006.jpg",
+      "image_sha256": "36e199e35e35d79a00c0d0d3f81eba27064a43e7908028e4117b2ae5a871cb33"
+    },
+    {
+      "article_id": "0840606004",
+      "image_path": "images/084/0840606004.jpg",
+      "image_sha256": "5eb51b89c2ebeee952d2f050900dbbb7a799ce3c0c2df77e745028622f95aaf5"
+    }
+  ],
+  "prediction_files_sha256": {
+    "output_mini3_v4/results.jsonl": "5c822f83893768165af431bc2f9c079d984dc2ced339dc289a9776503f1da767",
+    "output_single_check/single_check.json": "5718f5df5831a176908371a1c9767919c9d82b61b17b6143910a2d99c3540725"
+  },
+  "note": "Formulaire en aveugle : aucune prédiction ni métadonnée H&M dans le HTML."
+}

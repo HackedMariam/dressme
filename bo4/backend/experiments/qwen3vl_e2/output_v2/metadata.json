@@ -1,0 +1,43 @@
+{
+  "created_utc": "2026-10-15T21:49:10+00:00",
+  "model": "qwen3-vl:2b",
+  "model_digest": "0635d9d857d497aeadba3d7d27485746c50554446f9f6ec01ef39788221adbe8",
+  "model_size": 1889519687,
+  "ollama_version": "0.40.4",
+  "options": {
+    "temperature": 0,
+    "seed": 0,
+    "num_ctx": 6144,
+    "num_predict": 2048
+  },
+  "think": false,
+  "repeats": 3,
+  "seed": 20261016,
+  "taxonomy_version": "e2-taxonomy/1",
+  "taxonomy_sha256": "a324e53304b3aaa9a1a18fb190464e57ecd730287477c4f4ba6209f467da972c",
+  "prompt_sha256": "1ce78ff8826e1a587832fb794945386339bb3a7a7b19cc0520a1de0f7d748dc2",
+  "selection_sha256": "22bc69b85195e9171726ad0cfaa731ed1bcb6aa38503477dfe2a3ddf69a1fe93",
+  "images": {
+    "0840606004": "5eb51b89c2ebeee952d2f050900dbbb7a799ce3c0c2df77e745028622f95aaf5",
+    "0781758009": "6710002a38090fe78414f53a01e5bee3469d80ec0147c73906cb309e2291f989",
+    "0698425001": "f5d21f65763e180c3cff4e2243a620069fb311e440dbf9b00a485c34cdfba60c",
+    "0781758064": "698859e438b339dc1789988fe87dcd4662694f90c5c7cb53c5880034c62a7dbf",
+    "0569973016": "2b9ff34d36decbb73d68cdc9a954a2978f7dd5f5f7aa4e54a8bf96854aeaf9fc",
+    "0783144006": "909dfd613ea829c43266cfdd913bc01ad68b20371778c630bd96bcaa54a6a2f6",
+    "0793493001": "29ff727f1323e0da28068246627ba34d3b8d71555e7dd6afb01a7aaf1dede009",
+    "0801843006": "36e199e35e35d79a00c0d0d3f81eba27064a43e7908028e4117b2ae5a871cb33",
+    "0680192004": "cb8f12a7b2f639c74c3215b6652c9a27b7864f88f7a1613a1066f53228477f4b",
+    "0706388001": "cfa57e922d90f297c0fedb0d2ac99060b986a8e9833e2784310bcaaf02a81cbf"
+  },
+  "python": "3.11.8",
+  "acceptance_criteria": {
+    "valid_schema_min_rate": 0.9666666666666667,
+    "done_stop_min_rate": 0.9666666666666667,
+    "latency_p50_max_s": 10.0,
+    "latency_p95_max_s": 20.0,
+    "ram_available_min_mib": 300.0,
+    "vram_max_mib": 4096,
+    "stability_min_field_agreement": 0.9
+  },
+  "note": "Faisabilité uniquement : aucune exactitude n'est mesurée."
+}
