@@ -13,13 +13,16 @@ Puis ouvrir http://127.0.0.1:8060
 from __future__ import annotations
 
 import argparse
+import json
+import urllib.error
+import urllib.request
 import datetime as dt
 import os
 import uuid
 from html import escape
 from typing import Any, Callable, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -40,6 +43,8 @@ _settings: dict[str, Any] = {
     "city": os.environ.get("STYLIST_CITY", sa.DEFAULT_CITY),
     "feedback": stylist_feedback.FeedbackStore(os.environ.get("STYLIST_FEEDBACK_FILE", "stylist_feedback.json")),
     "advice": None,  # BO5 (RAG) désactivé par défaut : activé par --bo5-url
+    "require_auth": False,  # --require-auth : jeton Supabase obligatoire (mode production)
+    "identity": None,       # fonction jeton -> user_id ; par défaut GET /api/me de BO1
 }
 _graph = None
 
@@ -49,19 +54,70 @@ def configure(*, bo1_url: Optional[str] = None, fallback: Optional[str] = None,
               today: Optional[Callable[[], dt.date]] = None,
               weather: Optional[Callable] = sa.open_meteo_forecast, city: str = sa.DEFAULT_CITY,
               feedback: Optional[stylist_feedback.FeedbackStore] = None,
-              advice: Optional[Callable[[str], dict]] = None) -> None:
+              advice: Optional[Callable[[str], dict]] = None, require_auth: bool = False,
+              identity: Optional[Callable[[str], str]] = None) -> None:
     """(Re)configure l'agent : utilisé par main() et par les tests."""
     global _graph
+    if require_auth and fallback:
+        # Une panne de BO1 ne doit jamais basculer en silence sur une garde-robe d'exemple.
+        raise ValueError("--require-auth est incompatible avec --fallback")
     _settings.update(bo1_url=bo1_url, fallback=fallback, llm=llm, loader=loader, today=today,
                      weather=weather, city=city, feedback=feedback or stylist_feedback.FeedbackStore(),
-                     advice=advice)
+                     advice=advice, require_auth=require_auth, identity=identity)
     _graph = None
 
 
-def _loader() -> tuple[list[dict], dict]:
+def _loader(token: Optional[str] = None) -> tuple[list[dict], dict]:
+    """Garde-robe de l'utilisateur du jeton (sans jeton : BO1_TOKEN ou mode local, comme avant)."""
     if _settings["loader"]:
-        return _settings["loader"]()
-    return bo1_api_adapter.load_wardrobe_from_bo1(_settings["bo1_url"], fallback_file=_settings["fallback"])
+        return _settings["loader"](token=token) if token else _settings["loader"]()
+    return bo1_api_adapter.load_wardrobe_from_bo1(_settings["bo1_url"], token=token,
+                                                  fallback_file=_settings["fallback"])
+
+
+# --------------------------------------------------------------------------------------
+# Identité de l'utilisateur (jeton Supabase vérifié par BO1, pas de décodage local du JWT)
+# --------------------------------------------------------------------------------------
+def bo1_identity(token: str) -> str:
+    """GET /api/me de BO1 avec le jeton : renvoie l'identifiant de l'utilisateur."""
+    base = (_settings["bo1_url"] or bo1_api_adapter.BO1_API_URL).rstrip("/")
+    request = urllib.request.Request(f"{base}/api/me", headers={"Accept": "application/json",
+                                                                 "Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise HTTPException(401, "Jeton invalide ou expiré", headers={"WWW-Authenticate": "Bearer"}) from exc
+        raise HTTPException(503, f"BO1 a répondu HTTP {exc.code} sur /api/me") from exc
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        raise HTTPException(503, "BO1 injoignable : identité de l'utilisateur impossible à vérifier") from exc
+    user_id = payload.get("id") if isinstance(payload, dict) else None
+    if not isinstance(user_id, str) or not user_id or ":" in user_id:
+        raise HTTPException(503, "Réponse inattendue de BO1 sur /api/me")
+    return user_id
+
+
+def authenticate(authorization: Optional[str]) -> tuple[str, Optional[str]]:
+    """(user_id, jeton) de la requête. Sans jeton et sans --require-auth : utilisateur « local »."""
+    token = None
+    if authorization:
+        scheme, _, value = authorization.strip().partition(" ")
+        if scheme.lower() != "bearer" or not value.strip():
+            raise HTTPException(401, "En-tête attendu : Authorization: Bearer <jeton>",
+                                headers={"WWW-Authenticate": "Bearer"})
+        token = value.strip()
+    if token is None:
+        if _settings["require_auth"]:
+            raise HTTPException(401, "Connexion requise : jeton Supabase manquant",
+                                headers={"WWW-Authenticate": "Bearer"})
+        return sa.DEFAULT_USER, None
+    user_id = (_settings["identity"] or bo1_identity)(token)
+    if _settings["require_auth"] and user_id == sa.DEFAULT_USER:
+        # BO1 en mode local accepte n'importe quel jeton : pas d'isolation possible.
+        raise HTTPException(503, "BO1 est en mode local (utilisateur unique) : --require-auth exige "
+                                 "un BO1 branché sur Supabase")
+    return user_id, token
 
 
 def get_graph():
@@ -225,7 +281,7 @@ def _item_view(item: dict, labels: Optional[dict] = None) -> dict:
     }
 
 
-def turn_payload(state: dict, thread_id: str) -> dict:
+def turn_payload(state: dict, thread_id: str, user_id: str = sa.DEFAULT_USER) -> dict:
     wardrobe = state.get("wardrobe") or []
     outfits = []
     for rank, outfit in enumerate(state.get("outfits") or [], 1):
@@ -259,13 +315,13 @@ def turn_payload(state: dict, thread_id: str) -> dict:
         "weather": state.get("weather") or {},
         "advice": state.get("advice") or {},
         "feedback_note": state.get("feedback_note") or "",
-        "profile": profile_summary(),
+        "profile": profile_summary(user_id),
         "error": state.get("error") or "",
     }
 
 
-def profile_summary() -> dict:
-    profile = _settings["feedback"].profile()
+def profile_summary(user_id: str = sa.DEFAULT_USER) -> dict:
+    profile = _settings["feedback"].profile(user_id)
     return {k: profile[k] for k in ("likes", "dislikes", "liked_items", "disliked_items")} | {
         "colors": {c: v for c, v in profile["color_affinity"].items() if v}}
 
@@ -282,15 +338,17 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-def api_chat(body: ChatRequest) -> dict:
+def api_chat(body: ChatRequest, authorization: Optional[str] = Header(None)) -> dict:
+    user_id, token = authenticate(authorization)
     message = body.message.strip()
     if not message:
         raise HTTPException(400, "Message vide")
     thread_id = body.thread_id or str(uuid.uuid4())
     graph = get_graph()
-    config = {"configurable": {"thread_id": thread_id}}
+    # Fil « <user_id>:<thread_id> » ; le jeton passe par la configuration du tour, jamais par l'état.
+    config = sa.turn_config(thread_id, user_id, token)
     graph.invoke(sa.new_turn(message), config)
-    return turn_payload(graph.get_state(config).values, thread_id)
+    return turn_payload(graph.get_state(config).values, thread_id, user_id)
 
 
 class FeedbackRequest(BaseModel):
@@ -300,31 +358,34 @@ class FeedbackRequest(BaseModel):
 
 
 @app.post("/api/feedback")
-def api_feedback(body: FeedbackRequest) -> dict:
+def api_feedback(body: FeedbackRequest, authorization: Optional[str] = Header(None)) -> dict:
     """I76 : 👍 / 👎 sur une tenue du dernier tour (boutons de la page)."""
+    user_id, _ = authenticate(authorization)
     if body.verdict not in {"like", "dislike"}:
         raise HTTPException(400, "verdict : like ou dislike")
-    config = {"configurable": {"thread_id": body.thread_id}}
+    config = sa.turn_config(body.thread_id, user_id)
     state = get_graph().get_state(config).values or {}
     last = state.get("last_outfits") or []
     if not 1 <= body.rank <= len(last):
         raise HTTPException(404, f"Tenue n° {body.rank} introuvable dans les dernières propositions")
     by_id = {str(item["id"]): item for item in state.get("wardrobe") or []}
     items = [by_id[i] for i in last[body.rank - 1] if i in by_id]
-    _settings["feedback"].add(body.verdict, items, (state.get("request") or {}).get("occasion"))
+    _settings["feedback"].add(body.verdict, items, (state.get("request") or {}).get("occasion"), user=user_id)
     labels = sa.display_names(state.get("wardrobe") or [])
-    return {"ok": True, "items": [labels[str(item["id"])] for item in items], "profile": profile_summary()}
+    return {"ok": True, "items": [labels[str(item["id"])] for item in items], "profile": profile_summary(user_id)}
 
 
 @app.get("/api/profile")
-def api_profile() -> dict:
-    return profile_summary()
+def api_profile(authorization: Optional[str] = Header(None)) -> dict:
+    user_id, _ = authenticate(authorization)
+    return profile_summary(user_id)
 
 
 @app.get("/api/wardrobe")
-def api_wardrobe() -> dict:
+def api_wardrobe(authorization: Optional[str] = Header(None)) -> dict:
+    _, token = authenticate(authorization)
     try:
-        wardrobe, report = _loader()
+        wardrobe, report = _loader(token)
     except bo1_api_adapter.BO1UnavailableError as exc:
         raise HTTPException(503, str(exc)) from exc
     labels = sa.display_names(wardrobe)
@@ -994,11 +1055,17 @@ def main() -> None:
                         help="fichier JSON des retours utilisateur (I76/I77)")
     parser.add_argument("--bo5-url", default=None,
                         help="URL de BO5 (RAG) : active le node style_advice (désactivé par défaut)")
+    parser.add_argument("--require-auth", action="store_true",
+                        help="mode production : jeton Supabase obligatoire (Authorization: Bearer), "
+                             "identité vérifiée par GET /api/me de BO1 ; incompatible avec --fallback")
     args = parser.parse_args()
+    if args.require_auth and args.fallback:
+        parser.error("--require-auth est incompatible avec --fallback : une panne de BO1 ne doit jamais "
+                     "basculer en silence sur une garde-robe d'exemple")
     configure(bo1_url=args.bo1_url, fallback=args.fallback, llm=None if args.no_llm else sa.ollama_extract,
               weather=None if args.no_weather else sa.open_meteo_forecast, city=args.city,
               feedback=stylist_feedback.FeedbackStore(args.feedback_file),
-              advice=sa.bo5_advice(args.bo5_url))
+              advice=sa.bo5_advice(args.bo5_url), require_auth=args.require_auth)
 
     import uvicorn
     print(f"Stylist web : http://127.0.0.1:{args.port}")

@@ -54,6 +54,11 @@ from typing import Any, Callable, Optional, TypedDict
 import bo1_api_adapter
 import stylist_feedback
 
+try:  # LangGraph n'injecte la configuration du tour que dans un paramètre typé RunnableConfig.
+    from langchain_core.runnables import RunnableConfig
+except ImportError:  # sans LangGraph, les nodes restent appelables directement
+    RunnableConfig = dict  # type: ignore[misc,assignment]
+
 OCCASIONS = ("university", "work", "evening", "casual")
 SEASONS = ("spring", "summer", "autumn", "winter")
 
@@ -524,7 +529,7 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
         return {"request": request, "history": history, "error": "",
                 "trace": [f"extract_intent [{source}] -> {summary}"]}
 
-    def record_feedback(state: StylistState) -> dict:
+    def record_feedback(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
         request = state["request"]
         feedback = request["feedback"]
         last = state.get("last_outfits") or []
@@ -540,7 +545,7 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
         else:
             by_id = {str(item["id"]): item for item in state.get("wardrobe") or []}
             items = [by_id[i] for i in last[rank - 1] if i in by_id]
-            feedback_store.add(verdict, items, request.get("occasion"))
+            feedback_store.add(verdict, items, request.get("occasion"), user=request_user(config))
             labels = display_names(state.get("wardrobe") or [])
             names = " + ".join(labels[str(item["id"])] for item in items)
             note = f"C'est noté : tu {verb} la tenue {rank} ({names})."
@@ -582,9 +587,11 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
                 f"=> saison {season}")
         return {"request": request, "weather": forecast, "trace": trace + [line]}
 
-    def fetch_wardrobe(state: StylistState) -> dict:
+    def fetch_wardrobe(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
+        # Jeton de l'utilisateur : lu dans la configuration du tour, jamais dans l'état (persisté).
+        token = request_token(config)
         try:
-            wardrobe, report = wardrobe_loader()
+            wardrobe, report = wardrobe_loader(token=token) if token else wardrobe_loader()
         except bo1_api_adapter.BO1UnavailableError as exc:
             return {"error": f"Je n'arrive pas à lire ta garde-robe (BO1) : {exc}",
                     "wardrobe": [], "wardrobe_report": {},
@@ -610,7 +617,7 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
         return {"candidates": candidates, "excluded": excluded,
                 "trace": state.get("trace", []) + [line]}
 
-    def recommend(state: StylistState) -> dict:
+    def recommend(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
         request = state["request"]
         shown = [list(ids) for ids in (state.get("shown") or [])] if request["wants_another"] else []
         already = {frozenset(ids) for ids in shown}
@@ -625,8 +632,9 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             state_trace = None
         code = request.get("dress_code")
         candidates = state.get("candidates") or []
-        profile = feedback_store.profile() if feedback_store else None
-        rejected = feedback_store.disliked_outfits() if feedback_store else set()
+        user = request_user(config)
+        profile = feedback_store.profile(user) if feedback_store else None
+        rejected = feedback_store.disliked_outfits(user) if feedback_store else set()
         annotated = []
         for outfit in ranked:
             ids = frozenset(_outfit_ids(outfit))
@@ -684,6 +692,55 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             "fetch_wardrobe": fetch_wardrobe,
             "apply_constraints": apply_constraints, "recommend": recommend,
             "style_advice": style_advice, "respond": respond}
+
+
+# --------------------------------------------------------------------------------------
+# Utilisateur et jeton du tour (multi-utilisateur)
+# --------------------------------------------------------------------------------------
+DEFAULT_USER = "local"          # mode développement : BO1 local, un seul utilisateur
+# Le préfixe « __ » empêche LangGraph de recopier la valeur dans les métadonnées des
+# checkpoints (vérifié avec LangGraph 1.2) : le jeton n'est jamais conservé.
+TOKEN_KEY = "__bo1_token"
+
+
+class RequestToken:
+    """Jeton Supabase d'un tour : transmis par la configuration, jamais affiché ni stocké."""
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str):
+        self._value = value
+
+    def reveal(self) -> str:
+        return self._value
+
+    def __repr__(self) -> str:
+        return "RequestToken(***)"
+
+    __str__ = __repr__
+
+
+def _configurable(config: Optional[dict]) -> dict:
+    return (config or {}).get("configurable") or {}
+
+
+def request_user(config: Optional[dict]) -> str:
+    return _configurable(config).get("user_id") or DEFAULT_USER
+
+
+def request_token(config: Optional[dict]) -> Optional[str]:
+    token = _configurable(config).get(TOKEN_KEY)
+    return token.reveal() if isinstance(token, RequestToken) else None
+
+
+def turn_config(thread_id: str, user_id: str = DEFAULT_USER, token: Optional[str] = None) -> dict:
+    """Configuration d'un tour : le fil est préfixé par l'utilisateur (« <user_id>:<thread_id> »),
+    si bien qu'un utilisateur ne peut pas reprendre la conversation d'un autre."""
+    if ":" in user_id:
+        raise ValueError("identifiant utilisateur invalide")
+    configurable: dict[str, Any] = {"thread_id": f"{user_id}:{thread_id}", "user_id": user_id}
+    if token:
+        configurable[TOKEN_KEY] = RequestToken(token)
+    return {"configurable": configurable}
 
 
 def route_after_intent(state: StylistState) -> str:
@@ -907,7 +964,7 @@ def new_turn(message: str) -> dict:
 
 
 def chat(graph, message: str, thread_id: str, show_trace: bool = False) -> str:
-    config = {"configurable": {"thread_id": thread_id}}
+    config = turn_config(thread_id)
     if show_trace:
         for update in graph.stream(new_turn(message), config, stream_mode="updates"):
             for node, values in update.items():

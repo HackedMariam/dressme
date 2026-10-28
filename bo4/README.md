@@ -53,6 +53,38 @@ Sans BO1, l'agent peut utiliser une garde-robe d'exemple au même format : `back
 > l'expérience E1 vérifie son empreinte ; le Stylist Agent utilise `bo1_api_adapter.py`, qui lit le vrai BO1
 > (branche `wardrobe`) par `GET /api/items`.
 
+## État actuel de la démo et de Supabase
+
+- **La démo utilise BO1 en mode local**, avec **10 photos H&M** envoyées à `POST /api/items/analyze` : BO1 tourne
+  sans `.env` ni clé Supabase, stocke tout dans `local_data/db.json` sous l'utilisateur unique `local`, et le Stylist
+  Agent lit cette garde-robe par `GET /api/items`. Le dataset H&M ne sert qu'aux tests et aux démonstrations ; le
+  code du Stylist Agent ne le lit jamais directement.
+- **Le branchement sur le Supabase partagé attend une décision d'équipe sur la table des vêtements** : BO1 (branche
+  `wardrobe`) écrit dans sa propre table `items` (`supabase/schema.sql`), alors que le schéma partagé
+  (`supabase/migrations/`, branche `rag/try1`) définit `wardrobe_items`, `item_images` et `image_analyses`.
+  `bo1_api_adapter.py` correspond aujourd'hui aux champs de `items` ; il faudra l'adapter si `wardrobe_items` est retenue.
+
+## Multi-utilisateur (jeton Supabase)
+
+Le Stylist Agent sait servir plusieurs utilisateurs, chacun avec sa garde-robe, ses conversations et son profil :
+
+- **Jeton** : `/api/chat`, `/api/feedback`, `/api/profile` et `/api/wardrobe` lisent `Authorization: Bearer <jeton
+  Supabase>`. Le jeton est transmis à BO1 (`GET /api/items`) pour lire la garde-robe **de cet utilisateur**.
+- **Identité** : l'identifiant vient de `GET /api/me` de BO1 avec ce jeton (pas de décodage local du JWT) ; un jeton
+  refusé par BO1 donne une erreur 401.
+- **Jeton jamais conservé** : il passe par la configuration du tour LangGraph (clé `__bo1_token`, objet au contenu
+  masqué), jamais par l'état que le checkpointer garde en mémoire ; un test le vérifie.
+- **Conversations isolées** : la clé du fil est `<user_id>:<thread_id>` ; un utilisateur ne peut pas reprendre la
+  conversation d'un autre, même avec le même `thread_id`.
+- **Profils 👍 / 👎 séparés** : chaque retour est enregistré sous l'identifiant réel de l'utilisateur.
+- **Mode développement inchangé** : sans jeton et sans `--require-auth`, l'utilisateur est `local` (ou celui de
+  `BO1_TOKEN`), comme avant.
+- **Mode production** : `--require-auth` renvoie 401 sans jeton, refuse un BO1 resté en mode local (503) et refuse
+  `--fallback` au démarrage, pour qu'une panne de BO1 ne bascule jamais en silence sur une garde-robe d'exemple.
+
+Limite : la page de `stylist_web.py` n'a pas d'écran de connexion. En mode `--require-auth`, le jeton doit venir du
+front de l'équipe (connexion Supabase, comme `frontend/src/api.js` de BO1 avec `supabase.auth.getSession()`).
+
 ## Installation
 
 Python 3.11 (64 bits), depuis `bo4/backend` :
@@ -102,11 +134,11 @@ Extraits du dataset H&M (Kaggle) à usage académique ; à retirer si le dépôt
 Depuis `bo4/backend` :
 
 ```powershell
-# Tous les tests (dataset H&M en place : 1050 réussis, 25 ignorés)
+# Tous les tests (dataset H&M en place : 1061 réussis, 25 ignorés)
 .\.venv\Scripts\python.exe -m pytest -q
 # Moteur BO4 (301 tests)
 .\.venv\Scripts\python.exe -m pytest tests/test_outfit_engine.py tests/test_layers_and_conflicts.py tests/test_ranking_determinism.py -q
-# Stylist Agent (5 fichiers, 244 tests)
+# Stylist Agent (5 fichiers, 255 tests)
 .\.venv\Scripts\python.exe -m pytest tests/test_stylist_agent.py tests/test_stylist_web.py tests/test_stylist_feedback.py tests/test_bo1_api_adapter.py tests/test_bo5_client.py -q
 ```
 
@@ -129,6 +161,7 @@ Depuis `bo4/backend` :
 | `--city` | ville par défaut pour la météo (Tunis) |
 | `--feedback-file` | fichier des 👍 / 👎 (`stylist_feedback.json`, ignoré par git) |
 | `--bo5-url` | active le conseil de style BO5 (RAG, `POST /ask`) ; clé facultative dans `BO5_API_KEY` |
+| `--require-auth` | mode production : jeton Supabase obligatoire (voir « Multi-utilisateur ») ; incompatible avec `--fallback` |
 
 Variables d'environnement utiles : `BO1_API_URL`, `BO5_API_URL`, `BO5_API_KEY`, `OLLAMA_URL`, `STYLIST_LLM_MODEL`,
 `STYLIST_CITY`. La même logique existe en ligne de commande : `stylist_agent.py --trace` (mêmes options, sans
@@ -155,8 +188,8 @@ Le script ne télécharge jamais de modèle : si `qwen2.5:3b` est absent, il le 
 
 ## Résultats
 
-- **Tests** : 1050 réussis, 25 ignorés (tests PostgreSQL d'intégration sans base) ; 301 tests du moteur ;
-  244 tests du Stylist Agent (dont 67 pour l'adaptateur BO1).
+- **Tests** : 1061 réussis, 25 ignorés (tests PostgreSQL d'intégration sans base) ; 301 tests du moteur ;
+  255 tests du Stylist Agent (dont 67 pour l'adaptateur BO1 et 11 pour le multi-utilisateur).
 - **Extraction d'intention (I79)**, `backend/evaluation/intent/report.md` : système complet (règles + LLM + garde-fou)
   - 50 phrases : 39/50 demandes entièrement correctes avant corrections, 46/50 après (chiffre **optimiste**,
     corrections faites en regardant ces phrases) ;

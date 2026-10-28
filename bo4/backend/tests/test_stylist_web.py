@@ -258,3 +258,181 @@ def test_page_is_offline_and_graph_hidden_by_default(client):
     assert "Afficher le graphe" in page and "Masquer le graphe" in page and "Agrandir" in page
     assert '<div id="graph-box" hidden>' in page
     assert "Chemin :" in page and 'role="dialog"' in page
+
+
+# ===================================================================== Multi-utilisateur (BO1 simulé)
+import io  # noqa: E402
+import json  # noqa: E402
+import sys  # noqa: E402
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+
+import stylist_agent as sa  # noqa: E402
+
+TOKENS = {"jeton-alice": "uuid-alice", "jeton-bob": "uuid-bob"}
+BOB_NAMES = {"Burgundy Dress", "Navy Blazer"}
+
+
+class FakeResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.fixture
+def bo1(monkeypatch):
+    """BO1 simulé : /api/me et /api/items selon le jeton (Alice : toute la garde-robe ; Bob : 2 pièces)."""
+    items = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    wardrobes = {"uuid-alice": items, "uuid-bob": [i for i in items if i["name"] in BOB_NAMES]}
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        auth = request.get_header("Authorization") or ""
+        token = auth[len("Bearer "):] if auth.startswith("Bearer ") else None
+        path = request.full_url.split("bo1.test", 1)[1]
+        calls.append((path, token))
+        if token not in TOKENS:
+            raise urllib.error.HTTPError(request.full_url, 401, "Not signed in", {}, None)
+        body = {"id": TOKENS[token], "email": None} if path == "/api/me" else wardrobes[TOKENS[token]]
+        return FakeResponse(json.dumps(body).encode("utf-8"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    return calls
+
+
+@pytest.fixture
+def multi(bo1):
+    stylist_web.configure(bo1_url="http://bo1.test", llm=None, weather=None, today=lambda: dt.date(2026, 10, 22))
+    yield testclient.TestClient(stylist_web.app), bo1
+    stylist_web.configure()
+
+
+@pytest.fixture
+def strict(bo1):
+    stylist_web.configure(bo1_url="http://bo1.test", llm=None, weather=None, today=lambda: dt.date(2026, 10, 22),
+                          require_auth=True)
+    yield testclient.TestClient(stylist_web.app), bo1
+    stylist_web.configure()
+
+
+def auth(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def chat_as(client, token, message, thread_id="t1"):
+    response = client.post("/api/chat", json={"message": message, "thread_id": thread_id}, headers=auth(token))
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def outfit_names(data):
+    return [{item["name"] for item in o["items"]} for o in data["outfits"]]
+
+
+def test_user_token_is_forwarded_to_bo1(multi):
+    client, calls = multi
+    data = chat_as(client, "jeton-alice", "J'ai un entretien demain")
+    assert ("/api/me", "jeton-alice") in calls and ("/api/items", "jeton-alice") in calls
+    assert data["wardrobe"]["source"] == "bo1_api" and data["wardrobe"]["kept"] == 10
+    assert data["thread_id"] == "t1"                                  # le préfixe utilisateur reste interne
+
+
+def test_two_tokens_give_two_wardrobes(multi):
+    client, _ = multi
+    alice = chat_as(client, "jeton-alice", "J'ai un entretien demain")
+    bob = chat_as(client, "jeton-bob", "J'ai un entretien demain")
+    assert bob["wardrobe"]["kept"] == 2 and alice["wardrobe"]["kept"] == 10
+    assert bob["outfits"] and all(names <= BOB_NAMES for names in outfit_names(bob))
+    assert any(names - BOB_NAMES for names in outfit_names(alice))
+    wardrobe_bob = client.get("/api/wardrobe", headers=auth("jeton-bob")).json()
+    assert {item["name"] for item in wardrobe_bob["items"]} == BOB_NAMES
+
+
+def test_a_thread_cannot_be_resumed_by_another_user(multi):
+    client, _ = multi
+    chat_as(client, "jeton-alice", "J'ai un entretien demain", thread_id="partage")
+    stolen = chat_as(client, "jeton-bob", "Une autre", thread_id="partage")
+    assert stolen["request"].get("occasion") is None                  # Bob ne voit pas le contexte d'Alice
+    assert stolen["outfits"] == [] and "Pour quelle occasion" in stolen["response"]
+    refused = client.post("/api/feedback", json={"thread_id": "partage", "rank": 1, "verdict": "like"},
+                          headers=auth("jeton-bob"))
+    assert refused.status_code == 404
+    again = chat_as(client, "jeton-alice", "Une autre", thread_id="partage")
+    assert again["request"]["occasion"] == "work" and again["request"]["wants_another"] is True
+
+
+def test_like_and_dislike_profiles_are_separated(multi):
+    client, _ = multi
+    chat_as(client, "jeton-alice", "J'ai un entretien demain")
+    liked = client.post("/api/feedback", json={"thread_id": "t1", "rank": 1, "verdict": "like"},
+                        headers=auth("jeton-alice"))
+    assert liked.status_code == 200 and liked.json()["profile"]["likes"] == 1
+    assert client.get("/api/profile", headers=auth("jeton-alice")).json()["likes"] == 1
+    assert client.get("/api/profile", headers=auth("jeton-bob")).json()["likes"] == 0
+    assert client.get("/api/profile").json()["likes"] == 0             # utilisateur « local » (mode dev)
+    store = stylist_web._settings["feedback"]
+    assert store.records("uuid-alice") and not store.records("uuid-bob") and not store.records("local")
+
+
+def test_dislike_in_chat_is_recorded_for_the_right_user(multi):
+    client, _ = multi
+    chat_as(client, "jeton-bob", "J'ai un entretien demain")
+    chat_as(client, "jeton-bob", "Je n'aime pas la 1")
+    store = stylist_web._settings["feedback"]
+    assert store.disliked_outfits("uuid-bob") and not store.disliked_outfits("uuid-alice")
+
+
+def test_token_is_never_kept_by_the_checkpointer(multi):
+    client, _ = multi
+    chat_as(client, "jeton-alice", "J'ai un entretien demain")
+    chat_as(client, "jeton-alice", "J'aime la 1")
+    saver = stylist_web.get_graph().checkpointer
+    dump = repr([(t.config, t.metadata, t.checkpoint) for t in saver.list(None)]) + repr(saver.storage)
+    assert "jeton-alice" not in dump
+    assert "uuid-alice:t1" in dump                                      # fil préfixé par l'utilisateur
+    assert repr(sa.RequestToken("secret")) == "RequestToken(***)"
+
+
+def test_require_auth_returns_401_without_token(strict):
+    client, _ = strict
+    assert client.post("/api/chat", json={"message": "Bonjour"}).status_code == 401
+    assert client.post("/api/feedback", json={"thread_id": "t1", "rank": 1, "verdict": "like"}).status_code == 401
+    assert client.get("/api/profile").status_code == 401
+    assert client.get("/api/wardrobe").status_code == 401
+    malformed = client.post("/api/chat", json={"message": "Bonjour"}, headers={"Authorization": "Token abc"})
+    assert malformed.status_code == 401
+    assert chat_as(client, "jeton-alice", "J'ai un entretien demain")["outfits"]
+
+
+def test_invalid_token_is_rejected_by_bo1(multi):
+    client, _ = multi
+    response = client.post("/api/chat", json={"message": "Bonjour"}, headers=auth("jeton-inconnu"))
+    assert response.status_code == 401
+
+
+def test_require_auth_refuses_a_local_bo1(bo1):
+    stylist_web.configure(llm=None, loader=fixture_loader, weather=None, require_auth=True,
+                          identity=lambda token: "local")
+    try:
+        client = testclient.TestClient(stylist_web.app)
+        response = client.post("/api/chat", json={"message": "Bonjour"}, headers=auth("nimporte-quoi"))
+        assert response.status_code == 503 and "mode local" in response.json()["detail"]
+    finally:
+        stylist_web.configure()
+
+
+def test_require_auth_with_fallback_is_refused(monkeypatch, capsys):
+    with pytest.raises(ValueError):
+        stylist_web.configure(require_auth=True, fallback=str(FIXTURE))
+    monkeypatch.setattr(sys, "argv", ["stylist_web.py", "--require-auth", "--fallback", str(FIXTURE)])
+    with pytest.raises(SystemExit) as exit_info:
+        stylist_web.main()
+    assert exit_info.value.code == 2 and "--fallback" in capsys.readouterr().err
+
+
+def test_dev_mode_without_token_is_unchanged(client):
+    data = chat(client, "Une tenue pour un entretien demain")
+    assert data["outfits"] and data["wardrobe"]["source"] == "fixture"
+    assert data["profile"]["likes"] == 0
