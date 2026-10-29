@@ -13,10 +13,13 @@ ORDER = [
     ("2_citations_retrieve", "2. Prompt de citation", "retrieve, question traduite"),
     ("2_citations_ask", "2. Prompt de citation", "ask"),
     ("3_corpus_v2_simulation_retrieve", "3. Corpus v2 (SIMULATION, table non créée)", "retrieve, question traduite"),
+    ("4_corpus_v2_retrieve", "4. Corpus v2 + nouvelles sources", "retrieve, question traduite"),
+    ("4_corpus_v2_ask", "4. Corpus v2 + nouvelles sources", "ask"),
 ]
 COLUMNS = [("hit@5", "Hit@5"), ("mrr@5", "MRR@5"), ("precision@5", "Préc.@5"),
            ("titre_signale_dans_sources", "Titre signalé (sources)"), ("grounded", "Avec citation"),
-           ("citation_pertinente", "Citation pertinente"), ("je_ne_sais_pas", "« I don't know »"),
+           ("citation_pertinente", "Citation pertinente"), ("je_ne_sais_pas", "« I don't know » injustifié"),
+           ("refus_attendu_respecte", "Refus attendu respecté"),
            ("latence_mediane_s", "Latence méd. (s)")]
 
 
@@ -30,7 +33,10 @@ def cell(summary: dict, key: str) -> str:
 def main() -> None:
     lines = ["# RAG v2 : résultats avant / après", "",
              "**Chiffres provisoires** : le gold set (`gold_set.jsonl`, 40 questions, 20 sujets en FR et en EN) est un "
-             "brouillon non validé. Une exécution par ligne ; le LLM varie d'un appel à l'autre. `top_k = 5`.", ""]
+             "brouillon non validé. Une exécution par ligne ; le LLM varie d'un appel à l'autre. `top_k = 5`.",
+             "", "Depuis l'étape 4, le sujet « tendances » (2 questions) n'a plus de source : réponse attendue "
+             "« I don't know », hors Hit@5 / MRR / précision (36 questions mesurées). Les lignes 0 à 3 utilisent "
+             "l'ancien gold set (40 questions mesurées, attendus de la v1).", ""]
     for scope, title in (("tout", "Ensemble (40 questions)"), ("fr", "Questions en français (20)"),
                          ("en", "Questions en anglais (20)")):
         lines += [f"## {title}", "", "| Étape | Mode | " + " | ".join(label for _, label in COLUMNS) + " |",

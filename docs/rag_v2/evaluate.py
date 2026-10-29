@@ -138,27 +138,32 @@ def summarize(results: list[dict], mode: str) -> dict:
     groups = {"tout": results, "fr": [r for r in results if r["lang"] == "fr"],
               "en": [r for r in results if r["lang"] == "en"]}
     summary = {}
-    for name, rows in groups.items():
-        s = {"n": len(rows), "hit@5": mean(r["hit"] for r in rows), "mrr@5": mean(r["rr"] for r in rows),
-             "precision@5": mean(r["precision"] for r in rows),
-             "titre_signale_dans_sources": mean(r["flagged_title"] for r in rows),
-             "latence_mediane_s": round(statistics.median(r["latency_s"] for r in rows), 2) if rows else None}
+    for name, all_rows in groups.items():
+        # questions sans source attendue (« answerable »: false) : hors mesures de recherche, réponse attendue
+        # « I don't know » ; « je_ne_sais_pas » ne compte que les refus sur des questions qui ont une source
+        rows = [r for r in all_rows if r.get("answerable", True)]
+        unanswerable = [r for r in all_rows if not r.get("answerable", True)]
+        s = {"n": len(all_rows), "n_mesurees": len(rows), "hit@5": mean(r["hit"] for r in rows),
+             "mrr@5": mean(r["rr"] for r in rows), "precision@5": mean(r["precision"] for r in rows),
+             "titre_signale_dans_sources": mean(r["flagged_title"] for r in all_rows),
+             "latence_mediane_s": round(statistics.median(r["latency_s"] for r in all_rows), 2) if all_rows else None}
         if mode == "ask":
             s.update({"grounded": mean(r["grounded"] for r in rows),
                       "citation_pertinente": mean(r["cited_relevant"] for r in rows),
-                      "titre_signale_cite": mean(r["cited_flagged"] for r in rows),
+                      "titre_signale_cite": mean(r["cited_flagged"] for r in all_rows),
                       "je_ne_sais_pas": mean(r["dont_know"] for r in rows),
-                      "http_ok": mean(r["status"] == 200 for r in rows)})
+                      "refus_attendu_respecte": mean(r["dont_know"] for r in unanswerable) if unanswerable else None,
+                      "http_ok": mean(r["status"] == 200 for r in all_rows)})
         summary[name] = s
     pairs = {}
-    for r in results:
+    for r in (r for r in results if r.get("answerable", True)):
         pairs.setdefault(r["pair"], {})[r["lang"]] = r["hit"]
     summary["paires"] = {"les_deux": sum(p.get("fr") and p.get("en") for p in pairs.values()),
                          "anglais_seulement": sum((not p.get("fr")) and p.get("en") for p in pairs.values()),
                          "francais_seulement": sum(p.get("fr") and (not p.get("en")) for p in pairs.values()),
                          "aucune": sum((not p.get("fr")) and (not p.get("en")) for p in pairs.values())}
     by_theme = {}
-    for r in results:
+    for r in (r for r in results if r.get("answerable", True)):
         by_theme.setdefault(r["theme"], []).append(r["hit"])
     summary["hit@5_par_theme"] = {t: mean(v) for t, v in sorted(by_theme.items())}
     return summary
