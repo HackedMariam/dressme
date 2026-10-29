@@ -1,0 +1,296 @@
+{
+  "total_chunks_v1": 14574,
+  "documents_v1": 38,
+  "removed_documents": 21,
+  "removed_chunks": 11827,
+  "kept_documents": 17,
+  "kept_chunks": 2747,
+  "removed": [
+    {
+      "document_id": "785153fc17609fc960de48a1513a692c09a01d776a7769d587e8bcff68852423",
+      "title": "How to Pack for Any Trip (Lonely Planet)",
+      "chunks": 1,
+      "reason": "doublon",
+      "sources": [
+        "How-to-Pack-for-Any-Trip-_Barrell_-SarahSimon_-Kate_-_z-library.sk_-1lib.sk_-z-lib.sk_.pdf"
+      ]
+    },
+    {
+      "document_id": "0e87cfed7e3e6e8eaba421e60830396dbfee360d93838a98d0032d4f69556156",
+      "title": "The Science of Footwear",
+      "chunks": 2303,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "The Science of Footwear (Ravindra S. Goonetilleke) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "a00807d510c441b7f773cace2c73e1094db2578d50e62c5f5e2ed24c8d4e6cb2",
+      "title": "J.J. Pizzutos Fabric Science, 10th Edition (Allen C. Cohen, Ingrid Johnson etc.) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "chunks": 1600,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "J.J. Pizzutos Fabric Science, 10th Edition (Allen C. Cohen, Ingrid Johnson etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "a5fba229a17a0a1a2b9c36cf8ab0280d5a4cbace7e024d8ee9d9ac7a5ffc2a3f",
+      "title": "Fashion Education",
+      "chunks": 1060,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Fashion-Education-The-Systemic-Revolution-_Ben-Barry_-Deborah-A.-Christel_-_z-library.sk_-1lib.pdf"
+      ]
+    },
+    {
+      "document_id": "af308dc7d439a4ad60e95e8e3e21bc9b3ea4dc50a0db5d45573071b1c9b54d2b",
+      "title": "Fashion Media Past and Present (Djurdja Bartlett, Shaun Cole etc.) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "chunks": 836,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Fashion Media Past and Present (Djurdja Bartlett, Shaun Cole etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "5cfcf765b5aa2aa5e9ad66c568550dc876ff4a880a0e354317ac5a60b2b62b13",
+      "title": "Communicating Fashion",
+      "chunks": 792,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Communicating Fashion Clothing, Culture, and Media (Myles Ethan Lascity) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "d173d7e89ec64f0f93dfe44f83020f79176f708bc90431efd667a7bbb5eed0b2",
+      "title": "36916.indb",
+      "chunks": 767,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Fashion Trends Volume Second edition Analysis and Forecasting ( etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "1b7ed0388cf073451e2a5deaf4c3d15613471feacd05611dcfb89796d6922059",
+      "title": "Fashion, Design and Events",
+      "chunks": 705,
+      "reason": "hors sujet : organisation d'événements de mode, pas de conseil vestimentaire",
+      "sources": [
+        "Fashion, Design and Events.pdf"
+      ]
+    },
+    {
+      "document_id": "8e83ee4f18bf0c3a6e3a263aba1e3163091764230441fe20e0c5c018a4ba95cb",
+      "title": "Worn: Footwear, Attachment and the Affects of Wear",
+      "chunks": 569,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Worn Footwear, Attachment and the Affects of Wear (Ellen Sampson) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "361c745bd3d348201c69cbdf69280f97dff28f682936afe8d4eae46c609fa868",
+      "title": "Men's wardrobe",
+      "chunks": 560,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Mens wardrobe (Gross, Kim Johnson, Stone, Jeff, 1953- etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "13b9c9e791f69afdb812bd9b6593ebfea951a2975f1afc8c9502b27d61d62b4b",
+      "title": "Traveling clothes",
+      "chunks": 501,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Traveling clothes (Deasy, Bill, 1966-) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "03576799c376d669708799c7a540bd666e0b07cc13dba14e8fb9bd93c04a8c90",
+      "title": "Ten Garments Every Man Should Own",
+      "chunks": 419,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Ten-Garments-Every-Man-Should-Own-_Pedro-Mendes_-_z-library.sk_-1lib.sk_-z-lib.sk__1.pdf"
+      ]
+    },
+    {
+      "document_id": "e13e21ba09d1721d6f0977147bf437003b4fa46777f78ce703d6aa1edd811cf1",
+      "title": "Textilepedia (Fashionary International Limited) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "chunks": 319,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Textilepedia (Fashionary International Limited) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "75407d0c0ce2c314e87627c7afb37e4c3e863ecb9c2cbc74a32cdfe85c04d9a0",
+      "title": "Work clothes",
+      "chunks": 318,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Work clothes (Gross, Kim Johnson, Stone, Jeff etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "3b2b3a8901e4444c3ef9524aa3d838132047af1d894d67cac6ef37fce87c891b",
+      "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+      "chunks": 306,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Old-Money-Style-Secrets-to-Dressing-Well-for-Less-_The-Gentlemans-Edition_-_Byron-Tully_-_z-library.pdf"
+      ]
+    },
+    {
+      "document_id": "dd77d47aa35e3d15ada7da8214137135dbc08907ee53062ee4e3612dafcd4391",
+      "title": "How to Pack for Any Trip (Lonely Planet)",
+      "chunks": 180,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "How to Pack for Any Trip (Barrell, SarahSimon, Kate) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "2eea009171781fc355c1cc23341df51bd9f999481a5cdcc2bcbccaec12395e3c",
+      "title": "How to Pack: Travel Smart for Any Trip",
+      "chunks": 160,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "How to Pack Travel Smart for Any Trip (Hitha Palepu) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "4b4e81e15e0a03a1afe3411ae1e45dd1474ba95832eeeae794f7684fab06ef58",
+      "title": "The Capsule Wardrobe",
+      "chunks": 153,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "The-Capsule-Wardrobe-1_000-Outfits-from-30-Pieces-_Wendy-Mak_-_z-library.sk_-1lib.sk_-z-lib.sk_.pdf"
+      ]
+    },
+    {
+      "document_id": "d580d5d489ea12ed1db7ee5adad09a3a0d138a683a30f2c808827d3b29cb0586",
+      "title": "Shoes (Klaus H. Carl) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "chunks": 133,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "Shoes (Klaus H. Carl) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    },
+    {
+      "document_id": "68152d63e128c904c5db214dd2e6347c336719b57b856a5d45447aed23624009",
+      "title": "Chapter06-SmaouiandGhariani-aout11",
+      "chunks": 80,
+      "reason": "hors sujet : chapitre d'article de recherche, hors sujet",
+      "sources": [
+        "Chapter06-SmaouiandGhariani-aout11.pdf"
+      ]
+    },
+    {
+      "document_id": "24f9f83a81bddd4d6152ebbbce0c83bacfca29bd42fee9fa08d7092dec4ee901",
+      "title": "The French Minimalist Capsule Wardrobe - Winter 2018-2019 Collection",
+      "chunks": 65,
+      "reason": "fichier issu de z-library (droits douteux)",
+      "sources": [
+        "The French Minimalist Capsule Wardrobe - Winter 2018-2019 Collection (Leanne Blackmon) (z-library.sk, 1lib.sk, z-lib.sk).pdf"
+      ]
+    }
+  ],
+  "renamed": [
+    {
+      "document_id": "debc441d706baccb55a9334573e4c5aeb0556a026023d10fe7a6e7443fb70c91",
+      "old_title": "Slide 1",
+      "new_title": "Color Harmony Workbook",
+      "sources": [
+        "Color Harmony Workbook.pdf"
+      ]
+    }
+  ],
+  "kept": [
+    {
+      "document_id": "11de1e6082898782a39cfe55a0a7c8dcedf0e61de0d73d52665185ead23eb388",
+      "title": "Clothing for Women; Selection, Design, Construction",
+      "chunks": 1002
+    },
+    {
+      "document_id": "dba3d88f985df74fa52e85ef34d9354db5f4072bc2a3f50172a3c41776c22542",
+      "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+      "chunks": 600
+    },
+    {
+      "document_id": "79e07287eeb65a7aea728fd6dfab35ec3a2975b24ea897837603000d7f53d27d",
+      "title": "A well-dressed lady's pocket guide",
+      "chunks": 311
+    },
+    {
+      "document_id": "c1eaebe5a4e1aae06852f0d14591f34cc2c34579536204e6c27af9fa99c9eebc",
+      "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+      "chunks": 173
+    },
+    {
+      "document_id": "6e5ef88cbc2b8d6fa150654281371389dc08c1ed2381a4b95b66d381a8ea4885",
+      "title": "The Ultimate Guide To Dress Shoes",
+      "chunks": 140
+    },
+    {
+      "document_id": "97de01fe2245209fe7d71c2fc277ac87a09eb506b47f54ebbdce43247524a157",
+      "title": "Scarves",
+      "chunks": 115
+    },
+    {
+      "document_id": "debc441d706baccb55a9334573e4c5aeb0556a026023d10fe7a6e7443fb70c91",
+      "title": "Slide 1",
+      "chunks": 109
+    },
+    {
+      "document_id": "69853bd86d8fc789d90f586bb1e1b68cbac2b0c041d595edcab7d4a37badd438",
+      "title": "Jewelry-Basics",
+      "chunks": 109
+    },
+    {
+      "document_id": "c07ba75ab354696a0c2a69138a1fbf2911aa41fa2499e9006b41a6353e0e6594",
+      "title": "Learn to Design Your Own Clothes!",
+      "chunks": 43
+    },
+    {
+      "document_id": "5fff2a5791582168ebfaf412ec8fa71728c939b84356e9724794ed9b936dac4a",
+      "title": "The Art of fashion accessories By Abigail Aiseh Ayuba",
+      "chunks": 43
+    },
+    {
+      "document_id": "e0550e5cb154e30587c4043ba86e5239e860ee16dd08fed6fa138553f71f1a1b",
+      "title": "Career Closet.pdf",
+      "chunks": 30
+    },
+    {
+      "document_id": "a86848e25cf91fa365d5e8446a52ea769f833272eac34fc15a9e1108f9f411c2",
+      "title": "woman shoes",
+      "chunks": 25
+    },
+    {
+      "document_id": "432478aa849a4e391655b5823ac2d5a54f421937c127cf48e426c56fdb89d701",
+      "title": "accessories men",
+      "chunks": 22
+    },
+    {
+      "document_id": "c793f9ee0e199b107484b730c43de7a4e7bc7cdaf87b927477cc02d4cf162c9c",
+      "title": "accessories",
+      "chunks": 10
+    },
+    {
+      "document_id": "854f1fb9884a5d7ce50cbfe32b6e3984e073e2e61de158cfa2131cec55d4207b",
+      "title": "Microsoft PowerPoint - Dressing for Success [Compatibility Mode]",
+      "chunks": 8
+    },
+    {
+      "document_id": "524f578a7985f89a1c38ad0fa5ddaa20dd552d0620eb1433209d536ce7d4072b",
+      "title": "PDF-Anatomy_of_The_Dress_Code_Breakdown_&_Dress_Code_Verbiage",
+      "chunks": 4
+    },
+    {
+      "document_id": "5c14a353f2607e8802533183e3281b91ae297ab5d7b4d5b2a90f7104822e5f3e",
+      "title": "Dress to Impress Guide",
+      "chunks": 3
+    }
+  ]
+}

@@ -12,6 +12,7 @@ ORDER = [
     ("1_translation_ask", "1. Traduction FR→EN", "ask"),
     ("2_citations_retrieve", "2. Prompt de citation", "retrieve, question traduite"),
     ("2_citations_ask", "2. Prompt de citation", "ask"),
+    ("3_corpus_v2_simulation_retrieve", "3. Corpus v2 (SIMULATION, table non créée)", "retrieve, question traduite"),
 ]
 COLUMNS = [("hit@5", "Hit@5"), ("mrr@5", "MRR@5"), ("precision@5", "Préc.@5"),
            ("titre_signale_dans_sources", "Titre signalé (sources)"), ("grounded", "Avec citation"),

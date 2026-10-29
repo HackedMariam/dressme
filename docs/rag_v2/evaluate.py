@@ -76,15 +76,26 @@ def query_step(kind: str):
     return lambda question: rag_service.rewrite_query(question, None)
 
 
-def run_retrieve(gold: list[dict], query: str = "raw") -> list[dict]:
+def run_retrieve(gold: list[dict], query: str = "raw", plan: Path | None = None) -> list[dict]:
+    """`plan` (corpus_v2_plan.json) : SIMULATION du corpus v2 sans créer la table : 30 meilleurs passages de la
+    v1, passages des documents retirés écartés, titres renommés, puis les TOP_K premiers (approximation)."""
     sys.path.insert(0, str(Path.cwd()))          # dossier rag_backend de BO5 (code utilisé tel quel)
     from rag.retriever import retrieve           # noqa: E402
     make_query = query_step(query)
+    removed, renamed = set(), {}
+    if plan:
+        data = json.loads(plan.read_text(encoding="utf-8"))
+        removed = {r["document_id"] for r in data["removed"]}
+        renamed = {r["document_id"]: r["new_title"] for r in data["renamed"]}
     out = []
     for item in gold:
         start = time.perf_counter()
         text = make_query(item["question"])
-        rows = retrieve(text, top_k=TOP_K)
+        if plan:
+            rows = [{**r, "title": renamed.get(r.get("document_id"), r.get("title"))}
+                    for r in retrieve(text, top_k=30) if r.get("document_id") not in removed]
+        else:
+            rows = retrieve(text, top_k=TOP_K)
         out.append({**item, **score(rows, item["expected"]), "query_sent": text,
                     "latency_s": round(time.perf_counter() - start, 2)})
         print(f"{item['id']:24} hit={int(out[-1]['hit'])} rr={out[-1]['rr']:.2f}", flush=True)
@@ -160,11 +171,15 @@ def main() -> None:
     parser.add_argument("--query", choices=["raw", "service"], default="service",
                         help="mode retrieve : question brute, ou étape de requête du code mesuré")
     parser.add_argument("--name", default=None, help="nom du fichier de résultats (dans runs/)")
+    parser.add_argument("--simulate-corpus", type=Path, default=None,
+                        help="mode retrieve : simuler le corpus v2 décrit par corpus_v2_plan.json")
     args = parser.parse_args()
     gold = load_gold()
-    results = run_retrieve(gold, args.query) if args.mode == "retrieve" else run_ask(gold, args.bo5)
+    results = (run_retrieve(gold, args.query, args.simulate_corpus) if args.mode == "retrieve"
+               else run_ask(gold, args.bo5))
     summary = summarize(results, args.mode)
-    payload = {"mode": args.mode, "query": args.query if args.mode == "retrieve" else "service", "top_k": TOP_K, "gold_status": sorted({g["status"] for g in gold}),
+    payload = {"mode": args.mode, "query": args.query if args.mode == "retrieve" else "service", "top_k": TOP_K,
+               "simulated_corpus": str(args.simulate_corpus) if args.simulate_corpus else None, "gold_status": sorted({g["status"] for g in gold}),
                "summary": summary, "results": results}
     RUNS.mkdir(exist_ok=True)
     out = RUNS / f"{args.name or args.mode}.json"
