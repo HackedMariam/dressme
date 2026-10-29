@@ -62,11 +62,19 @@ def q(text: str) -> str:
     return "'" + str(text).replace("'", "''") + "'"
 
 
+def comment(text: str) -> str:
+    """Texte sûr dans un commentaire SQL « -- » : sur une seule ligne."""
+    return " ".join(str(text).split())
+
+
 def sql(plan: dict) -> str:
-    removed_values = ",\n        ".join(f"({q(r['document_id'])}, {q(r['reason'])})  -- {r['title'][:60]}"
-                                       for r in plan["removed"])
+    # virgule AVANT le commentaire : après « -- », PostgreSQL ignore tout jusqu'à la fin de la ligne
+    last = len(plan["removed"]) - 1
+    removed_values = "\n        ".join(
+        f"({q(r['document_id'])}, {q(r['reason'])}){',' if i < last else ''}  -- {comment(r['title'][:60])}"
+        for i, r in enumerate(plan["removed"]))
     renames = "\n".join(f"update public.knowledge_chunks_v2 set title = {q(r['new_title'])}, updated_at = now()\n"
-                        f" where document_id = {q(r['document_id'])};  -- était {q(r['old_title'])}"
+                        f" where document_id = {q(r['document_id'])};  -- était {comment(q(r['old_title']))}"
                         for r in plan["renamed"])
     return f"""-- ===========================================================================
 -- RAG v2, étape 3 : knowledge_chunks_v2
@@ -79,10 +87,11 @@ def sql(plan: dict) -> str:
 -- ===========================================================================
 begin;
 
--- 1. Même schéma que knowledge_chunks (colonnes, contraintes, index), avec sa propre séquence.
+-- 1. Même schéma que knowledge_chunks (colonnes, contraintes, index). id y est un bigserial : LIKE copierait
+--    le défaut nextval('knowledge_chunks_id_seq') de la v1, d'où une séquence bigint propre à la v2.
 create table public.knowledge_chunks_v2
     (like public.knowledge_chunks including defaults including constraints including indexes);
-create sequence public.knowledge_chunks_v2_id_seq owned by public.knowledge_chunks_v2.id;
+create sequence public.knowledge_chunks_v2_id_seq as bigint owned by public.knowledge_chunks_v2.id;
 alter table public.knowledge_chunks_v2
     alter column id set default nextval('public.knowledge_chunks_v2_id_seq');
 
@@ -95,7 +104,7 @@ insert into public.knowledge_chunks_v2
 select k.* from public.knowledge_chunks k
 where k.document_id is null or k.document_id not in (select document_id from removed);
 
-select setval('public.knowledge_chunks_v2_id_seq', coalesce((select max(id) from public.knowledge_chunks_v2), 1));
+select setval('public.knowledge_chunks_v2_id_seq', coalesce((select max(id) from public.knowledge_chunks_v2), 0) + 1, false);
 
 -- 3. Titres corrigés d'après le fichier d'origine.
 {renames}

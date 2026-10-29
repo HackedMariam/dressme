@@ -9,43 +9,44 @@
 -- ===========================================================================
 begin;
 
--- 1. Même schéma que knowledge_chunks (colonnes, contraintes, index), avec sa propre séquence.
+-- 1. Même schéma que knowledge_chunks (colonnes, contraintes, index). id y est un bigserial : LIKE copierait
+--    le défaut nextval('knowledge_chunks_id_seq') de la v1, d'où une séquence bigint propre à la v2.
 create table public.knowledge_chunks_v2
     (like public.knowledge_chunks including defaults including constraints including indexes);
-create sequence public.knowledge_chunks_v2_id_seq owned by public.knowledge_chunks_v2.id;
+create sequence public.knowledge_chunks_v2_id_seq as bigint owned by public.knowledge_chunks_v2.id;
 alter table public.knowledge_chunks_v2
     alter column id set default nextval('public.knowledge_chunks_v2_id_seq');
 
 -- 2. Copie des passages, sauf les documents retirés (liste et raisons dans corpus_v2_plan.json).
 with removed(document_id, reason) as (
     values
-        ('785153fc17609fc960de48a1513a692c09a01d776a7769d587e8bcff68852423', 'doublon')  -- How to Pack for Any Trip (Lonely Planet),
-        ('0e87cfed7e3e6e8eaba421e60830396dbfee360d93838a98d0032d4f69556156', 'fichier issu de z-library (droits douteux)')  -- The Science of Footwear,
-        ('a00807d510c441b7f773cace2c73e1094db2578d50e62c5f5e2ed24c8d4e6cb2', 'fichier issu de z-library (droits douteux)')  -- J.J. Pizzutos Fabric Science, 10th Edition (Allen C. Cohen, ,
-        ('a5fba229a17a0a1a2b9c36cf8ab0280d5a4cbace7e024d8ee9d9ac7a5ffc2a3f', 'fichier issu de z-library (droits douteux)')  -- Fashion Education,
-        ('af308dc7d439a4ad60e95e8e3e21bc9b3ea4dc50a0db5d45573071b1c9b54d2b', 'fichier issu de z-library (droits douteux)')  -- Fashion Media Past and Present (Djurdja Bartlett, Shaun Cole,
-        ('5cfcf765b5aa2aa5e9ad66c568550dc876ff4a880a0e354317ac5a60b2b62b13', 'fichier issu de z-library (droits douteux)')  -- Communicating Fashion,
-        ('d173d7e89ec64f0f93dfe44f83020f79176f708bc90431efd667a7bbb5eed0b2', 'fichier issu de z-library (droits douteux)')  -- 36916.indb,
-        ('1b7ed0388cf073451e2a5deaf4c3d15613471feacd05611dcfb89796d6922059', 'hors sujet : organisation d''événements de mode, pas de conseil vestimentaire')  -- Fashion, Design and Events,
-        ('8e83ee4f18bf0c3a6e3a263aba1e3163091764230441fe20e0c5c018a4ba95cb', 'fichier issu de z-library (droits douteux)')  -- Worn: Footwear, Attachment and the Affects of Wear,
-        ('361c745bd3d348201c69cbdf69280f97dff28f682936afe8d4eae46c609fa868', 'fichier issu de z-library (droits douteux)')  -- Men's wardrobe,
-        ('13b9c9e791f69afdb812bd9b6593ebfea951a2975f1afc8c9502b27d61d62b4b', 'fichier issu de z-library (droits douteux)')  -- Traveling clothes,
-        ('03576799c376d669708799c7a540bd666e0b07cc13dba14e8fb9bd93c04a8c90', 'fichier issu de z-library (droits douteux)')  -- Ten Garments Every Man Should Own,
-        ('e13e21ba09d1721d6f0977147bf437003b4fa46777f78ce703d6aa1edd811cf1', 'fichier issu de z-library (droits douteux)')  -- Textilepedia (Fashionary International Limited) (z-library.s,
-        ('75407d0c0ce2c314e87627c7afb37e4c3e863ecb9c2cbc74a32cdfe85c04d9a0', 'fichier issu de z-library (droits douteux)')  -- Work clothes,
-        ('3b2b3a8901e4444c3ef9524aa3d838132047af1d894d67cac6ef37fce87c891b', 'fichier issu de z-library (droits douteux)')  -- Old Money Style: Secrets to Dressing Well for Less (The Gent,
-        ('dd77d47aa35e3d15ada7da8214137135dbc08907ee53062ee4e3612dafcd4391', 'fichier issu de z-library (droits douteux)')  -- How to Pack for Any Trip (Lonely Planet),
-        ('2eea009171781fc355c1cc23341df51bd9f999481a5cdcc2bcbccaec12395e3c', 'fichier issu de z-library (droits douteux)')  -- How to Pack: Travel Smart for Any Trip,
-        ('4b4e81e15e0a03a1afe3411ae1e45dd1474ba95832eeeae794f7684fab06ef58', 'fichier issu de z-library (droits douteux)')  -- The Capsule Wardrobe,
-        ('d580d5d489ea12ed1db7ee5adad09a3a0d138a683a30f2c808827d3b29cb0586', 'fichier issu de z-library (droits douteux)')  -- Shoes (Klaus H. Carl) (z-library.sk, 1lib.sk, z-lib.sk),
-        ('68152d63e128c904c5db214dd2e6347c336719b57b856a5d45447aed23624009', 'hors sujet : chapitre d''article de recherche, hors sujet')  -- Chapter06-SmaouiandGhariani-aout11,
+        ('785153fc17609fc960de48a1513a692c09a01d776a7769d587e8bcff68852423', 'doublon'),  -- How to Pack for Any Trip (Lonely Planet)
+        ('0e87cfed7e3e6e8eaba421e60830396dbfee360d93838a98d0032d4f69556156', 'fichier issu de z-library (droits douteux)'),  -- The Science of Footwear
+        ('a00807d510c441b7f773cace2c73e1094db2578d50e62c5f5e2ed24c8d4e6cb2', 'fichier issu de z-library (droits douteux)'),  -- J.J. Pizzutos Fabric Science, 10th Edition (Allen C. Cohen,
+        ('a5fba229a17a0a1a2b9c36cf8ab0280d5a4cbace7e024d8ee9d9ac7a5ffc2a3f', 'fichier issu de z-library (droits douteux)'),  -- Fashion Education
+        ('af308dc7d439a4ad60e95e8e3e21bc9b3ea4dc50a0db5d45573071b1c9b54d2b', 'fichier issu de z-library (droits douteux)'),  -- Fashion Media Past and Present (Djurdja Bartlett, Shaun Cole
+        ('5cfcf765b5aa2aa5e9ad66c568550dc876ff4a880a0e354317ac5a60b2b62b13', 'fichier issu de z-library (droits douteux)'),  -- Communicating Fashion
+        ('d173d7e89ec64f0f93dfe44f83020f79176f708bc90431efd667a7bbb5eed0b2', 'fichier issu de z-library (droits douteux)'),  -- 36916.indb
+        ('1b7ed0388cf073451e2a5deaf4c3d15613471feacd05611dcfb89796d6922059', 'hors sujet : organisation d''événements de mode, pas de conseil vestimentaire'),  -- Fashion, Design and Events
+        ('8e83ee4f18bf0c3a6e3a263aba1e3163091764230441fe20e0c5c018a4ba95cb', 'fichier issu de z-library (droits douteux)'),  -- Worn: Footwear, Attachment and the Affects of Wear
+        ('361c745bd3d348201c69cbdf69280f97dff28f682936afe8d4eae46c609fa868', 'fichier issu de z-library (droits douteux)'),  -- Men's wardrobe
+        ('13b9c9e791f69afdb812bd9b6593ebfea951a2975f1afc8c9502b27d61d62b4b', 'fichier issu de z-library (droits douteux)'),  -- Traveling clothes
+        ('03576799c376d669708799c7a540bd666e0b07cc13dba14e8fb9bd93c04a8c90', 'fichier issu de z-library (droits douteux)'),  -- Ten Garments Every Man Should Own
+        ('e13e21ba09d1721d6f0977147bf437003b4fa46777f78ce703d6aa1edd811cf1', 'fichier issu de z-library (droits douteux)'),  -- Textilepedia (Fashionary International Limited) (z-library.s
+        ('75407d0c0ce2c314e87627c7afb37e4c3e863ecb9c2cbc74a32cdfe85c04d9a0', 'fichier issu de z-library (droits douteux)'),  -- Work clothes
+        ('3b2b3a8901e4444c3ef9524aa3d838132047af1d894d67cac6ef37fce87c891b', 'fichier issu de z-library (droits douteux)'),  -- Old Money Style: Secrets to Dressing Well for Less (The Gent
+        ('dd77d47aa35e3d15ada7da8214137135dbc08907ee53062ee4e3612dafcd4391', 'fichier issu de z-library (droits douteux)'),  -- How to Pack for Any Trip (Lonely Planet)
+        ('2eea009171781fc355c1cc23341df51bd9f999481a5cdcc2bcbccaec12395e3c', 'fichier issu de z-library (droits douteux)'),  -- How to Pack: Travel Smart for Any Trip
+        ('4b4e81e15e0a03a1afe3411ae1e45dd1474ba95832eeeae794f7684fab06ef58', 'fichier issu de z-library (droits douteux)'),  -- The Capsule Wardrobe
+        ('d580d5d489ea12ed1db7ee5adad09a3a0d138a683a30f2c808827d3b29cb0586', 'fichier issu de z-library (droits douteux)'),  -- Shoes (Klaus H. Carl) (z-library.sk, 1lib.sk, z-lib.sk)
+        ('68152d63e128c904c5db214dd2e6347c336719b57b856a5d45447aed23624009', 'hors sujet : chapitre d''article de recherche, hors sujet'),  -- Chapter06-SmaouiandGhariani-aout11
         ('24f9f83a81bddd4d6152ebbbce0c83bacfca29bd42fee9fa08d7092dec4ee901', 'fichier issu de z-library (droits douteux)')  -- The French Minimalist Capsule Wardrobe - Winter 2018-2019 Co
 )
 insert into public.knowledge_chunks_v2
 select k.* from public.knowledge_chunks k
 where k.document_id is null or k.document_id not in (select document_id from removed);
 
-select setval('public.knowledge_chunks_v2_id_seq', coalesce((select max(id) from public.knowledge_chunks_v2), 1));
+select setval('public.knowledge_chunks_v2_id_seq', coalesce((select max(id) from public.knowledge_chunks_v2), 0) + 1, false);
 
 -- 3. Titres corrigés d'après le fichier d'origine.
 update public.knowledge_chunks_v2 set title = 'Color Harmony Workbook', updated_at = now()
