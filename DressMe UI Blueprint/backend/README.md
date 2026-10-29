@@ -103,11 +103,11 @@ Copy `backend/.env.example` to `backend/.env` and set `LLM_API_KEY`. Then, from
 `DressMe UI Blueprint/`, run in two terminals:
 
 ```powershell
-backend/.venv/Scripts/python.exe -m uvicorn api:app --app-dir backend --port 8000
+backend/.venv/Scripts/python.exe -m uvicorn api:app --app-dir backend --port 8001
 pnpm dev
 ```
 
-Vite proxies `/api` to `http://localhost:8000` (override with `API_URL`).
+Vite proxies `/api/bo3` to `http://127.0.0.1:8001` (override with `BO3_API_URL`); the rest of `/api` goes to the BO1 backend on port 8000.
 `GET /api/bo3/gaps` runs the deterministic pipeline without the LLM;
 `POST /api/bo3/chat` runs the tool-calling agent. The wardrobe is still
 `data/sample_wardrobe.json` until it is read from BO1's `items` table.

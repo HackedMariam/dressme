@@ -1,4 +1,4 @@
-import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
@@ -10,7 +10,23 @@ export default defineConfig(({ mode }) => {
   // .figma/make/deploy-preview passes `--mode development` for cached-preview builds.
   const emitSourcemaps = mode === 'development'
 
+  // The project uses SUPABASE_URL / SUPABASE_ANON_KEY. Vite only exposes
+  // VITE_* variables by default, so expose just these two public values.
+  // Never expose SUPABASE_SERVICE_ROLE_KEY to the browser.
+  const env = loadEnv(mode, process.cwd(), '')
+
   return {
+    define: {
+      'import.meta.env.SUPABASE_URL': JSON.stringify(
+        process.env.SUPABASE_URL || env.SUPABASE_URL || env.VITE_SUPABASE_URL || '',
+      ),
+      'import.meta.env.SUPABASE_ANON_KEY': JSON.stringify(
+        process.env.SUPABASE_ANON_KEY ||
+          env.SUPABASE_ANON_KEY ||
+          env.VITE_SUPABASE_ANON_KEY ||
+          '',
+      ),
+    },
     base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
@@ -34,8 +50,17 @@ export default defineConfig(({ mode }) => {
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
-      // BO3 gap agent API (backend/api.py).
-      proxy: { '/api': process.env.API_URL || 'http://localhost:8000' },
+      proxy: {
+        // BO3 gap agent API (DressMe UI Blueprint/backend/api.py); listed first so it wins over /api.
+        '/api/bo3': {
+          target: process.env.BO3_API_URL || 'http://127.0.0.1:8001',
+          changeOrigin: true,
+        },
+        '/api': {
+          target: process.env.BACKEND_URL || 'http://127.0.0.1:8000',
+          changeOrigin: true,
+        },
+      },
     },
     preview: {
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',
