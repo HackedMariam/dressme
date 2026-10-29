@@ -32,6 +32,29 @@ import { useAuth } from "../features/auth/AuthProvider"
 import { useWardrobeItems } from "../features/wardrobe/useWardrobeItems"
 
 type GenState = "idle" | "running" | "success" | "error"
+const TRY_ON_SESSION_PREFIX = "dressme.try-on-result."
+
+type PersistedTryOn = {
+  result: GenerateResult
+  history: GenerateResult[]
+}
+
+function tryOnStorageKey(userId: string): string {
+  return `${TRY_ON_SESSION_PREFIX}${userId}`
+}
+
+function readPersistedTryOn(userId: string | undefined): PersistedTryOn | null {
+  if (!userId) return null
+  try {
+    const raw = window.sessionStorage.getItem(tryOnStorageKey(userId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PersistedTryOn
+    if (!parsed?.result?.jobId || !parsed.result.url || !Array.isArray(parsed.history)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
 
 function describeBody(params: BodyTargets): string {
   const active = (Object.entries(params) as [string, number][]).filter(
@@ -89,23 +112,38 @@ export default function TryOnStudio({
 }) {
   const { user } = useAuth()
   const { items: wardrobeItems, loading: wardrobeLoading, error: wardrobeError } = useWardrobeItems(user?.id)
+  const persistedTryOn = readPersistedTryOn(user?.id)
   const [genState, setGenState] = useState<GenState>("idle")
   const [genError, setGenError] = useState<string | null>(null)
-  const [url, setUrl] = useState<string>(initialAvatar?.url ?? DEFAULT_DRESSED_URL)
-  const [lastResult, setLastResult] = useState<GenerateResult | null>(null)
-  const [history, setHistory] = useState<GenerateResult[]>([])
+  const [url, setUrl] = useState<string>(
+    persistedTryOn
+      ? versionedUrl(persistedTryOn.result.url, persistedTryOn.result.jobId)
+      : initialAvatar?.url ?? DEFAULT_DRESSED_URL,
+  )
+  const [lastResult, setLastResult] = useState<GenerateResult | null>(persistedTryOn?.result ?? null)
+  const [history, setHistory] = useState<GenerateResult[]>(persistedTryOn?.history ?? [])
   const [compare, setCompare] = useState(false)
   const [health, setHealth] = useState<Health | null>(null)
   const [healthError, setHealthError] = useState<string | null>(null)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const hasTryOnResultRef = useRef(false)
+
+  useEffect(() => {
+    if (!user?.id) return
+    const persisted = readPersistedTryOn(user.id)
+    if (!persisted) return
+    setUrl(versionedUrl(persisted.result.url, persisted.result.jobId))
+    setLastResult(persisted.result)
+    setHistory(persisted.history)
+    setGenState("success")
+    hasTryOnResultRef.current = true
+  }, [user?.id])
 
   useEffect(() => {
     if (!initialAvatar?.url) return
+    if (hasTryOnResultRef.current) return
     setUrl(versionedUrl(initialAvatar.url, initialAvatar.updatedAt))
-    setLastResult(null)
-    setGenState("idle")
-    setCompare(false)
   }, [initialAvatar?.url, initialAvatar?.updatedAt])
 
   useEffect(() => {
@@ -179,7 +217,19 @@ export default function TryOnStudio({
       )
       setUrl(versionedUrl(result.url, result.jobId))
       setLastResult(result)
-      setHistory((prev) => [result, ...prev].slice(0, 5))
+      hasTryOnResultRef.current = true
+      const nextHistory = [result, ...history].slice(0, 5)
+      setHistory(nextHistory)
+      try {
+        if (user?.id) {
+          window.sessionStorage.setItem(
+            tryOnStorageKey(user.id),
+            JSON.stringify({ result, history: nextHistory } satisfies PersistedTryOn),
+          )
+        }
+      } catch {
+        // The current result remains available in memory if storage is unavailable.
+      }
       setCompare(false)
       setGenState("success")
       if (result.saved !== false) onAvatarSaved?.()
