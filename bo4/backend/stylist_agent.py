@@ -64,6 +64,9 @@ SEASONS = ("spring", "summer", "autumn", "winter")
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("STYLIST_LLM_MODEL", "qwen2.5:3b")
+# Durée pendant laquelle Ollama garde le modèle en mémoire après un appel (5 min par défaut côté Ollama) :
+# 30 min évitent de recharger qwen2.5:3b entre deux tours d'une démo.
+OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
 DEFAULT_CITY = os.environ.get("STYLIST_CITY", "Tunis")
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -154,6 +157,16 @@ DRESS_CODE_RULES = {"casual": (None, None), "smart_casual": (2.5, None), "busine
 # donnée par BO1. Repérées par mots-clés dans le nom et la sous-catégorie BO1 (heuristique).
 STRICT_DRESS_CODES = {"business", "formal"}
 SHORT_CUT_PATTERN = r"\b(mini|minijupe|shorts|hot ?pants)\b"
+# O4 : hauts trop décontractés pour un dress code business ou formal, même principe que O3 (mots-clés dans le
+# nom et la sous-catégorie BO1, sans accents ; heuristique). Le moteur BO4 et ses poids ne changent pas.
+CASUAL_TOP_CATEGORIES = {"top", "shirt", "t_shirt", "tshirt", "blouse", "sweater", "hoodie", "cardigan"}
+CASUAL_TOP_PATTERNS = (
+    (r"\boff[\s-]?(the[\s-]?)?shoulders?\b|\bepaules? denudees?\b|\bcold[\s-]?shoulders?\b", "épaules dénudées"),
+    (r"\bcrop(ped)?\b", "crop top"),
+    (r"\bdos[\s-]nu\b|\bbackless\b|\bopen[\s-]back\b", "dos nu"),
+    (r"\bbustier\b|\bstrapless\b|\bbandeau\b|\btube[\s-]?top\b", "bustier"),
+    (r"\bdebardeur\b|\btank([\s-]?top)?\b|\bcamisole\b|\bspaghetti\b", "débardeur"),
+)
 # O2 : en business ou formal, une veste structurée est exigée dès que l'utilisateur en possède une.
 # Structurée = blazer, ou veste (jacket) de formalité BO1 >= 4. Les manteaux ne comptent pas : une
 # règle ferme imposerait sinon un manteau à la belle saison.
@@ -181,6 +194,7 @@ class StylistState(TypedDict, total=False):
     feedback_note: str                # accusé de réception d'un retour (I76)
     dress_code_relaxed: bool         # aucune tenue conforme : on montre les plus proches
     no_structured_jacket: bool        # business ou formal sans veste structurée dans la garde-robe
+    casual_tops_excluded: list[str]   # O4 : hauts écartés pour le dress code (« nom (raison) »)
     weather: dict                     # prévision utilisée au dernier tour (si disponible)
     advice: dict                      # conseil BO5 du tour : {"question", "answer", "sources"}
     error: str
@@ -310,6 +324,7 @@ def ollama_extract(message: str, timeout: float = 60.0) -> Optional[dict]:
         "model": OLLAMA_MODEL,
         "stream": False,
         "format": LLM_SCHEMA,
+        "keep_alive": OLLAMA_KEEP_ALIVE,
         "options": {"temperature": 0},
         "messages": [{"role": "system", "content": LLM_SYSTEM_PROMPT},
                      {"role": "user", "content": message}],
@@ -385,6 +400,17 @@ def is_short_cut(item: dict) -> bool:
     return re.search(SHORT_CUT_PATTERN, text) is not None
 
 
+def casual_top_reason(item: dict) -> Optional[str]:
+    """O4 : raison pour laquelle un haut est trop décontracté (business, formal), ou None."""
+    if str(item.get("category") or "").lower() not in CASUAL_TOP_CATEGORIES:
+        return None
+    text = _plain(f"{item.get('name') or ''} {item.get('subcategory') or ''}")
+    for pattern, reason in CASUAL_TOP_PATTERNS:
+        if re.search(pattern, text):
+            return reason
+    return None
+
+
 def is_structured_jacket(item: dict) -> bool:
     """Blazer, ou veste de formalité BO1 >= STRUCTURED_JACKET_MIN_FORMALITY (O2)."""
     category = str(item.get("category") or "").lower()
@@ -398,13 +424,13 @@ def dress_code_check(items: list[dict], code: Optional[str],
                      require_structured_jacket: bool = False) -> tuple[bool, Optional[float]]:
     """Vérifie une tenue contre un dress code avec le champ `formality` (1..5) fourni par BO1.
     Renvoie (conforme, formalité moyenne). Sans aucune formalité connue : non vérifiable, accepté.
-    En business et formal, un short ou une pièce « mini » rend la tenue non conforme (O3), comme
-    l'absence de veste structurée quand `require_structured_jacket` est vrai (O2)."""
+    En business et formal, un short ou une pièce « mini » rend la tenue non conforme (O3), comme un haut
+    trop décontracté (O4) ou l'absence de veste structurée quand `require_structured_jacket` est vrai (O2)."""
     levels = [item["formality"] for item in items
               if isinstance(item.get("formality"), (int, float)) and not isinstance(item.get("formality"), bool)]
     mean = sum(levels) / len(levels) if levels else None
     shown = round(mean, 1) if levels else None
-    if code in STRICT_DRESS_CODES and any(is_short_cut(item) for item in items):
+    if code in STRICT_DRESS_CODES and any(is_short_cut(item) or casual_top_reason(item) for item in items):
         return False, shown
     if (code in STRICT_DRESS_CODES and require_structured_jacket
             and not any(is_structured_jacket(item) for item in items)):
@@ -670,6 +696,8 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
         # Exigée seulement si une veste structurée reste disponible (« sans veste » la désactive).
         require_jacket = strict and any(is_structured_jacket(item) for item in candidates)
         no_jacket = strict and not any(is_structured_jacket(item) for item in state.get("wardrobe") or [])
+        casual_tops = [f"{item.get('name')} ({reason})" for item in candidates
+                       if strict and (reason := casual_top_reason(item))]
         user = request_user(config)
         profile = feedback_store.profile(user) if feedback_store else None
         rejected = feedback_store.disliked_outfits(user) if feedback_store else set()
@@ -696,7 +724,7 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
                                f"profil : {profile['likes'] if profile else 0} like / "
                                f"{profile['dislikes'] if profile else 0} dislike)")
         return {"outfits": fresh, "shown": shown, "dress_code_relaxed": relaxed,
-                "no_structured_jacket": no_jacket,
+                "no_structured_jacket": no_jacket, "casual_tops_excluded": casual_tops,
                 "last_outfits": [_outfit_ids(o) for o in fresh] or state.get("last_outfits", []),
                 "trace": state.get("trace", []) + [line]}
 
@@ -924,6 +952,8 @@ def format_response(state: StylistState) -> str:
     if state.get("no_structured_jacket"):
         lines.append("Ta garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, "
                      "c'est la pièce à ajouter.")
+    if state.get("casual_tops_excluded"):
+        lines.append(f"Écarté pour ce dress code : {', '.join(state['casual_tops_excluded'])}.")
     if request["exclude_categories"] or request["exclude_colors"]:
         refused = [EXCLUDE_FR[c] for c in request["exclude_categories"]] + request["exclude_colors"]
         lines.append(f"Contraintes respectées : sans {', '.join(refused)} "
@@ -1020,8 +1050,8 @@ def bo5_advice(base_url: Optional[str]) -> Optional[Callable[[str], dict]]:
 def new_turn(message: str) -> dict:
     """Entrée d'un tour : on remet à zéro ce qui ne doit pas survivre d'un tour à l'autre."""
     return {"user_message": message, "trace": [], "outfits": [], "response": "", "error": "",
-            "weather": {}, "dress_code_relaxed": False, "no_structured_jacket": False, "feedback_note": "",
-            "advice": {}}
+            "weather": {}, "dress_code_relaxed": False, "no_structured_jacket": False, "casual_tops_excluded": [],
+            "feedback_note": "", "advice": {}}
 
 
 def chat(graph, message: str, thread_id: str, show_trace: bool = False) -> str:

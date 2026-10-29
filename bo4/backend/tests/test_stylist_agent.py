@@ -374,6 +374,93 @@ def test_interview_requires_the_blazer_when_owned(make_graph, wardrobe_by_id):
     assert NO_JACKET_MESSAGE not in state["response"]
 
 
+# ----------------------------------------------------------------- O4 : hauts trop décontractés
+@pytest.mark.parametrize("item, reason", [
+    ({"category": "top", "name": "Beige Off-Shoulder Sweater"}, "épaules dénudées"),
+    ({"category": "sweater", "name": "Knit", "subcategory": "off-the-shoulder sweater"}, "épaules dénudées"),
+    ({"category": "top", "name": "Haut épaules dénudées"}, "épaules dénudées"),
+    ({"category": "top", "name": "White Crop Top"}, "crop top"),
+    ({"category": "t_shirt", "name": "Tee", "subcategory": "cropped t-shirt"}, "crop top"),
+    ({"category": "blouse", "name": "Blouse dos nu"}, "dos nu"),
+    ({"category": "top", "name": "Black Backless Top"}, "dos nu"),
+    ({"category": "top", "name": "Satin Bustier"}, "bustier"),
+    ({"category": "top", "name": "Top", "subcategory": "strapless top"}, "bustier"),
+    ({"category": "top", "name": "Débardeur blanc"}, "débardeur"),
+    ({"category": "top", "name": "Grey Tank Top"}, "débardeur"),
+    ({"category": "top", "name": "Silk Cami", "subcategory": "camisole"}, "débardeur"),
+])
+def test_casual_top_reason(item, reason):
+    assert sa.casual_top_reason(item) == reason
+
+
+@pytest.mark.parametrize("item", [
+    {"category": "top", "name": "Black Ribbed Turtleneck"},
+    {"category": "shirt", "name": "Short-Sleeve Shirt", "subcategory": "short sleeve shirt"},
+    {"category": "trousers", "name": "Cropped Trousers"},       # pas un haut
+    {"category": "dress", "name": "Strapless Dress"},           # robe : hors périmètre de O4
+    {"category": "top", "name": "Shoulder Bag Print Tee"},
+])
+def test_regular_tops_are_not_casual(item):
+    assert sa.casual_top_reason(item) is None
+
+
+@pytest.mark.parametrize("code, expected", [("business", False), ("formal", False), ("smart_casual", True),
+                                            ("casual", True)])
+def test_casual_top_breaks_only_strict_dress_codes(code, expected):
+    outfit = [{"id": "1", "category": "top", "name": "Beige Off-Shoulder Sweater", "formality": 4},
+              {"id": "2", "category": "trousers", "name": "Grey Wide-Leg Pants", "formality": 4}]
+    assert sa.dress_code_check(outfit, code)[0] is expected
+
+
+OFF_SHOULDER = "Beige Off-Shoulder Sweater"
+
+
+def _with_off_shoulder():
+    # Peu de hauts : sans O4, ce haut (formalité 4, style formel) serait proposé pour un entretien.
+    wardrobe, report = fixture_loader()
+    keep = {"Light Blue Shirt", "Beige Chinos", "Black Skirt", "Navy Blazer"}
+    wardrobe = [item for item in wardrobe if item["name"] in keep]
+    shirt = next(item for item in wardrobe if item["name"] == "Light Blue Shirt")
+    wardrobe.append({**shirt, "id": "off-shoulder", "name": OFF_SHOULDER, "subcategory": "off-shoulder sweater",
+                     "color": "beige", "style": "formal", "formality": 4})
+    return wardrobe, report
+
+
+def test_interview_no_longer_proposes_the_off_shoulder_sweater(make_graph):
+    state = run(make_graph(loader=_with_off_shoulder), "J'ai un entretien demain")
+    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert all("off-shoulder" not in sa._outfit_ids(o) for o in state["outfits"])
+    assert state["casual_tops_excluded"] == [f"{OFF_SHOULDER} (épaules dénudées)"]
+    assert f"Écarté pour ce dress code : {OFF_SHOULDER} (épaules dénudées)." in state["response"]
+    assert state["response"].count("Écarté pour ce dress code") == 1           # une seule ligne
+
+
+def test_off_shoulder_sweater_is_fine_for_a_casual_outing(make_graph):
+    state = run(make_graph(loader=_with_off_shoulder), "Une tenue décontractée pour le week-end")
+    assert state["casual_tops_excluded"] == [] and "Écarté pour ce dress code" not in state["response"]
+
+
+def test_ollama_keeps_the_model_loaded(monkeypatch):
+    sent = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b'{"message": {"content": "{}"}}'
+
+    def fake_urlopen(request, timeout=None):
+        sent.update(sa.json.loads(request.data))
+        return Response()
+    monkeypatch.setattr(sa.urllib.request, "urlopen", fake_urlopen)
+    sa.ollama_extract("une tenue pour le travail")
+    assert sent["keep_alive"] == "30m" == sa.OLLAMA_KEEP_ALIVE
+
+
 def test_interview_without_structured_jacket_explains_it(make_graph):
     state = run(make_graph(loader=_without_blazer), "J'ai un entretien demain")
     assert state["outfits"] and not state["dress_code_relaxed"]

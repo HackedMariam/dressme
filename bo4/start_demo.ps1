@@ -86,7 +86,7 @@ if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
         Write-Host "[Ollama] modèle $LlmModel absent : pas de téléchargement automatique, l'agent utilisera ses règles." -ForegroundColor Red
     } else {
         Write-Host "[Ollama] préchauffage de $LlmModel..."
-        $answer = (& ollama run $LlmModel "OK" 2>$null) -join " "
+        $answer = (& ollama run $LlmModel "OK" --keepalive 30m 2>$null) -join " "   # modèle gardé 30 min en mémoire
         $answer = ($answer -replace "\x1b\[[0-9;?]*[A-Za-z]", "" -replace "\[K", "" -replace "\s+", " ")  # séquences de terminal d'Ollama
         $ollamaOk = ($LASTEXITCODE -eq 0)
         if ($ollamaOk) { Write-Host "[Ollama] OK (réponse : $($answer.Trim()))" -ForegroundColor Green }
