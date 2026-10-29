@@ -564,6 +564,7 @@ export default function WardrobePage() {
             setSelectedId(null)
           }}
           onMeshUpdated={() => void reload()}
+          onItemUpdated={() => void reload()}
         />
       )}
     </div>

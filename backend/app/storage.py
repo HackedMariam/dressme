@@ -97,7 +97,12 @@ class SupabaseStore:
         folder = item_folder(user_id, item_id)
         try:
             self.db.storage.from_(self.bucket).remove(
-                [f"{folder}/original.jpg", f"{folder}/cutout.png", f"{folder}/mesh.glb"]
+                [
+                    f"{folder}/original.jpg",
+                    f"{folder}/cutout.png",
+                    f"{folder}/back.jpg",
+                    f"{folder}/mesh.glb",
+                ]
             )
         except Exception:
             pass

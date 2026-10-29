@@ -386,6 +386,23 @@ def generate_item_mesh(item_id: str, force: bool = Query(False),
     return {**item_mesh.mesh_fields(item), "queued": queued}
 
 
+@app.post("/api/items/{item_id}/back-photo")
+async def upload_back_photo(
+    item_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    item = _get_or_404(user, item_id)
+    content_type = (file.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(422, "Back photo must be an image.")
+    data = await _read_upload(file)
+    folder = item_folder(user.id, item_id)
+    extension = "png" if content_type == "image/png" else "webp" if content_type == "image/webp" else "jpg"
+    url = store.upload(f"{folder}/back.{extension}", data, content_type)
+    return store.update_item(user.id, item_id, {"back_photo_url": url})
+
+
 class ItemPatch(BaseModel):
     fields: dict[str, Any] = {}
     confirm: bool = True  # "Save correction" / "Looks right" both confirm the item

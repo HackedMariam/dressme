@@ -38,6 +38,7 @@ create table if not exists public.items (
 
   image_url         text,
   cutout_url        text,
+  back_photo_url    text,
 
   zone              text default 'rail' check (zone in ('rail','shelf','floor')),
   position_3d       jsonb,
@@ -55,6 +56,7 @@ create table if not exists public.items (
 );
 
 alter table public.items add column if not exists color_family text;
+alter table public.items add column if not exists back_photo_url text;
 alter table public.items add column if not exists mesh_url text;
 alter table public.items add column if not exists mesh_status text not null default 'none';
 alter table public.items add column if not exists mesh_source text;

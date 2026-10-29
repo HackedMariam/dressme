@@ -68,6 +68,7 @@ export type WardrobeItemRequest = {
   label: string
   color_hex: string
   cutout_url?: string | null
+  back_photo_url?: string | null
   mesh_url?: string | null
   mesh_version?: number | null
   category: string
@@ -80,6 +81,7 @@ export type SavedAvatarItem = {
   label: string
   color_hex: string
   cutout_url?: string | null
+  back_photo_url?: string | null
   mesh_url?: string | null
   mesh_version?: number
   category?: string

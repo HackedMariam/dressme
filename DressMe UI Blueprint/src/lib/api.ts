@@ -126,6 +126,12 @@ export const api = {
     return request<ItemMeshStatus>(`/api/items/${id}/mesh?${query}`, { method: "POST" })
   },
 
+  uploadBackPhoto: (id: string, file: File | Blob) =>
+    request<WardrobeItem>(`/api/items/${id}/back-photo`, {
+      method: "POST",
+      body: fileBody(file),
+    }),
+
   searchByPhoto: (file: File | Blob) =>
     request<PhotoMatch>("/api/search/photo", { method: "POST", body: fileBody(file) }),
 

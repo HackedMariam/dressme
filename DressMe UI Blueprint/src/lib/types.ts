@@ -25,6 +25,7 @@ export interface WardrobeItem {
   enrichment_source?: string | null
   image_url?: string | null
   cutout_url?: string | null
+  back_photo_url?: string | null
   mesh_url?: string | null
   mesh_status?: string | null
   mesh_source?: string | null

@@ -16,6 +16,7 @@ export type WardrobeItemLike = {
   material?: string | null
   formality?: number | null
   cutout_url?: string | null
+  back_photo_url?: string | null
   image_url?: string | null
   mesh_url?: string | null
   mesh_version?: number | null
@@ -28,6 +29,7 @@ export type TryOnItem = {
   label: string
   colorHex: string
   cutoutUrl: string | null
+  backPhotoUrl: string | null
   meshUrl: string | null
   meshVersion: number
   category: string
@@ -44,6 +46,7 @@ export type TryOnItemSnapshot = {
   label: string
   color_hex: string
   cutout_url?: string | null
+  back_photo_url?: string | null
   mesh_url?: string | null
   mesh_version?: number | null
   category?: string
@@ -105,6 +108,7 @@ export function resolveTryOnItem(item: WardrobeItemLike): TryOnItem | null {
     label: item.name?.trim() || meta.label,
     colorHex: cleanHex(item.color_hex),
     cutoutUrl: item.cutout_url || item.image_url || null,
+    backPhotoUrl: item.back_photo_url || null,
     meshUrl: item.mesh_url || null,
     meshVersion: Number(item.mesh_version ?? 0),
     category,
@@ -134,6 +138,7 @@ export function tryOnItemsFromSnapshots(
       label: snapshot.label || meta.label,
       colorHex: cleanHex(snapshot.color_hex),
       cutoutUrl: snapshot.cutout_url ?? null,
+      backPhotoUrl: snapshot.back_photo_url ?? null,
       meshUrl: snapshot.mesh_url ?? null,
       meshVersion: Number(snapshot.mesh_version ?? 0),
       category: snapshot.category ?? "",
@@ -190,6 +195,7 @@ export function tryOnSnapshots(selection: TryOnItem[]): TryOnItemSnapshot[] {
     label: item.label,
     color_hex: item.colorHex,
     cutout_url: item.cutoutUrl,
+    back_photo_url: item.backPhotoUrl,
     mesh_url: item.meshUrl,
     mesh_version: item.meshVersion,
     category: item.category,

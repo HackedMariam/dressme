@@ -113,6 +113,7 @@ class WardrobeItemInput(BaseModel):
     material: str | None = None
     formality: int | None = None
     cutout_url: str | None = None
+    back_photo_url: str | None = None
     mesh_url: str | None = None
     mesh_version: int | None = None
 
@@ -147,6 +148,7 @@ class SavedAvatarItem(BaseModel):
     label: str
     color_hex: str
     cutout_url: str | None = None
+    back_photo_url: str | None = None
     mesh_url: str | None = None
     mesh_version: int = 0
     category: str = ""
@@ -399,6 +401,7 @@ def _blender_spec(specs: list[dict]) -> list[dict]:
             "label": spec["label"],
             "wardrobe_item_id": spec.get("wardrobe_item_id") or "",
             "texture_path": spec.get("texture_path"),
+            "back_texture_path": spec.get("back_texture_path"),
             "mesh_path": spec.get("mesh_path"),
         }
         for spec in specs
@@ -414,6 +417,7 @@ def _snapshot(specs: list[dict]) -> list[SavedAvatarItem]:
             label=str(spec["label"]),
             color_hex=str(spec.get("color_hex") or "#9a9a9a"),
             cutout_url=spec.get("cutout_url"),
+            back_photo_url=spec.get("back_photo_url"),
             mesh_url=spec.get("mesh_url"),
             mesh_version=int(spec.get("mesh_version") or 0),
             category=str(spec.get("category") or ""),
@@ -443,16 +447,23 @@ def _materialise_textures(specs: list[dict], job_id: str) -> list[Path]:
     written: list[Path] = []
     for index, spec in enumerate(specs):
         url = str(spec.get("cutout_url") or "").strip()
-        if not url:
-            continue
-        path = TEMP_DIR / f"texture_{job_id}_{index}.png"
-        try:
-            path.write_bytes(_cutout_bytes(url))
-        except Exception as exc:  # noqa: BLE001 - fall back to the item colour
-            print(f"[avatar] could not load cutout for {spec.get('label')}: {exc}", flush=True)
-            continue
-        spec["texture_path"] = str(path)
-        written.append(path)
+        if url:
+            path = TEMP_DIR / f"texture_{job_id}_{index}.png"
+            try:
+                path.write_bytes(_cutout_bytes(url))
+                spec["texture_path"] = str(path)
+                written.append(path)
+            except Exception as exc:  # noqa: BLE001 - fall back to the item colour
+                print(f"[avatar] could not load cutout for {spec.get('label')}: {exc}", flush=True)
+        back_url = str(spec.get("back_photo_url") or "").strip()
+        if back_url:
+            back_path = TEMP_DIR / f"back_texture_{job_id}_{index}.jpg"
+            try:
+                back_path.write_bytes(_cutout_bytes(back_url))
+                spec["back_texture_path"] = str(back_path)
+                written.append(back_path)
+            except Exception as exc:
+                print(f"[avatar] could not load back photo for {spec.get('label')}: {exc}", flush=True)
     return written
 
 

@@ -12,6 +12,7 @@ interface ItemDrawerProps {
   onReclassify: (id: string) => Promise<unknown>
   onDelete: (id: string) => Promise<void>
   onMeshUpdated?: () => void
+  onItemUpdated?: () => void
 }
 
 interface FormState {
@@ -91,10 +92,13 @@ export default function ItemDrawer({
   onReclassify,
   onDelete,
   onMeshUpdated,
+  onItemUpdated,
 }: ItemDrawerProps) {
   const [form, setForm] = useState<FormState>(() => emptyForm(item))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const [backPhoto, setBackPhoto] = useState<File | null>(null)
+  const [backPreview, setBackPreview] = useState<string | null>(item.back_photo_url ? asset(item.back_photo_url) : null)
   const [pendingProvider, setPendingProvider] = useState<string | null>(null)
   const [mesh, setMesh] = useState<ItemMeshStatus>({
     mesh_url: item.mesh_url ?? null,
@@ -115,6 +119,8 @@ export default function ItemDrawer({
       mesh_meta: item.mesh_meta ?? null,
       mesh_error: item.mesh_error ?? null,
     })
+    setBackPhoto(null)
+    setBackPreview(item.back_photo_url ? asset(item.back_photo_url) : null)
   }, [item])
 
   useEffect(() => {
@@ -170,6 +176,15 @@ export default function ItemDrawer({
   }
 
   const save = (fields: Record<string, unknown>) => run(() => onSave(item.id, fields))
+
+  const uploadBackPhoto = () => {
+    if (!backPhoto) return
+    return run(async () => {
+      await api.uploadBackPhoto(item.id, backPhoto)
+      setBackPhoto(null)
+      onItemUpdated?.()
+    })
+  }
 
   const buildMesh = (provider?: string) => {
     setPendingProvider(provider || health?.mesh_provider || "cutout-2.5d")
@@ -254,6 +269,38 @@ export default function ItemDrawer({
               No image
             </div>
           )}
+          <div className="space-y-2 rounded-xl border border-[#E2E0D8] bg-white p-3">
+            <div>
+              <p className="text-xs font-semibold text-[#1C1C1C]">Back photo for Try-On</p>
+              <p className="mt-1 text-[11px] text-[#8C8A82]">
+                Optional. The photo is applied to the back of this garment on the avatar.
+              </p>
+            </div>
+            {backPreview && (
+              <img src={backPreview} alt={`${item.name} back`} className="h-40 w-full rounded-lg bg-[#F0EFEA] object-contain" />
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null
+                setBackPhoto(file)
+                if (file) setBackPreview(URL.createObjectURL(file))
+                event.target.value = ""
+              }}
+              className="block w-full text-xs text-[#8C8A82] file:mr-2 file:rounded-lg file:border-0 file:bg-[#E8EDE0] file:px-3 file:py-2 file:text-xs file:font-semibold file:text-[#556B2F]"
+            />
+            {backPhoto && (
+              <button
+                type="button"
+                onClick={() => void uploadBackPhoto()}
+                disabled={busy}
+                className="w-full rounded-lg bg-[#556B2F] px-3 py-2 text-xs font-semibold text-white hover:bg-[#6B8A3A] disabled:opacity-50"
+              >
+                {busy ? "Uploading..." : "Save back photo"}
+              </button>
+            )}
+          </div>
 
           {mesh.mesh_status === "ready" && mesh.mesh_url ? (
             <div className="space-y-2">
