@@ -4,6 +4,7 @@ import { TAXONOMY, cap } from "../../lib/taxonomy"
 import type { AccuracyRow } from "../../lib/types"
 import { useUserData } from "../profile/UserDataProvider"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
+import GapsCard from "../wardrobegaps/GapsCard"
 
 function Bar({ label, value, total }: { label: string; value: number; total: number }) {
   const width = total ? Math.round((value / total) * 100) : 0
@@ -20,7 +21,7 @@ function Bar({ label, value, total }: { label: string; value: number; total: num
   )
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({ onOpenGaps }: { onOpenGaps?: () => void }) {
   const { items, health, loading, error } = useWardrobe()
   const { profile } = useUserData()
   const [accuracy, setAccuracy] = useState<AccuracyRow[]>([])
@@ -141,6 +142,8 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+
+          {onOpenGaps && <GapsCard onOpen={onOpenGaps} />}
 
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-xl bg-[#F0EFEA] p-6">

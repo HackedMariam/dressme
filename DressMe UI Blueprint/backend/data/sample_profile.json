@@ -1,0 +1,17 @@
+{
+  "user_id": "demo_user",
+  "display_name": "Demo user",
+  "city": "Tunis, Tunisia",
+  "climate_note": "Mild, rainy winters (8-17 C); hot, dry summers (30-40 C).",
+  "preferred_styles": ["minimal", "classic"],
+  "preferred_colors": ["white", "beige", "navy", "black", "camel", "grey"],
+  "avoided_colors": ["neon green"],
+  "occasion_frequency": {
+    "work": 0.9,
+    "casual": 0.8,
+    "smart_casual": 0.6,
+    "formal": 0.3,
+    "outdoor": 0.4
+  },
+  "lifestyle": "Office five days a week, weekend outings, a few weddings and family celebrations per year."
+}
