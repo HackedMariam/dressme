@@ -51,6 +51,11 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
       proxy: {
+        // BO3 gap agent API (DressMe UI Blueprint/backend/api.py); listed first so it wins over /api.
+        '/api/bo3': {
+          target: process.env.BO3_API_URL || 'http://127.0.0.1:8001',
+          changeOrigin: true,
+        },
         '/api': {
           target: process.env.BACKEND_URL || 'http://127.0.0.1:8000',
           changeOrigin: true,
