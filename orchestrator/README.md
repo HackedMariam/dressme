@@ -11,6 +11,7 @@ START → route_intent ─┬─ stylist   (BO4 Stylist POST /api/chat)         
                       ├─ wardrobe  (BO1 Wardrobe GET /api/items)                       │
                       ├─ purchase  (BO1 Wardrobe + Purchase Redundancy POST /analyze)  ├─→ respond → END
                       ├─ knowledge (traduction Ollama + BO5 RAG POST /ask)             │
+                      ├─ external  (module de services.yaml + wardrobe_items)          │
                       └─ clarify   (question à l'utilisateur)                          ─┘
 ```
 
@@ -21,6 +22,7 @@ START → route_intent ─┬─ stylist   (BO4 Stylist POST /api/chat)         
 | `wardrobe` | répond par des **faits** calculés sur `GET /api/items` : total, répartition, filtre catégorie / couleur (« Jupes (noir) : 1 — … »), vêtements « à vérifier ». `/api/agent/search` n'est pas utilisé : il exige une `OPENAI_API_KEY` côté BO1. |
 | `purchase` | repère l'article dans le message (type, couleur, prix), lit la garde-robe BO1 de l'utilisateur, la convertit au format de Purchase Redundancy (`shirts`, `pants`, `dresses`, `shoes`, `outerwear`, `accessories`) et appelle `POST /analyze` avec `wardrobe_items` : l'analyse porte sur **la vraie garde-robe**, pas sur la base « invité » de Purchase Redundancy. Sans BO1, aucun appel. |
 | `knowledge` | traduit la question en **anglais** avec qwen (puis glossaire : « col roulé » → turtleneck…), appelle `POST /ask`, affiche la réponse telle quelle, **seulement les sources citées**, et **masque** les titres contenant « z-library », « .indb » ou « Slide 1 » (voir `docs/rag_verification.md`). |
+| `external` | **module externe générique** (section `modules` de `services.yaml`) : vérifie qu'il est activé puis qu'il répond (`health`), lit la garde-robe BO1 de l'utilisateur, l'envoie au module dans `wardrobe_items` (format : `integration_contract.md`), puis met en forme la réponse (champs, liste, texte). Voir « Modules externes ». |
 | `clarify` | propose 4 choix ; la réponse « 1 » à « 4 » relance la question d'origine sur la route choisie. |
 | `respond` | réponse finale et historique. |
 
@@ -31,6 +33,27 @@ START → route_intent ─┬─ stylist   (BO4 Stylist POST /api/chat)         
 - **Pannes** : chaque appel a un délai maximum (`services.yaml`) ; un service arrêté donne un message clair
   (« … ne répond pas (URL) … Réessaie quand le service est démarré. »), jamais une erreur 500.
 - **Trace** : une ligne par node et par appel (`purchase -> purchase POST /analyze : HTTP 200 en 120 ms`).
+
+## Modules externes
+
+Un module (Smart Purchasing, HelpMePack, BO3…) se branche **sans code** dans l'orchestrateur, par une entrée de la
+section `modules` de `services.yaml` :
+
+| Clé | Rôle |
+|---|---|
+| `enabled` | `false` tant que le module n'expose pas l'endpoint du contrat : la demande reçoit « Le module … n'est pas encore branché » et aucun appel n'est fait |
+| `url`, `health`, `method`, `path`, `timeout` | service appelé ; `health` est sondé avant chaque appel (3 s au plus) : s'il ne répond pas, message clair et aucun appel |
+| `keywords` | expressions régulières de routage (texte en minuscules, sans accents). Un module désactivé ne prend jamais une demande qu'une autre route sait traiter ; le LLM ne peut choisir qu'un module activé |
+| `request` | modèle JSON de la requête ; variables `$wardrobe_items`, `$message`, `$language`, `$user_id`, `$thread_id`, `$first_url`, `$price`, `$budget` |
+| `response` | `fields` (étiquette + chemin JSON), `list` (chemin d'une liste + format), `text` (chemins de texte) |
+| `forward_token` | `false` par défaut : le module reçoit les données, pas le jeton de l'utilisateur |
+
+`$wardrobe_items` est la garde-robe BO1 de l'utilisateur, lue avec son jeton puis réduite aux champs du contrat
+(ni `user_id`, ni champs internes). Si BO1 ne répond pas, le module n'est pas appelé.
+
+Entrées livrées, **toutes désactivées** : `smart_purchasing` (8050, `POST /api/purchase/evaluate`), `helpmepack`
+(8020, `POST /api/trips`), `bo3` (8030, `POST /api/bo3/gaps`). Pour en activer une : l'auteur du module expose
+l'endpoint décrit dans `integration_contract.md`, puis `enabled: true`.
 
 ## Lancement
 
@@ -77,7 +100,7 @@ Tests (services simulés, aucun réseau) :
 
 ```powershell
 cd orchestrator
-.\.venv\Scripts\python.exe -m pytest tests -q        # 79 tests (Node.js requis pour 8 d'entre eux)
+.\.venv\Scripts\python.exe -m pytest tests -q        # 99 tests (Node.js requis pour 8 d'entre eux)
 ```
 
 ## Limites

@@ -26,7 +26,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 import graph as og
-from services import Gateway, load_services
+from services import Gateway, load_modules, load_services
 
 app = FastAPI(title="DressMe Orchestrator")
 _settings: dict[str, Any] = {}
@@ -59,11 +59,11 @@ def public_auth_config(env: dict[str, str]) -> dict:
 
 
 def configure(*, gateway: Optional[Gateway] = None, llm: Any = "ollama", require_auth: bool = False,
-              env: Optional[dict[str, str]] = None) -> None:
+              env: Optional[dict[str, str]] = None, modules: Optional[dict] = None) -> None:
     gateway = gateway or Gateway(load_services())
     _settings.clear()
     _settings.update(gateway=gateway, require_auth=require_auth, auth=public_auth_config(env or {}),
-                     graph=og.build_graph(gateway=gateway, llm=llm))
+                     graph=og.build_graph(gateway=gateway, llm=llm, modules=modules))
 
 
 def settings() -> dict:
@@ -104,11 +104,11 @@ def authenticate(authorization: Optional[str]) -> tuple[str, Optional[str]]:
 # Schéma du graphe en SVG (même rendu que le Stylist : nodes visités en olive)
 # --------------------------------------------------------------------------------------
 OLIVE, BORDER, INK, MUTED = "#556B2F", "#E2E0D8", "#1C1C1C", "#8C8A82"
-SVG_W, SVG_H, BOX_H = 580, 330, 44
+SVG_W, SVG_H, BOX_H = 690, 330, 44
 ROW = {"top": 56, "mid": 150, "bottom": 244}
 BRANCH_W, BRANCH_GAP = 108, 6
 BRANCHES = (("stylist", "BO4 Stylist"), ("wardrobe", "BO1 Wardrobe"), ("purchase", "Purchase Redundancy"),
-            ("knowledge", "BO5 RAG"), ("clarify", "question"))
+            ("knowledge", "BO5 RAG"), ("external", "modules externes"), ("clarify", "question"))
 WIDE_W, CX = 200, SVG_W // 2
 
 
@@ -502,8 +502,9 @@ def main() -> None:
     parser.add_argument("--no-llm", action="store_true", help="routage par règles seulement (pas d'Ollama)")
     args = parser.parse_args()
     services = load_services(args.services) if args.services else load_services()
+    modules = load_modules(args.services) if args.services else load_modules()
     configure(gateway=Gateway(services), llm=None if args.no_llm else "ollama", require_auth=args.require_auth,
-              env=read_env())
+              env=read_env(), modules=modules)
     import uvicorn
     uvicorn.run(app, host=args.host, port=args.port)
 

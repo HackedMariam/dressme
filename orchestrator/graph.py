@@ -28,7 +28,7 @@ try:  # LangGraph n'injecte la configuration du tour que dans un paramètre typ�
 except ImportError:  # pragma: no cover
     RunnableConfig = dict
 
-from services import CallResult, Gateway, load_services
+from services import CallResult, Gateway, load_modules, load_services
 
 ROUTES = ("stylist", "wardrobe", "purchase", "knowledge", "clarify")
 SERVICE_ROUTES = ROUTES[:4]
@@ -102,9 +102,17 @@ FOLLOW_UP = (r"\b(une autre|un autre|autre chose|another|something else|j'aime|j
 CHOICE = {"1": "stylist", "2": "wardrobe", "3": "purchase", "4": "knowledge"}
 
 
-def rule_candidates(message: str) -> list[str]:
+def rule_candidates(message: str, modules: Optional[dict] = None) -> list[str]:
+    """Routes indiquées par les mots-clés : routes internes, puis modules externes (services.yaml). Un module
+    désactivé n'est gardé que s'il est le seul indice (pour dire qu'il n'est pas encore branché)."""
     text = plain(message)
-    return [route for route, pattern in ROUTE_PATTERNS.items() if re.search(pattern, text)]
+    found = [route for route, pattern in ROUTE_PATTERNS.items() if re.search(pattern, text)]
+    enabled, disabled = [], []
+    for module in (modules or {}).values():
+        if any(re.search(pattern, text) for pattern in module.keywords):
+            (enabled if module.enabled else disabled).append(module.route)
+    found += enabled
+    return found or disabled
 
 
 # --------------------------------------------------------------------------------------
@@ -162,24 +170,35 @@ def ollama_llm(gateway: Gateway, trace: list[str], node: str) -> LLM:
     return call
 
 
-def ground_route(raw: Any, candidates: list[str]) -> tuple[Optional[str], Optional[str]]:
-    """Garde-fou : (route acceptée, motif de rejet). Valeur hors liste, ou hors des indices trouvés par les
-    règles quand il y en a : rejetée."""
+def ground_route(raw: Any, candidates: list[str], extra_routes: tuple = ()) -> tuple[Optional[str], Optional[str]]:
+    """Garde-fou : (route acceptée, motif de rejet). Valeur hors liste (routes internes et modules externes
+    activés), ou hors des indices trouvés par les règles quand il y en a : rejetée."""
     route = raw.get("route") if isinstance(raw, dict) else None
-    if route not in ROUTES:
+    if route not in ROUTES and route not in extra_routes:
         return None, f"valeur non autorisée {route!r}"
     if candidates and route not in candidates and route != "clarify":
         return None, f"{route} hors des indices {candidates}"
     return route, None
 
 
-def decide_route(message: str, state: dict, llm: Optional[LLM]) -> tuple[str, str, list[str]]:
+def route_prompt_and_schema(modules: Optional[dict]) -> tuple[str, dict, tuple]:
+    """Prompt et schéma JSON du routage, étendus aux modules externes ACTIVÉS."""
+    enabled = [m for m in (modules or {}).values() if m.enabled]
+    extra = tuple(m.route for m in enabled)
+    prompt = ROUTE_PROMPT + "".join(f"\n{m.route}: {m.description or m.label}." for m in enabled)
+    schema = {"type": "object", "properties": {"route": {"type": "string", "enum": list(ROUTES) + list(extra)}},
+              "required": ["route"]}
+    return prompt, schema, extra
+
+
+def decide_route(message: str, state: dict, llm: Optional[LLM],
+                 modules: Optional[dict] = None) -> tuple[str, str, list[str]]:
     """(route, source, indices). Règles, puis suite de conversation, puis LLM avec garde-fou."""
     text = plain(message)
     pending = state.get("pending_question")
     if pending and (choice := re.match(r"^\s*([1-4])\b", text)):
         return CHOICE[choice.group(1)], "réponse à la question de clarification", []
-    candidates = rule_candidates(message)
+    candidates = rule_candidates(message, modules)
     if len(candidates) == 1:
         return candidates[0], "règles", candidates
     if not candidates and re.search(GREETING, text):
@@ -188,7 +207,8 @@ def decide_route(message: str, state: dict, llm: Optional[LLM]) -> tuple[str, st
         return "stylist", "suite de la conversation", []
     if llm is None:
         return "clarify", "règles ambiguës, LLM désactivé", candidates
-    route, rejected = ground_route(llm(ROUTE_PROMPT, message, ROUTE_SCHEMA), candidates)
+    prompt, schema, extra = route_prompt_and_schema(modules)
+    route, rejected = ground_route(llm(prompt, message, schema), candidates, extra)
     if route is None:
         return "clarify", f"LLM rejeté ({rejected or 'pas de réponse'})", candidates
     return route, "LLM qwen2.5:3b", candidates
@@ -356,6 +376,104 @@ def clean_bo5_answer(text: str) -> str:
 
 
 # --------------------------------------------------------------------------------------
+# Modules externes : contrat wardrobe_items (orchestrator/integration_contract.md) et requêtes configurables
+# --------------------------------------------------------------------------------------
+# Champs d'une ligne BO1 `items` transmis aux modules. Ni user_id, ni champs internes (détection, confiance).
+WARDROBE_FIELDS = ("id", "name", "category", "category_group", "subcategory", "color_name", "color_hex",
+                   "color_family", "pattern", "material", "seasons", "style", "occasions", "formality", "warmth",
+                   "description", "tags", "needs_review", "status", "image_url", "cutout_url", "created_at")
+LIST_FIELDS = {"seasons", "occasions", "tags"}
+
+
+def contract_item(row: dict) -> dict:
+    item = {field: row.get(field) for field in WARDROBE_FIELDS}
+    for field in LIST_FIELDS:
+        item[field] = list(item[field] or [])
+    item["needs_review"] = bool(item["needs_review"])
+    item["id"] = str(item["id"])
+    return item
+
+
+_VAR = re.compile(r"\$([a-z_]+)")
+
+
+def uses_var(template: Any, name: str) -> bool:
+    if isinstance(template, str):
+        return f"${name}" in template
+    if isinstance(template, dict):
+        return any(uses_var(v, name) for v in template.values())
+    if isinstance(template, list):
+        return any(uses_var(v, name) for v in template)
+    return False
+
+
+def render_template(template: Any, ctx: dict) -> Any:
+    """Remplace les variables du modèle de requête : "$x" seul garde le type de la valeur (liste, nombre…) ;
+    "$x" dans un texte est remplacé par sa forme texte."""
+    if isinstance(template, dict):
+        return {k: render_template(v, ctx) for k, v in template.items()}
+    if isinstance(template, list):
+        return [render_template(v, ctx) for v in template]
+    if isinstance(template, str):
+        whole = re.fullmatch(r"\$([a-z_]+)", template)
+        if whole:
+            return ctx.get(whole.group(1))
+        return _VAR.sub(lambda m: "" if ctx.get(m.group(1)) is None else str(ctx[m.group(1)]), template)
+    return template
+
+
+def get_path(data: Any, path: str) -> Any:
+    for key in path.split("."):
+        if isinstance(data, dict):
+            data = data.get(key)
+        elif isinstance(data, list) and key.isdigit() and int(key) < len(data):
+            data = data[int(key)]
+        else:
+            return None
+    return data
+
+
+class _Blank(dict):
+    def __missing__(self, key):
+        return "?"
+
+
+def render_module_response(spec: dict, data: Any, label: str) -> str:
+    """Texte markdown d'une réponse de module, selon `response` de services.yaml."""
+    lines: list[str] = []
+    for field in spec.get("fields") or []:
+        value = get_path(data, field["path"])
+        if value not in (None, "", []):
+            lines.append(f"**{field['label']}** : {value}{field.get('suffix', '')}")
+    listing = spec.get("list")
+    if listing:
+        items = get_path(data, listing["path"]) or []
+        if isinstance(items, list) and items:
+            lines.append("")
+            for item in items[: int(listing.get("limit", 10))]:
+                lines.append(listing["format"].format_map(_Blank(item)) if isinstance(item, dict) else f"- {item}")
+    for path in spec.get("text") or []:
+        value = get_path(data, path)
+        if isinstance(value, list):
+            value = "\n".join(f"- {v}" for v in value if v not in (None, ""))
+        if value not in (None, ""):
+            lines += ["", str(value)]
+    text = "\n".join(lines).strip()
+    return text or f"Réponse reçue de {label} (aucun champ d'affichage configuré)."
+
+
+def message_context(message: str) -> dict:
+    text = plain(message)
+    url = re.search(r"https?://\S+", message)
+    price = re.search(r"(\d+(?:[.,]\d+)?)\s*(€|eur|euros?|\$|dt|dinars?)", text)
+    budget = re.search(r"budget\D{0,15}(\d+(?:[.,]\d+)?)", text)
+    return {"message": message, "language": "French" if is_french(message) else "English",
+            "first_url": url.group(0).rstrip(".,;)") if url else None,
+            "price": float(price.group(1).replace(",", ".")) if price else None,
+            "budget": float(budget.group(1).replace(",", ".")) if budget else None}
+
+
+# --------------------------------------------------------------------------------------
 # État du graphe
 # --------------------------------------------------------------------------------------
 class OrchestratorState(TypedDict, total=False):
@@ -391,8 +509,11 @@ def _failure(label: str, call: CallResult) -> str:
 # --------------------------------------------------------------------------------------
 # Nodes
 # --------------------------------------------------------------------------------------
-def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False) -> dict:
-    """`llm` : "ollama", None (règles seules) ou une fonction (system, message, schema) -> dict | None."""
+def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
+               modules: Optional[dict] = None) -> dict:
+    """`llm` : "ollama", None (règles seules) ou une fonction (system, message, schema) -> dict | None.
+    `modules` : modules externes (services.yaml, section modules), appelés par le node « external »."""
+    modules = modules or {}
 
     def llm_for(trace: list[str], node: str) -> Optional[LLM]:
         if llm is None:
@@ -409,7 +530,7 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False) -
     def route_intent(state: OrchestratorState) -> dict:
         message = state["user_message"]
         llm_trace: list[str] = []
-        route, source, candidates = decide_route(message, dict(state), llm_for(llm_trace, "route_intent"))
+        route, source, candidates = decide_route(message, dict(state), llm_for(llm_trace, "route_intent"), modules)
         if route != "clarify" and source == "réponse à la question de clarification":
             message = state.get("pending_question") or message
         text = f"{route} [{source}" + (f", indices : {', '.join(candidates)}" if candidates else "") + "]"
@@ -556,6 +677,52 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False) -
         return {"result": result, "pending_question": state["user_message"],
                 "trace": _line(state, "clarify", "question posée à l'utilisateur")}
 
+    def external(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
+        """Module externe générique : vérifie qu'il est activé et répond, lui envoie la garde-robe BO1 de
+        l'utilisateur (wardrobe_items) dans la requête décrite par services.yaml, puis met la réponse en forme."""
+        name = state["route"].split(":", 1)[1]
+        module = modules.get(name)
+        trace = list(state.get("trace") or [])
+        if module is None:
+            result = {"service": "external", "label": name, "ok": False, "details": {},
+                      "text": f"Module « {name} » inconnu dans services.yaml."}
+            return {"result": result, "trace": trace + [f"external -> module {name} inconnu"]}
+        label = module.label
+
+        def done(ok: bool, text: str, details: Optional[dict] = None) -> dict:
+            result = {"service": "external", "label": label, "ok": ok, "text": text,
+                      "details": {"module": name, **(details or {})}}
+            return {"result": result, "last_route": state["route"], "trace": trace}
+
+        if not module.enabled:
+            trace.append(f"external -> {name} désactivé dans services.yaml, aucun appel")
+            return done(False, f"Le module {label} n'est pas encore branché à l'orchestrateur : il doit d'abord "
+                               f"exposer {module.method} {module.path} selon le contrat d'intégration "
+                               f"(orchestrator/integration_contract.md). Il est désactivé dans services.yaml.")
+        if module.health:
+            health = gateway.call(name, "GET", module.health, timeout=min(3.0, module.timeout))
+            trace.append(f"external -> {health.trace()}")
+            if not health.ok:
+                return done(False, f"{label} ne répond pas pour l'instant ({module.url}) : "
+                                   "réessaie quand le service est démarré.")
+        ctx = {**message_context(state["user_message"]), "user_id": _configurable(config).get("user_id"),
+               "thread_id": conversation_id(config)}
+        if uses_var(module.request, "wardrobe_items"):
+            items_call = gateway.call("bo1", "GET", "/api/items", token=request_token(config))
+            trace.append(f"external -> {items_call.trace()}")
+            if not items_call.ok or not isinstance(items_call.data, list):
+                return done(False, _failure(gateway.services["bo1"].label, items_call)
+                            + f" Sans ta garde-robe, {label} ne peut pas répondre.")
+            ctx["wardrobe_items"] = [contract_item(row) for row in items_call.data]
+        body = render_template(module.request, ctx) if module.method != "GET" else None
+        call = gateway.call(name, module.method, module.path, body,
+                            token=request_token(config) if module.forward_token else None)
+        trace.append(f"external -> {call.trace()}")
+        if not call.ok:
+            return done(False, _failure(label, call))
+        return done(True, render_module_response(module.response, call.data, label),
+                    {"wardrobe_sent": len(ctx.get("wardrobe_items") or [])})
+
     def respond(state: OrchestratorState) -> dict:
         result = state.get("result") or {}
         text = result.get("text") or "Je n'ai pas de réponse."
@@ -566,26 +733,40 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False) -
                 "trace": _line(state, "respond", f"réponse de {result.get('label', 'l’orchestrateur')}")}
 
     return {"route_intent": route_intent, "stylist": stylist, "wardrobe": wardrobe, "purchase": purchase,
-            "knowledge": knowledge, "clarify": clarify, "respond": respond}
+            "knowledge": knowledge, "external": external, "clarify": clarify, "respond": respond}
 
 
-NODE_ORDER = ("route_intent", "stylist", "wardrobe", "purchase", "knowledge", "clarify", "respond")
+NODE_ORDER = ("route_intent", "stylist", "wardrobe", "purchase", "knowledge", "external", "clarify", "respond")
+
+
+def route_target(state: dict) -> str:
+    route = state["route"]
+    return "external" if route.startswith("external:") else route
 
 
 def build_graph(gateway: Optional[Gateway] = None, llm: Any = "ollama", checkpointer: Any = None,
-                use_llm_for_purchase: bool = False):
-    """`llm` : "ollama" (par défaut), None (règles seules) ou une fonction (system, message, schema) -> dict."""
+                use_llm_for_purchase: bool = False, modules: Optional[dict] = None):
+    """`llm` : "ollama" (par défaut), None (règles seules) ou une fonction (system, message, schema) -> dict.
+    `modules` : modules externes ; par défaut la section `modules` de services.yaml."""
     from langgraph.graph import END, START, StateGraph
     from langgraph.checkpoint.memory import InMemorySaver
 
     gateway = gateway or Gateway(load_services())
-    nodes = make_nodes(gateway, llm, use_llm_for_purchase)
+    modules = load_modules() if modules is None else modules
+    clash = set(modules) & set(gateway.services)
+    if clash:
+        raise ValueError(f"Nom de module déjà pris par un service : {sorted(clash)}")
+    # Passerelle propre à ce graphe (services + modules) : celle de l'appelant n'est pas modifiée.
+    gateway = Gateway({**gateway.services, **{m.name: m.service() for m in modules.values()}},
+                      transport=gateway.transport)
+    nodes = make_nodes(gateway, llm, use_llm_for_purchase, modules)
     builder = StateGraph(OrchestratorState)
     for name, fn in nodes.items():
         builder.add_node(name, fn)
     builder.add_edge(START, "route_intent")
-    builder.add_conditional_edges("route_intent", lambda state: state["route"], {r: r for r in ROUTES})
-    for route in ROUTES:
+    targets = [*ROUTES, "external"]
+    builder.add_conditional_edges("route_intent", route_target, {r: r for r in targets})
+    for route in targets:
         builder.add_edge(route, "respond")
     builder.add_edge("respond", END)
     return builder.compile(checkpointer=checkpointer or InMemorySaver())

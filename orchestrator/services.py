@@ -43,6 +43,46 @@ def load_services(path: Path | str = CONFIG_FILE, overrides: Optional[dict[str, 
     return services
 
 
+@dataclass(frozen=True)
+class ModuleConfig:
+    """Module externe appelé par le node générique « external » (section `modules` de services.yaml)."""
+    name: str
+    label: str
+    url: str
+    path: str
+    method: str = "POST"
+    health: Optional[str] = None
+    timeout: float = 30
+    enabled: bool = False
+    description: str = ""
+    keywords: tuple = ()
+    request: Any = None
+    response: dict = field(default_factory=dict)
+    forward_token: bool = False
+
+    @property
+    def route(self) -> str:
+        return f"external:{self.name}"
+
+    def service(self) -> Service:
+        return Service(name=self.name, label=self.label, url=self.url.rstrip("/"), timeout=self.timeout)
+
+
+def load_modules(path: Path | str = CONFIG_FILE) -> dict[str, ModuleConfig]:
+    """Section `modules` de services.yaml (vide si absente)."""
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")).get("modules") or {}
+    return {name: modules_from_dict(name, conf) for name, conf in raw.items()}
+
+
+def modules_from_dict(name: str, conf: dict) -> ModuleConfig:
+    return ModuleConfig(name=name, label=conf.get("label", name), url=str(conf["url"]).rstrip("/"),
+                        path=conf["path"], method=str(conf.get("method", "POST")).upper(), health=conf.get("health"),
+                        timeout=float(conf.get("timeout", 30)), enabled=bool(conf.get("enabled", False)),
+                        description=conf.get("description", ""), keywords=tuple(conf.get("keywords") or ()),
+                        request=conf.get("request"), response=conf.get("response") or {},
+                        forward_token=bool(conf.get("forward_token", False)))
+
+
 @dataclass
 class CallResult:
     service: str
