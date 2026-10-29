@@ -29,6 +29,7 @@ def run_optimization(
     max_candidates_per_day: int = 500,
     time_limit_seconds: int = 30,
     random_seed: int = 42,
+    allow_outfit_repeats: bool = False,
 ) -> dict[str, Any]:
     if max_weight_g <= 0:
         raise ValueError("max_weight_g must be positive")
@@ -41,6 +42,7 @@ def run_optimization(
         max_candidates_per_day=max_candidates_per_day,
         time_limit_seconds=time_limit_seconds,
         random_seed=random_seed,
+        allow_outfit_repeats=allow_outfit_repeats,
     )
 
 
@@ -93,6 +95,8 @@ def selected_items_from_result(
                     if item.get("color") is not None
                     else None
                 ),
+                image_url=item.get("image_url") if isinstance(item.get("image_url"), str) else None,
+                weight_estimated=bool(item.get("weight_estimated", False)),
             )
         )
     return items
@@ -153,6 +157,8 @@ def build_capsule(
                             if item.get("color") is not None
                             else None
                         ),
+                        image_url=item.get("image_url") if isinstance(item.get("image_url"), str) else None,
+                        weight_estimated=bool(item.get("weight_estimated", False)),
                     )
                 )
 
@@ -181,6 +187,8 @@ def build_capsule(
                 "category": item.category,
                 "item_type": item.item_type,
                 "weight_g": item.weight_g,
+                "image_url": item.image_url,
+                "weight_estimated": item.weight_estimated,
                 "quantity": 1,
                 "packed": False,
             }
@@ -212,6 +220,9 @@ def build_capsule(
             "optimizer_time_limit_seconds": None,
             "weather_warning": weather.warning,
             "synthetic_weather": weather.source == "synthetic_fallback",
+            "weight_estimated": any(item.weight_estimated for item in selected_items),
+            "compatibility_estimated": any(item.weight_estimated for item in selected_items),
+            "allow_outfit_repeats": trip.allow_outfit_repeats,
         },
     )
 

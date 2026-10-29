@@ -78,19 +78,13 @@ class TripAgent:
             return self._response("Please describe the trip you want to plan.")
 
         self.state.add_user_message(text)
-        use_llm = self.llm.available
-        if use_llm:
+        if self.tools.wardrobe_provider.name == "synthetic_csv" and self.llm.available:
             try:
                 return self._run_llm_loop(text, auto_continue=auto_continue)
-            except LLMError as exc:
+            except Exception as exc:
                 self._note_error(f"LLM unavailable: {exc}")
-                log_event(logger, "agent_llm_fallback", error=str(exc), level=logging.WARNING)
-                return self._run_fallback_loop(auto_continue=auto_continue)
-            except Exception as exc:  # pragma: no cover - defensive boundary
-                self._note_error(f"Agent loop failed: {type(exc).__name__}: {exc}")
-                log_event(logger, "agent_loop_failed", error=str(exc), level=logging.ERROR)
-                return self._run_fallback_loop(auto_continue=auto_continue)
-
+        # Extraction may use the LLM, but workflow and optimizer decisions are
+        # controlled by the graph, including on clarification turns.
         return self._run_fallback_loop(auto_continue=auto_continue)
 
     def handle_structured(
@@ -125,7 +119,7 @@ class TripAgent:
     ) -> AgentResponse:
         result = self.tools.execute(
             "update_trip",
-            {"updates": updates, "reoptimize": reoptimize},
+            {"updates": updates, "reoptimize": False},
         )
         if not result.get("ok"):
             return self._response(self._compose_completion_message())
@@ -133,6 +127,8 @@ class TripAgent:
             question = result.get("question") or "I need the missing trip details."
             self.state.add_assistant_message(question)
             return self._response(question)
+        if reoptimize:
+            self._complete_workflow()
         return self._response(self._compose_completion_message())
 
     def mark_packed(self, item_id: str, packed: bool = True) -> AgentResponse:
@@ -254,23 +250,31 @@ class TripAgent:
     # Deterministic fallback / completion
     # ------------------------------------------------------------------
     def _run_fallback_loop(self, auto_continue: bool) -> AgentResponse:
-        if self.state.trip_details is None or self.state.trip_details.missing_fields:
-            latest = ""
-            for message in reversed(self.state.messages):
-                if message.role == "user":
-                    latest = message.content
-                    break
-            result = self.tools.execute("get_trip_details", {"text": latest})
-            if result.get("needs_clarification"):
-                question = result.get("question") or (
-                    "I need the missing trip details before I can continue."
-                )
-                self.state.add_assistant_message(question)
-                return self._response(question)
-            if auto_continue:
-                self._complete_workflow()
-        elif auto_continue:
+        from typing import TypedDict
+        from langgraph.graph import END, START, StateGraph
+
+        class IntakeState(TypedDict):
+            ready: bool
+
+        def intake(_state: IntakeState) -> dict:
+            if (self.state.trip_details is None or self.state.trip_details.missing_fields
+                    or self.tools.wardrobe_provider.name == "bo1"):
+                latest = next((m.content for m in reversed(self.state.messages) if m.role == "user"), "")
+                result = self.tools.execute("get_trip_details", {"text": latest})
+                return {"ready": bool(result.get("ok")) and not result.get("needs_clarification")}
+            return {"ready": True}
+
+        def plan(_state: IntakeState) -> dict:
             self._complete_workflow()
+            return {"ready": True}
+
+        graph = StateGraph(IntakeState)
+        graph.add_node("intake", intake)
+        graph.add_node("plan", plan)
+        graph.add_edge(START, "intake")
+        graph.add_conditional_edges("intake", lambda state: "plan" if state["ready"] and auto_continue else END)
+        graph.add_edge("plan", END)
+        graph.compile().invoke({"ready": False})
 
         message = self._compose_completion_message()
         self.state.add_assistant_message(message)
@@ -288,7 +292,7 @@ class TripAgent:
         return True
 
     def _complete_workflow(self) -> None:
-        """Enforce dependencies with Python while reusing the same tools."""
+        """Run the packing workflow through LangGraph using the existing tools."""
         details = self.state.trip_details
         if details is None:
             latest = ""
@@ -309,27 +313,47 @@ class TripAgent:
             )
             return
 
-        if self.state.weather is None:
-            weather = self.tools.execute("get_weather", {})
-            if not weather.get("ok"):
-                return
+        from typing import TypedDict
+        from langgraph.graph import END, START, StateGraph
 
-        if not self.state.daily_requirements:
-            requirements = self.tools.execute("get_activity_requirements", {})
-            if not requirements.get("ok"):
-                return
+        class WorkflowState(TypedDict):
+            ok: bool
 
-        if self.state.optimization_result is None:
-            optimization = self.tools.execute("optimize_trip", {})
-            if not optimization.get("ok"):
-                return
+        def weather(_state: WorkflowState) -> dict:
+            result = {"ok": True} if self.state.weather else self.tools.execute("get_weather", {})
+            return {"ok": bool(result.get("ok"))}
 
-        if self.state.status == "infeasible":
-            self.tools.execute("suggest_alternatives", {})
-            return
+        def wardrobe(_state: WorkflowState) -> dict:
+            result = self.tools.execute("get_wardrobe", {})
+            return {"ok": bool(result.get("ok"))}
 
-        if self.state.capsule is not None and self.state.checklist is None:
-            self.tools.execute("generate_checklist", {})
+        def requirements(_state: WorkflowState) -> dict:
+            result = ({"ok": True} if self.state.daily_requirements else
+                      self.tools.execute("get_activity_requirements", {}))
+            return {"ok": bool(result.get("ok"))}
+
+        def optimize(_state: WorkflowState) -> dict:
+            result = ({"ok": True} if self.state.optimization_result else
+                      self.tools.execute("optimize_trip", {}))
+            return {"ok": bool(result.get("ok"))}
+
+        def finish(_state: WorkflowState) -> dict:
+            if self.state.status == "infeasible":
+                self.tools.execute("suggest_alternatives", {})
+            elif self.state.capsule is not None and self.state.checklist is None:
+                self.tools.execute("generate_checklist", {})
+            return {"ok": True}
+
+        graph = StateGraph(WorkflowState)
+        for name, node in (("weather", weather), ("wardrobe", wardrobe),
+                           ("requirements", requirements), ("optimize", optimize), ("finish", finish)):
+            graph.add_node(name, node)
+        graph.add_edge(START, "weather")
+        for current, following in (("weather", "wardrobe"), ("wardrobe", "requirements"),
+                                   ("requirements", "optimize"), ("optimize", "finish")):
+            graph.add_conditional_edges(current, lambda state, next_node=following: next_node if state["ok"] else END)
+        graph.add_edge("finish", END)
+        graph.compile().invoke({"ok": True})
 
     # ------------------------------------------------------------------
     # Response helpers
@@ -347,6 +371,8 @@ class TripAgent:
             checklist=self.state.checklist,
             missing_info=self.state.missing_info,
             suggestions=self.state.suggestions,
+            missing_items=self.state.missing_items,
+            can_repeat_outfits=self.state.can_repeat_outfits,
             errors=self.state.errors,
         )
 
@@ -372,7 +398,8 @@ class TripAgent:
                 (
                     f"Optimization: {capsule.optimization_status}; "
                     f"{capsule.number_of_items} unique clothing items; "
-                    f"{capsule.total_weight_g / 1000:.2f} kg of clothing."
+                    f"{capsule.total_weight_g / 1000:.2f} kg of "
+                    f"{'estimated ' if capsule.metadata.get('weight_estimated') else ''}clothing weight."
                 ),
                 (
                     f"Weather source: {weather_source}"

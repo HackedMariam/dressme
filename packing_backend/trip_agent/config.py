@@ -36,6 +36,8 @@ def load_dotenv(path: Path | None = None) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip()
+        if not value.startswith(("'", '"')):
+            value = value.split(" #", 1)[0].rstrip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
         if key:

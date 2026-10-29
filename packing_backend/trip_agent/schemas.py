@@ -78,6 +78,7 @@ class TripDetails(BaseModel):
     max_luggage_weight_kg: float | None = Field(default=None, gt=0, le=50)
     max_items_target: int | None = Field(default=None, ge=1, le=100)
     allow_laundry: bool = False
+    allow_outfit_repeats: bool = False
     notes: str | None = None
     assumptions: list[str] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
@@ -279,6 +280,8 @@ class OutfitItem(BaseModel):
     weight_g: int
     style: str | None = None
     color: str | None = None
+    image_url: str | None = None
+    weight_estimated: bool = False
 
 
 class CapsuleDay(BaseModel):
@@ -316,6 +319,8 @@ class ChecklistItem(BaseModel):
     weight_g: int
     quantity: int = 1
     packed: bool = False
+    image_url: str | None = None
+    weight_estimated: bool = False
 
     def mark(self, packed: bool) -> "ChecklistItem":
         self.packed = packed
@@ -376,6 +381,15 @@ class ToolCallRecord(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class MissingItemRecommendation(BaseModel):
+    key: str
+    title: str
+    examples: list[str]
+    days: list[int]
+    covers: list[str]
+    note: str | None = None
+
+
 class AgentState(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -395,6 +409,8 @@ class AgentState(BaseModel):
     needs_clarification: bool = False
     clarification_question: str | None = None
     suggestions: list[str] = Field(default_factory=list)
+    missing_items: list[MissingItemRecommendation] = Field(default_factory=list)
+    can_repeat_outfits: bool = False
     errors: list[str] = Field(default_factory=list)
     tool_history: list[ToolCallRecord] = Field(default_factory=list)
     status: Literal[
@@ -458,6 +474,8 @@ class AgentResponse(BaseModel):
     checklist: PackingChecklist | None = None
     missing_info: list[str] = Field(default_factory=list)
     suggestions: list[str] = Field(default_factory=list)
+    missing_items: list[MissingItemRecommendation] = Field(default_factory=list)
+    can_repeat_outfits: bool = False
     errors: list[str] = Field(default_factory=list)
 
     def to_json_dict(self) -> dict[str, Any]:

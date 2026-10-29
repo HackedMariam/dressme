@@ -501,7 +501,8 @@ def generate_outfits(wardrobe, trip, compatibility, item_roles,
 
 def optimize_packing(wardrobe, trips, compatibility_df,
                      max_weight_g, max_candidates_per_day=500,
-                     time_limit_seconds=30, random_seed=42):
+                     time_limit_seconds=30, random_seed=42,
+                     allow_outfit_repeats=False):
 
     compatibility = build_compatibility_map(compatibility_df)
     item_roles = build_item_roles(wardrobe)
@@ -575,9 +576,10 @@ def optimize_packing(wardrobe, trips, compatibility_df,
                 )
 
     # Diversité : interdire la même tenue (même signature) sur deux jours.
-    for signature, vars_ in signature_groups.items():
-        if len(vars_) > 1:
-            model.add(sum(vars_) <= 1)
+    if not allow_outfit_repeats:
+        for signature, vars_ in signature_groups.items():
+            if len(vars_) > 1:
+                model.add(sum(vars_) <= 1)
 
     # Strict luggage weight constraint.
     model.add(

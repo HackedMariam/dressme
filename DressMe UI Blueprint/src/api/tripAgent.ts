@@ -1,3 +1,5 @@
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
+
 export type TripDetails = {
   destination: string | null;
   country?: string | null;
@@ -11,6 +13,7 @@ export type TripDetails = {
   max_luggage_weight_kg: number | null;
   max_items_target?: number | null;
   allow_laundry?: boolean;
+  allow_outfit_repeats?: boolean;
   notes?: string | null;
   missing_fields?: string[];
 };
@@ -68,6 +71,8 @@ export type OutfitItem = {
   weight_g: number;
   style?: string | null;
   color?: string | null;
+  image_url?: string | null;
+  weight_estimated?: boolean;
 };
 
 export type CapsuleDay = {
@@ -93,6 +98,8 @@ export type ChecklistItem = {
   weight_g: number;
   quantity: number;
   packed: boolean;
+  image_url?: string | null;
+  weight_estimated?: boolean;
 };
 
 export type ChecklistSummary = {
@@ -125,6 +132,15 @@ export type Capsule = {
   metadata?: Record<string, unknown>;
 };
 
+export type MissingItemRecommendation = {
+  key: string;
+  title: string;
+  examples: string[];
+  days: number[];
+  covers: string[];
+  note: string | null;
+};
+
 export type TripPayload = {
   session_id: string;
   status: string;
@@ -138,6 +154,8 @@ export type TripPayload = {
   missing_info: string[];
   clarification_question?: string | null;
   suggestions: string[];
+  missing_items?: MissingItemRecommendation[];
+  can_repeat_outfits?: boolean;
   errors: string[];
   optimization_status?: string | null;
   optimization_runs?: number;
@@ -170,7 +188,7 @@ type CreateTripInput =
   | { mode: "text"; text: string; session_id?: string }
   | { mode: "structured"; trip: Record<string, unknown>; session_id?: string };
 
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(
+const API_BASE = (import.meta.env.VITE_TRIP_API_URL || "http://localhost:8020").replace(
   /\/$/,
   "",
 );
@@ -189,12 +207,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 180_000);
   try {
+    const headers = new Headers(init?.headers);
+    headers.set("Content-Type", "application/json");
+    if (isSupabaseConfigured) {
+      const { data } = await supabase.auth.getSession();
+      if (data.session?.access_token) headers.set("Authorization", `Bearer ${data.session.access_token}`);
+    }
     const response = await fetch(`${API_BASE}${path}`, {
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init?.headers || {}),
-      },
+      headers,
       signal: controller.signal,
     });
     const text = await response.text();

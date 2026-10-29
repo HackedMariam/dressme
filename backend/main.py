@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -18,7 +19,9 @@ from typing import Any, Callable, Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
+import requests
 
 if __package__ in {None, ""}:  # allow `python backend/main.py`
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -27,6 +30,7 @@ from packing_backend.trip_agent.agent import TripAgent
 from packing_backend.trip_agent.config import get_api_key, llm_enabled
 from packing_backend.trip_agent.logging_utils import configure_logging, log_event
 from packing_backend.trip_agent.schemas import AgentResponse
+from packing_backend.trip_agent.wardrobe import BO1WardrobeProvider
 
 logger = logging.getLogger("dressme.api")
 
@@ -41,6 +45,10 @@ class CreateTripRequest(BaseModel):
     text: str | None = None
     trip: dict[str, Any] | None = None
     session_id: str | None = None
+    # Accepted for orchestrator contract compatibility. BO1 is always queried
+    # directly with the caller's token; client-supplied wardrobe is never trusted.
+    wardrobe_items: list[dict[str, Any]] | None = None
+    user_id: str | None = None
 
 
 class MessageRequest(BaseModel):
@@ -83,6 +91,7 @@ class WeatherRequest(BaseModel):
 @dataclass
 class TripSession:
     agent: TripAgent
+    user_id: str
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -91,8 +100,8 @@ class SessionStore:
         self._sessions: dict[str, TripSession] = {}
         self._lock = threading.Lock()
 
-    def add(self, agent: TripAgent) -> TripSession:
-        session = TripSession(agent=agent)
+    def add(self, agent: TripAgent, user_id: str) -> TripSession:
+        session = TripSession(agent=agent, user_id=user_id)
         with self._lock:
             self._sessions[agent.state.session_id] = session
         return session
@@ -255,6 +264,8 @@ def _state_payload(agent: TripAgent) -> dict[str, Any]:
         "missing_info": state.missing_info,
         "clarification_question": state.clarification_question,
         "suggestions": state.suggestions,
+        "missing_items": [item.model_dump(mode="json") for item in state.missing_items],
+        "can_repeat_outfits": state.can_repeat_outfits,
         "errors": state.errors,
         "messages": [message.model_dump(mode="json") for message in state.messages],
     }
@@ -286,6 +297,8 @@ def create_app(
     use_llm: bool | None = None,
     allow_weather_network: bool | None = None,
     gap_checker: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    bo1_url: str | None = None,
+    wardrobe_provider_factory: Callable[[list[dict[str, Any]]], Any] = BO1WardrobeProvider,
 ) -> FastAPI:
     configure_logging(verbose=os.getenv("TRIP_AGENT_VERBOSE", "0") == "1")
     app = FastAPI(
@@ -293,7 +306,7 @@ def create_app(
         version="1.0.0",
         description=(
             "REST API for the existing DressMe Trip Agent, OR-Tools optimizer, "
-            "capsule, checklist, and optional mock Gap Agent."
+            "capsule, checklist, and optional Gap Agent."
         ),
     )
 
@@ -305,7 +318,23 @@ def create_app(
         if allow_weather_network is None
         else allow_weather_network
     )
-    app.state.gap_checker = gap_checker or mock_gap_checker
+    app.state.gap_checker = gap_checker
+    app.state.bo1_url = (bo1_url or os.getenv("BO1_URL", "http://127.0.0.1:8000")).rstrip("/")
+
+    def bo1_get(path: str, authorization: str | None) -> Any:
+        headers = {"Authorization": authorization} if authorization else {}
+        try:
+            response = requests.get(app.state.bo1_url + path, headers=headers, timeout=10)
+        except requests.RequestException as exc:
+            raise HTTPException(503, "Wardrobe service is unavailable") from exc
+        if response.status_code in (401, 403):
+            raise HTTPException(401, "Please sign in again")
+        if not response.ok:
+            raise HTTPException(503, "Wardrobe service failed")
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise HTTPException(503, "Invalid response from wardrobe service") from exc
 
     origins = {
         "http://localhost:8443",
@@ -318,19 +347,27 @@ def create_app(
         if origin:
             origins.add(origin)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=sorted(origins),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
     @app.middleware("http")
     async def request_logging(request: Request, call_next):
         started = time.perf_counter()
         try:
+            if request.url.path.startswith("/api/trips") and request.method != "OPTIONS":
+                authorization = request.headers.get("authorization")
+                if authorization and not authorization.lower().startswith("bearer "):
+                    raise HTTPException(401, "Invalid authorization header")
+                identity = await run_in_threadpool(bo1_get, "/api/me", authorization)
+                if not isinstance(identity, dict) or not identity.get("id"):
+                    raise HTTPException(503, "Wardrobe identity is unavailable")
+                if authorization and identity["id"] == "local":
+                    raise HTTPException(503, "BO1 must enable authentication to verify your session")
+                request.state.user_id = str(identity["id"])
+                request.state.authorization = authorization
+                match = re.match(r"^/api/trips/([^/]+)", request.url.path)
+                if match and app.state.store.get(match.group(1)).user_id != request.state.user_id:
+                    raise HTTPException(404, "Trip session not found")
             response = await call_next(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         except Exception:
             log_event(
                 logger,
@@ -351,6 +388,14 @@ def create_app(
         )
         return response
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=sorted(origins),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     @app.exception_handler(Exception)
     async def unhandled_exception(request: Request, exc: Exception):
         logger.exception("Unhandled API error on %s %s", request.method, request.url.path)
@@ -359,15 +404,38 @@ def create_app(
             content={"detail": f"Internal server error: {type(exc).__name__}"},
         )
 
-    def new_agent() -> TripAgent:
+    def new_agent(wardrobe_items: list[dict[str, Any]]) -> TripAgent:
         return TripAgent(
             use_llm=app.state.use_llm,
             allow_weather_network=app.state.allow_weather_network,
             gap_checker=app.state.gap_checker,
+            wardrobe_provider=wardrobe_provider_factory(wardrobe_items),
         )
 
     def session_or_404(session_id: str) -> TripSession:
         return app.state.store.get(session_id)
+
+    def refresh_wardrobe(session: TripSession, request: Request) -> None:
+        items = bo1_get("/api/items", request.state.authorization)
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise HTTPException(503, "Invalid wardrobe response")
+        if not items:
+            raise HTTPException(422, "Your wardrobe is empty. Add clothing before planning a trip.")
+        if len(items) > 500:
+            raise HTTPException(422, "Packing currently supports up to 500 wardrobe items.")
+        provider = wardrobe_provider_factory(items)
+        previous = session.agent.tools.wardrobe_provider
+        if not previous.load()[0].equals(provider.load()[0]):
+            state = session.agent.state
+            session.agent.tools.wardrobe_provider = provider
+            state.wardrobe_items = []
+            state.compatibility_data = []
+            state.optimization_result = None
+            state.capsule = None
+            state.checklist = None
+            state.suggestions = []
+            state.missing_items = []
+            state.can_repeat_outfits = False
 
     # ------------------------------------------------------------------
     # Meta / health
@@ -388,23 +456,34 @@ def create_app(
             "llm_configured": bool(get_api_key()),
             "llm_enabled": bool(app.state.use_llm and get_api_key()),
             "weather_network_enabled": bool(app.state.allow_weather_network),
-            "gap_agent": "mock",
+            "gap_agent": "configured" if app.state.gap_checker else "unavailable",
         }
 
     # ------------------------------------------------------------------
     # Trip lifecycle
     # ------------------------------------------------------------------
     @app.post("/api/trips")
-    def create_trip(body: CreateTripRequest) -> dict[str, Any]:
+    def create_trip(body: CreateTripRequest, request: Request) -> dict[str, Any]:
         if body.session_id:
             session = session_or_404(body.session_id)
+            if session.user_id != request.state.user_id:
+                raise HTTPException(404, "Trip session not found")
             agent = session.agent
         else:
-            session = app.state.store.add(new_agent())
+            items = bo1_get("/api/items", request.state.authorization)
+            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                raise HTTPException(503, "Invalid wardrobe response")
+            if not items:
+                raise HTTPException(422, "Your wardrobe is empty. Add clothing before planning a trip.")
+            if len(items) > 500:
+                raise HTTPException(422, "Packing currently supports up to 500 wardrobe items.")
+            session = app.state.store.add(new_agent(items), request.state.user_id)
             agent = session.agent
 
         with session.lock:
             try:
+                if body.session_id:
+                    refresh_wardrobe(session, request)
                 if body.mode == "structured":
                     if not body.trip:
                         raise HTTPException(
@@ -431,11 +510,14 @@ def create_app(
             return _response_payload(agent, response)
 
     @app.post("/api/trips/{session_id}/messages")
-    def send_message(session_id: str, body: MessageRequest) -> dict[str, Any]:
+    def send_message(session_id: str, body: MessageRequest, request: Request) -> dict[str, Any]:
         session = session_or_404(session_id)
         with session.lock:
             try:
+                refresh_wardrobe(session, request)
                 response = session.agent.handle(body.text)
+            except HTTPException:
+                raise
             except Exception as exc:
                 logger.exception("Trip continuation failed")
                 raise HTTPException(
@@ -502,15 +584,18 @@ def create_app(
             }
 
     @app.post("/api/trips/{session_id}/optimize")
-    def optimize(session_id: str, body: OptimizeRequest) -> dict[str, Any]:
+    def optimize(session_id: str, body: OptimizeRequest, request: Request) -> dict[str, Any]:
         session = session_or_404(session_id)
         with session.lock:
+            refresh_wardrobe(session, request)
             arguments = body.model_dump(exclude_none=True)
             result = session.agent.tools.execute("optimize_trip", arguments)
             if not result.get("ok"):
                 raise HTTPException(status_code=409, detail=result)
             if result.get("status") in {"OPTIMAL", "FEASIBLE"}:
                 session.agent.tools.execute("generate_checklist", {})
+            elif result.get("status") == "INFEASIBLE":
+                session.agent.tools.execute("suggest_alternatives", {})
             return {
                 "session_id": session_id,
                 "result": result,
@@ -590,14 +675,17 @@ def create_app(
     # Trip editing / optional gap analysis
     # ------------------------------------------------------------------
     @app.patch("/api/trips/{session_id}")
-    def update_trip(session_id: str, body: UpdateTripRequest) -> dict[str, Any]:
+    def update_trip(session_id: str, body: UpdateTripRequest, request: Request) -> dict[str, Any]:
         session = session_or_404(session_id)
         with session.lock:
             try:
+                refresh_wardrobe(session, request)
                 response = session.agent.update_trip(
                     body.updates,
                     reoptimize=body.reoptimize,
                 )
+            except HTTPException:
+                raise
             except Exception as exc:
                 logger.exception("Trip update failed")
                 raise HTTPException(
@@ -636,5 +724,5 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host=os.getenv("BACKEND_HOST", "127.0.0.1"),
-        port=int(os.getenv("BACKEND_PORT", "8000")),
+        port=int(os.getenv("BACKEND_PORT", "8020")),
     )

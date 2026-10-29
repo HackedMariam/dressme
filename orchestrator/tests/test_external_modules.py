@@ -161,6 +161,22 @@ def test_text_template_and_list_rendering(fake):
     assert "1. Warm outerwear coat (priorité high)\n2. Closed work shoes (priorité medium)" in state["response"]
 
 
+def test_packing_clarification_resumes_same_session(fake, monkeypatch):
+    monkeypatch.setitem(REPLIES, "hmp", {"session_id": "trip-123", "status": "needs_clarification",
+                                         "message": "What dates?"})
+    mods = modules(helpmepack={"forward_token": True})
+    graph = make(fake, mods=mods)
+    first = run(graph, "Help me pack for a trip to Rome")
+    assert first["packing_pending"] is True
+    monkeypatch.setitem(REPLIES, "hmp", {"session_id": "trip-123", "status": "optimized", "message": "Ready"})
+    second = run(graph, "June 3 to June 5")
+    posts = [c for c in fake.to("hmp") if c["method"] == "POST"]
+    assert posts[-1]["path"] == "/api/trips/trip-123/messages"
+    assert posts[-1]["body"] == {"text": "June 3 to June 5"}
+    assert posts[-1]["auth"] == f"Bearer {TOKEN}"
+    assert second["packing_pending"] is False
+
+
 def test_trace_has_one_line_per_call(fake):
     state = run(make(fake), "What am I missing for winter work?")
     lines = [line for line in state["trace"] if line.startswith("external -> ")]
@@ -205,10 +221,11 @@ def test_render_template_keeps_types():
 
 
 # ------------------------------------------------------------------ services.yaml livré
-def test_shipped_services_yaml_declares_three_disabled_modules():
+def test_shipped_services_yaml_enables_helpmepack():
     mods = load_modules()
     assert set(mods) == {"smart_purchasing", "helpmepack", "bo3"}
-    assert not any(m.enabled for m in mods.values())
+    assert mods["helpmepack"].enabled and mods["helpmepack"].forward_token
+    assert not mods["smart_purchasing"].enabled and not mods["bo3"].enabled
     assert {m.url.rsplit(":", 1)[1] for m in mods.values()} == {"8050", "8020", "8030"}
     for module in mods.values():
         assert module.keywords and og.uses_var(module.request, "wardrobe_items")

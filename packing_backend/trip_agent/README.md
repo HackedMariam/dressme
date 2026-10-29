@@ -1,23 +1,23 @@
 # DressMe Trip Agent
 
-A custom, stateful LLM trip-planning agent built on top of the existing
-deterministic OR-Tools packing optimizer. No agent orchestration framework is
-used: the agent loop, tool registry, validation, and state transitions are plain
-Python.
+A stateful trip-planning agent using LangGraph and the deterministic OR-Tools
+packing optimizer. The integrated API authenticates through BO1 and uses its
+real wardrobe; the standalone CLI retains synthetic demo data.
 
 ## What it does
 
 1. Extracts and validates a trip request (free text or structured input).
 2. Asks for missing mandatory information instead of inventing it.
 3. Selects and calls tools based on the current state.
-4. Retrieves daily weather from Open-Meteo, with an explicitly labeled synthetic
-   fallback when forecasts are unavailable.
+4. Retrieves daily weather from Open-Meteo. The integrated API requires a real
+   forecast for every trip day; the standalone demo can use synthetic weather.
 5. Converts activities, weather, and occasions into optimizer-compatible daily
    requirements.
 6. Runs the existing CP-SAT optimizer unchanged through an adapter.
 7. Returns a trip capsule and a packing checklist (`packed: false` initially).
 8. Suggests concrete recovery options for `INFEASIBLE` results without silently
-   relaxing hard constraints.
+   relaxing hard constraints: missing wardrobe items, or an explicit option to
+   repeat a full outfit when a diagnostic proves that can solve the trip.
 9. Supports trip updates/reoptimization and checklist updates without rerunning
    the optimizer.
 10. Exposes an optional `check_gaps` interface for a future Gap Agent.
@@ -28,10 +28,10 @@ Python.
 User text / structured request
         |
         v
-TripAgent (agent.py)  <--- native OpenAI function calling
+TripAgent (agent.py)  <--- optional OpenAI trip extraction
         |
         v
-TripTools (tools.py) ---> extraction.py
+LangGraph workflow ---> TripTools (tools.py) ---> extraction.py
         |                 weather.py
         |                 wardrobe.py
         |                 requirements.py
@@ -46,11 +46,11 @@ AgentState (schemas.py) -> AgentResponse (capsule + checklist + status)
 | `llm.py` | Native chat-completions + tool-call wrapper; structured JSON extraction |
 | `extraction.py` | LLM extraction, deterministic fallback parser, date/activity parsing |
 | `weather.py` | Open-Meteo geocoding/forecast + labeled synthetic fallback |
-| `wardrobe.py` | Provider interface and CSV-backed synthetic wardrobe/compatibility |
+| `wardrobe.py` | BO1 provider with estimated weight/compatibility; synthetic CLI provider |
 | `requirements.py` | Activity assignment and optimizer-compatible daily requirements |
 | `optimizer_adapter.py` | Calls `optimize_packing`; builds capsule and compact results |
 | `tools.py` | Tool schemas, argument validation, execution, state invalidation |
-| `agent.py` | Custom LLM tool-calling loop + deterministic dependency-completion fallback |
+| `agent.py` | LangGraph packing workflow and standalone demo tool-calling loop |
 | `cli.py` | Runnable CLI, end-to-end demo, interactive mode |
 | `tests/test_trip_agent.py` | Offline tests for all requested scenarios |
 
@@ -76,9 +76,9 @@ OPENAI_API_KEY=your_key_here
 LLM_MODEL=gpt-4o
 ```
 
-The agent also works without an LLM or network: it uses the deterministic parser,
-synthetic weather fallback, and the same Python tools. Set
-`TRIP_AGENT_USE_LLM=0` (or pass `--no-llm`) to force that mode.
+The standalone CLI works without an LLM or network using synthetic demo data.
+Set `TRIP_AGENT_USE_LLM=0` (or pass `--no-llm`) to use the deterministic parser.
+The integrated API requires BO1 and a real weather forecast.
 
 ## Run
 
@@ -158,9 +158,9 @@ From the repository root:
 npm run dev:all
 ```
 
-This starts:
+Start BO1 separately on port 8000 first. This starts:
 
-- FastAPI backend on `http://127.0.0.1:8000`
+- Packing FastAPI backend on `http://127.0.0.1:8020`
 - Existing Vite HelpMePack frontend on `http://localhost:8443`
 
 The launcher is `scripts/dev-all.mjs`. It reuses ports that are already open,
@@ -181,11 +181,11 @@ CORS_ORIGINS=http://localhost:8443,http://localhost:5173
 Frontend `.env` in `DressMe UI Blueprint/`:
 
 ```dotenv
-VITE_API_URL=http://localhost:8000
+VITE_TRIP_API_URL=http://localhost:8020
 ```
 
 Useful overrides for the launcher: `BACKEND_PORT`, `FRONTEND_PORT`,
-`VITE_API_URL`, `PYTHON`, `FRONTEND_PM`.
+`VITE_TRIP_API_URL`, `BO1_URL`, `PYTHON`, `FRONTEND_PM`.
 
 ### Endpoints
 
@@ -204,9 +204,9 @@ Useful overrides for the launcher: `BACKEND_PORT`, `FRONTEND_PORT`,
 | `GET` | `/api/trips/{session_id}/capsule` | Retrieve the optimized capsule |
 | `GET` | `/api/trips/{session_id}/checklist` | Retrieve the packing checklist |
 | `PATCH` | `/api/trips/{session_id}/checklist/{item_id}` | Mark packed/unpacked (no optimizer rerun) |
-| `POST` | `/api/trips/{session_id}/gap-analysis` | Invoke the optional mock Gap Agent |
+| `POST` | `/api/trips/{session_id}/gap-analysis` | Invoke the optional configured Gap Agent |
 
-Interactive OpenAPI docs are available at `http://127.0.0.1:8000/docs`.
+Interactive OpenAPI docs are available at `http://127.0.0.1:8020/docs`.
 
 ### Frontend flow
 
@@ -222,17 +222,19 @@ description" tab. Both modes call the same backend:
 5. Checklist updates call the checklist endpoint only.
 6. Edit trip -> `PATCH /api/trips/{id}` with `reoptimize: true`.
 7. Infeasible results -> explanations and recovery suggestions without silent
-   constraint relaxation.
-8. Gap analysis -> deterministic mock implementation, clearly labeled optional.
+   constraint relaxation. Add or correct the suggested items in My Wardrobe, then
+   use **Retry this trip**. If shown, **Allow outfit repeats & retry** explicitly
+   permits repeating a complete outfit while retaining weather and weight limits.
+8. Gap analysis -> unavailable unless a real integration is configured.
 
 ## LLM behavior and safety
 
-- The LLM decides which tools to call and in what order.
+- LangGraph controls the integrated packing workflow; the LLM can extract trip details.
 - Python validates every tool argument with Pydantic and enforces dependencies
   (for example, requirements cannot be generated before weather).
 - Tool failures are returned as structured errors; the agent never fabricates
   optimizer output, wardrobe items, or weather.
-- The loop is bounded by `MAX_AGENT_ITERATIONS`.
+- The standalone demo's LLM tool loop is bounded by `MAX_AGENT_ITERATIONS`.
 - If the LLM is unavailable, the same tools run through a deterministic
   fallback/dependency-completion path.
 - `update_trip` invalidates stale downstream state and can reoptimize on request.
@@ -242,15 +244,14 @@ description" tab. Both modes call the same backend:
 
 ## Notes and limitations
 
-- Wardrobe, compatibility, and missing preferences remain synthetic.
-- Open-Meteo forecasts are limited to roughly the next 15 days; other dates use
-  the labeled synthetic fallback.
+- The integrated API uses BO1 wardrobe items; weights and compatibility are estimates.
+- Open-Meteo forecasts are limited to roughly the next 15 days. The integrated API
+  reports unavailable forecasts instead of planning with synthetic weather.
 - Destination geocoding is confidence-checked. Fuzzy/fictional names are
   refused instead of silently using an unrelated real town; the agent asks for a
   valid destination. Country requests use a representative city where available
   (for example `France` → `Paris`) or a clearly labelled country-centroid
   forecast.
-- `check_gaps` is wired to a deterministic mock Gap Agent in the API. Inject a
-  different `gap_checker` callable into `TripAgent` to connect the real agent.
+- `check_gaps` is unavailable by default. Inject a `gap_checker` callable to connect it.
 - Weather/LLM calls have timeouts and all tool executions are logged as structured
   key/value events.

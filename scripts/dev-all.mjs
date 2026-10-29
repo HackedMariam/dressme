@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FRONTEND_DIR = path.join(ROOT, "DressMe UI Blueprint");
-const BACKEND_PORT = Number(process.env.BACKEND_PORT || "8000");
+const BACKEND_PORT = Number(process.env.BACKEND_PORT || "8020");
 const FRONTEND_PORT = Number(process.env.FRONTEND_PORT || "8443");
 const IS_WINDOWS = process.platform === "win32";
 const PYTHON = process.env.PYTHON || (IS_WINDOWS ? "python" : "python3");
@@ -161,8 +161,8 @@ async function main() {
     const frontendEnv = {
       ...process.env,
       PORT: String(FRONTEND_PORT),
-      VITE_API_URL:
-        process.env.VITE_API_URL || `http://127.0.0.1:${BACKEND_PORT}`,
+      VITE_TRIP_API_URL:
+        process.env.VITE_TRIP_API_URL || `http://127.0.0.1:${BACKEND_PORT}`,
     };
     if (IS_WINDOWS) {
       startService(

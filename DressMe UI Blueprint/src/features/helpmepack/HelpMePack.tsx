@@ -13,6 +13,10 @@ import {
   type TripDetails,
   type TripPayload,
 } from "../../api/tripAgent";
+import { useAuth } from "../auth/AuthProvider";
+import { useUserData } from "../profile/UserDataProvider";
+import { dayLabels, readableSuggestion, recoveryItems, recoveryReason } from "./recovery";
+import OutfitRepeatOption from "./OutfitRepeatOption";
 
 const SESSION_KEY = "dressme.trip.session";
 
@@ -176,22 +180,29 @@ function protectionBadges(requirement: DailyRequirement | undefined) {
   return badges;
 }
 
-export default function HelpMePack() {
+export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => void }) {
+  const { user } = useAuth();
+  const { preferences } = useUserData();
+  const preferredDressCode = preferences?.preferred_styles?.some((style) => ["formal", "elegant"].includes(style.toLowerCase()))
+    ? "Formal"
+    : preferences?.preferred_styles?.some((style) => ["casual", "sporty"].includes(style.toLowerCase()))
+      ? "Casual" : "Smart Casual";
+  const sessionKey = `${SESSION_KEY}.${user?.id || "local"}`;
   const [inputMode, setInputMode] = useState<"manual" | "ai">("manual");
   const [destination, setDestination] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [tripType, setTripType] = useState("Business + Leisure");
-  const [dresscode, setDresscode] = useState("Smart Casual");
+  const [dresscode, setDresscode] = useState(preferredDressCode);
   const [bags, setBags] = useState("1 Carry-On");
   const [aiText, setAiText] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(() =>
-    localStorage.getItem(SESSION_KEY),
+    localStorage.getItem(sessionKey),
   );
   const [trip, setTrip] = useState<TripPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(() =>
-    Boolean(localStorage.getItem(SESSION_KEY)),
+    Boolean(localStorage.getItem(sessionKey)),
   );
   const [error, setError] = useState<string | null>(null);
   const [clarification, setClarification] = useState("");
@@ -211,7 +222,7 @@ export default function HelpMePack() {
   };
 
   useEffect(() => {
-    const stored = localStorage.getItem(SESSION_KEY);
+    const stored = localStorage.getItem(sessionKey);
     if (!stored) {
       setRestoring(false);
       return;
@@ -226,7 +237,7 @@ export default function HelpMePack() {
       })
       .catch(() => {
         if (!active) return;
-        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(sessionKey);
         setSessionId(null);
       })
       .finally(() => {
@@ -237,7 +248,7 @@ export default function HelpMePack() {
     };
     // Restore only once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sessionKey]);
 
   const requirementsByDay = useMemo(() => {
     const map = new Map<number, DailyRequirement>();
@@ -250,7 +261,7 @@ export default function HelpMePack() {
   const applyResponse = (payload: TripPayload) => {
     setTrip(payload);
     setSessionId(payload.session_id);
-    localStorage.setItem(SESSION_KEY, payload.session_id);
+    localStorage.setItem(sessionKey, payload.session_id);
     prefillForm(payload.trip_details);
     setGap(null);
     setClarification("");
@@ -370,8 +381,22 @@ export default function HelpMePack() {
     setGap(null);
   };
 
+  const retryWithWardrobe = async (allowOutfitRepeats = false) => {
+    if (!sessionId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const updates = allowOutfitRepeats ? { allow_outfit_repeats: true } : {};
+      applyResponse(await updateTrip(sessionId, updates, true));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to retry the trip.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const startNewTrip = () => {
-    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(sessionKey);
     setSessionId(null);
     setTrip(null);
     setEditing(false);
@@ -384,7 +409,7 @@ export default function HelpMePack() {
     setStartDate("");
     setEndDate("");
     setTripType("Business + Leisure");
-    setDresscode("Smart Casual");
+    setDresscode(preferredDressCode);
     setBags("1 Carry-On");
   };
 
@@ -395,6 +420,11 @@ export default function HelpMePack() {
     weather?.source === "synthetic_fallback" ||
     Boolean(weather?.days.some((day) => day.synthetic));
   const checklist = trip?.checklist || capsule?.checklist || null;
+  const missingItems = trip ? recoveryItems(trip.missing_items, trip.suggestions || []) : [];
+  const oldPackingService = !!trip && (
+    trip.missing_items === undefined || trip.can_repeat_outfits === undefined ||
+    typeof trip.trip_details?.allow_outfit_repeats !== "boolean"
+  );
 
   if (restoring) {
     return (
@@ -722,7 +752,7 @@ export default function HelpMePack() {
               <div className="rounded-lg bg-white/5 px-4 py-3">
                 <p className="text-white/40 text-[10px] uppercase tracking-widest">Status</p>
                 <p className="text-white text-sm font-semibold mt-1">
-                  {capsule?.optimization_status || trip.optimization_status || "Pending"}
+                  {trip.status === "infeasible" ? "Needs attention" : capsule?.optimization_status || trip.optimization_status || "Pending"}
                 </p>
               </div>
               <div className="rounded-lg bg-white/5 px-4 py-3">
@@ -744,6 +774,9 @@ export default function HelpMePack() {
                 </p>
               </div>
             </div>
+            {capsule?.metadata?.weight_estimated === true && (
+              <p className="mt-3 text-xs text-amber-200">Garment weights and compatibility are estimates based on available wardrobe data.</p>
+            )}
 
             {syntheticWeather && (
               <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-3">
@@ -847,44 +880,72 @@ export default function HelpMePack() {
 
           {trip.status === "infeasible" ? (
             <div className="space-y-4">
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
-                <p className="text-xs font-semibold uppercase tracking-widest text-amber-700">
-                  Optimizer returned INFEASIBLE
+              <section className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+                <p className="text-xs font-semibold uppercase tracking-widest text-amber-700">Let’s finish your packing plan</p>
+                <h3 className="mt-2 font-display text-xl font-semibold text-[#1C1C1C]">Here’s what needs attention</h3>
+                <p className="mt-2 text-sm leading-relaxed text-amber-900">
+                  Your current wardrobe doesn’t yet provide a suitable plan for every day. Here’s what you can do next.
                 </p>
-                <p className="text-sm text-amber-800 mt-2">
-                  No packing solution satisfies every hard constraint. The agent did not silently
-                  relax them.
-                </p>
-                {trip.suggestions.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    {trip.suggestions.map((suggestion) => (
-                      <p key={suggestion} className="text-xs text-amber-800/90">
-                        • {suggestion}
+
+                {missingItems.length > 0 && (
+                  <div className="mt-5 space-y-3">
+                    {missingItems.map((item) => (
+                      <article key={item.key} className="rounded-xl border border-amber-100 bg-white p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <p className="text-sm font-semibold text-[#1C1C1C]">{item.title}</p>
+                          {item.days.length > 0 && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">{dayLabels(item.days)}</span>}
+                        </div>
+                        <p className="mt-2 text-sm leading-relaxed text-[#4C4A45]">{recoveryReason(item, trip.daily_requirements || [])}</p>
+                        {item.key === "rain" && item.covers.includes("outerwear") && (
+                          <p className="mt-2 text-xs leading-relaxed text-[#4C4A45]">The same raincoat can also serve as an outer layer on other days that need one.</p>
+                        )}
+                        <p className="mt-3 text-xs leading-relaxed text-[#4C4A45]"><b>For example:</b> {item.examples.join(" or ")}.</p>
+                        {item.note && <p className="mt-2 text-xs leading-relaxed text-[#6C5A32]">{item.note}</p>}
+                      </article>
+                    ))}
+                    <p className="text-xs leading-relaxed text-amber-900">Add something you own, or update its details if it is already in your wardrobe. Then retry the same trip.</p>
+                  </div>
+                )}
+
+                {missingItems.length === 0 && (trip.suggestions || []).length > 0 && (
+                  <div className="mt-5 space-y-2">
+                    {(trip.suggestions || []).map((suggestion) => (
+                      <p key={suggestion} className="rounded-lg bg-white px-4 py-3 text-sm leading-relaxed text-[#4C4A45]">
+                        {readableSuggestion(suggestion)}
                       </p>
                     ))}
                   </div>
                 )}
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={startEditing}
-                    className="bg-[#1C1C1C] hover:bg-[#333] text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Edit trip
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <button onClick={onOpenWardrobe} className="rounded-lg bg-[#1C1C1C] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#333]">Open wardrobe</button>
+                  <button onClick={() => void retryWithWardrobe()} disabled={loading} className="rounded-lg bg-[#556B2F] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#6B8A3A] disabled:opacity-50">
+                    {loading ? "Checking wardrobe…" : "Retry this trip"}
                   </button>
-                  <button
-                    onClick={startNewTrip}
-                    className="bg-white border border-amber-200 text-amber-800 text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Start over
-                  </button>
+                  <button onClick={startEditing} className="rounded-lg border border-amber-200 bg-white px-4 py-2.5 text-xs font-semibold text-amber-900">Edit trip</button>
+                  <button onClick={startNewTrip} className="rounded-lg border border-amber-200 bg-white px-4 py-2.5 text-xs font-semibold text-amber-900">Start over</button>
                 </div>
-              </div>
+
+                <OutfitRepeatOption
+                  allowed={trip.trip_details?.allow_outfit_repeats === true}
+                  confirmed={trip.can_repeat_outfits === true}
+                  legacyService={oldPackingService}
+                  otherRequirements={missingItems.some((item) => item.key !== "variety")}
+                  loading={loading}
+                  onAllow={() => void retryWithWardrobe(true)}
+                />
+              </section>
 
               {trip.daily_requirements.length > 0 && (
                 <div className="bg-[#F0EFEA] rounded-xl p-6">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-[#8C8A82]">
-                    Generated daily requirements
-                  </p>
+                  <h3 className="font-display text-lg font-semibold text-[#1C1C1C]">What the plan checks</h3>
+                  <div className="mt-3 grid gap-2 text-xs leading-relaxed text-[#4C4A45] sm:grid-cols-2">
+                    <p className="rounded-lg bg-white p-3"><b>Complete outfit:</b> Shoes plus either a dress or a top and bottom.</p>
+                    <p className="rounded-lg bg-white p-3"><b>Weather:</b> Each day needs the protection listed below.</p>
+                    <p className="rounded-lg bg-white p-3"><b>Luggage:</b> Estimated clothing weight must fit within {trip.trip_details?.max_luggage_weight_kg ?? "your"} kg.</p>
+                    <p className="rounded-lg bg-white p-3"><b>Outfit repeats:</b> {trip.trip_details?.allow_outfit_repeats ? "Allowed." : "Different complete outfits are required unless you allow repeats."}</p>
+                  </div>
+                  <p className="mt-5 text-xs font-semibold uppercase tracking-widest text-[#8C8A82]">Weather and activities by day</p>
                   <div className="grid grid-cols-2 gap-3 mt-4">
                     {trip.daily_requirements.map((requirement) => (
                       <div key={requirement.day_number} className="rounded-lg bg-white p-3">
@@ -895,6 +956,7 @@ export default function HelpMePack() {
                           {requirement.required_style} · {requirement.weather} ·{" "}
                           {Math.round(requirement.temperature_c)}°C
                         </p>
+                        <p className="mt-2 text-xs text-[#4C4A45]">{protectionBadges(requirement).length ? `Needs: ${protectionBadges(requirement).join(", ")}` : "No extra weather protection required"}</p>
                       </div>
                     ))}
                   </div>
@@ -954,6 +1016,7 @@ export default function HelpMePack() {
                               key={item.item_id}
                               className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2"
                             >
+                              {item.image_url && <img src={item.image_url} alt="" className="h-10 w-10 object-contain rounded" />}
                               <div className="min-w-0">
                                 <p className="text-xs font-medium text-[#1C1C1C] truncate">
                                   {item.name}
@@ -964,14 +1027,14 @@ export default function HelpMePack() {
                                 </p>
                               </div>
                               <span className="text-[10px] font-semibold text-[#556B2F] shrink-0">
-                                {item.weight_g} g
+                                {item.weight_estimated ? "~" : ""}{item.weight_g} g
                               </span>
                             </div>
                           ))}
                         </div>
 
                         <div className="mt-3 flex items-center justify-between text-[10px] text-[#8C8A82]">
-                          <span>Compatibility {day.compatibility ?? "—"}</span>
+                          <span>Estimated compatibility {day.compatibility ?? "—"}</span>
                           <span>Quality {day.quality ?? "—"}</span>
                         </div>
                       </div>
@@ -1005,6 +1068,7 @@ export default function HelpMePack() {
                         onChange={(event) => void togglePacked(item, event.target.checked)}
                         className="rounded accent-[#556B2F] h-4 w-4"
                       />
+                      {item.image_url && <img src={item.image_url} alt="" className="h-10 w-10 object-contain rounded" />}
                       <div className="min-w-0 flex-1">
                         <p
                           className={`text-sm font-medium ${
@@ -1014,7 +1078,7 @@ export default function HelpMePack() {
                           {item.name}
                         </p>
                         <p className="text-[10px] text-[#8C8A82] capitalize">
-                          {item.category} · {item.weight_g} g
+                          {item.category} · {item.weight_estimated ? "~" : ""}{item.weight_g} g
                         </p>
                       </div>
                       <span
@@ -1039,7 +1103,7 @@ export default function HelpMePack() {
                       {[
                         ["Status", capsule.optimization_status],
                         ["Unique items", String(capsule.number_of_items)],
-                        ["Clothing weight", `${(capsule.total_weight_g / 1000).toFixed(2)} kg`],
+                        ["Estimated clothing weight", `${(capsule.total_weight_g / 1000).toFixed(2)} kg`],
                         ["Luggage limit", `${capsule.trip.max_luggage_weight_kg} kg`],
                         ["Weather", capsule.trip.weather_source === "open-meteo" ? "Open-Meteo" : "Synthetic fallback"],
                       ].map(([label, value]) => (
@@ -1062,14 +1126,20 @@ export default function HelpMePack() {
                     <p className="text-sm text-[#1C1C1C]">
                       Packed {capsule.number_of_items} unique items into {capsule.days.length} daily
                       outfits, reusing pieces where possible.
+                      {capsule.metadata?.allow_outfit_repeats === true && " Full outfits may repeat, as requested."}
                     </p>
                   </div>
 
+                  {gap && !gap.gap_analysis.available && (
+                    <div className="bg-white border border-[#E2E0D8] rounded-xl p-5 text-sm text-[#8C8A82]">
+                      {gap.gap_analysis.message || "Gap analysis is not available yet."}
+                    </div>
+                  )}
                   {gap?.gap_analysis.findings && (
                     <div className="bg-white border border-[#E2E0D8] rounded-xl p-5">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-xs font-semibold text-[#556B2F] uppercase tracking-widest">
-                          Mock Gap Agent
+                          Gap analysis
                         </p>
                         <span className="text-[9px] font-semibold text-[#8C8A82] bg-[#F0EFEA] px-2 py-0.5 rounded-full">
                           optional

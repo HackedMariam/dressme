@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.main import create_app
+from backend.main import create_app, mock_gap_checker
+from packing_backend.trip_agent.wardrobe import SyntheticWardrobeProvider
 
 SAMPLE_TEXT = (
     "I'm going to Paris for 5 days for sightseeing, shopping, and a formal "
@@ -15,8 +16,16 @@ DATES = "June 3-7, 2027"
 
 
 @pytest.fixture()
-def client() -> TestClient:
-    app = create_app(use_llm=False, allow_weather_network=False)
+def client(monkeypatch) -> TestClient:
+    class Response:
+        status_code = 200
+        ok = True
+        def __init__(self, payload): self.payload = payload
+        def json(self): return self.payload
+    monkeypatch.setattr("backend.main.requests.get", lambda url, **kwargs: Response(
+        {"id": "local"} if url.endswith("/api/me") else [{"id": "example"}]))
+    app = create_app(use_llm=False, allow_weather_network=False, gap_checker=mock_gap_checker,
+                     wardrobe_provider_factory=lambda _: SyntheticWardrobeProvider())
     with TestClient(app) as test_client:
         yield test_client
 
@@ -43,7 +52,7 @@ def test_health_and_cors_preflight(client: TestClient) -> None:
     health = client.get("/api/health")
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
-    assert health.json()["gap_agent"] == "mock"
+    assert health.json()["gap_agent"] == "configured"
 
     preflight = client.options(
         "/api/trips",

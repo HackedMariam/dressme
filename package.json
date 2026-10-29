@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev:all": "node scripts/dev-all.mjs",
-    "dev:backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload",
+    "dev:backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8020 --reload",
     "dev:frontend": "pnpm --dir \"DressMe UI Blueprint\" dev",
     "build:frontend": "pnpm --dir \"DressMe UI Blueprint\" build",
     "typecheck:frontend": "pnpm --dir \"DressMe UI Blueprint\" exec tsc --noEmit",

@@ -32,6 +32,7 @@ from .requirements import (
 )
 from .schemas import (
     AgentState,
+    MissingItemRecommendation,
     TripDetails,
     normalize_activity,
 )
@@ -53,19 +54,65 @@ TRIP_UPDATE_FIELDS = {
     "max_luggage_weight_kg",
     "max_items_target",
     "allow_laundry",
+    "allow_outfit_repeats",
     "notes",
 }
 
-ROLE_SUGGESTIONS = {
-    "top": "add a top, shirt, blouse, sweater, or hoodie",
-    "bottom": "add trousers, jeans, a skirt, or shorts",
-    "shoes": "add shoes or sneakers",
-    "onepiece": "add a dress/jumpsuit, or include a top and bottom",
-    "outerwear": "add a jacket, coat, cardigan, or raincoat",
-    "warm": "add a warm sweater, hoodie, or fleece",
-    "rain": "add a genuinely waterproof raincoat",
-    "sun": "add a sun hat or sunglasses",
-}
+def missing_item_recommendations(
+    role_pools: dict[str, list[str]],
+    requirements: list[Any],
+    missing_role_days: dict[str, list[int]],
+) -> list[MissingItemRecommendation]:
+    """Describe proven missing roles, including the optimizer's basic outfit."""
+    recommendations: list[MissingItemRecommendation] = []
+    all_days = sorted({requirement.day_number for requirement in requirements})
+
+    def add(key: str, title: str, examples: list[str], days: list[int],
+            covers: list[str], note: str | None = None) -> None:
+        recommendations.append(MissingItemRecommendation(
+            key=key, title=title, examples=examples, days=sorted(set(days)),
+            covers=covers, note=note,
+        ))
+
+    if not role_pools.get("shoes"):
+        add("shoes", "Add a pair of shoes", ["Sneakers", "Closed-toe shoes"],
+            all_days, ["shoes"])
+
+    if not role_pools.get("onepiece"):
+        missing_top = not role_pools.get("top")
+        missing_bottom = not role_pools.get("bottom")
+        if missing_top and missing_bottom:
+            add("base_outfit", "Add a complete base outfit",
+                ["One dress", "A top and a pair of trousers or a skirt"],
+                all_days, ["base outfit"], "Choose one option: a dress, or both a top and a bottom.")
+        elif missing_top:
+            add("base_top", "Add a top or a dress", ["T-shirt", "Shirt", "Dress"],
+                all_days, ["top or dress"])
+        elif missing_bottom:
+            add("base_bottom", "Add a bottom or a dress", ["Trousers", "Skirt", "Dress"],
+                all_days, ["bottom or dress"])
+
+    if "rain" in missing_role_days:
+        roles = ["rain protection"]
+        days = list(missing_role_days["rain"])
+        if "outerwear" in missing_role_days:
+            roles.append("outerwear")
+            days.extend(missing_role_days["outerwear"])
+        add("rain", "Add one waterproof raincoat", ["Waterproof raincoat", "Waterproof rain jacket"],
+            days, roles,
+            "Add a real waterproof item to your wardrobe and describe it as waterproof or a raincoat.")
+    elif "outerwear" in missing_role_days:
+        add("outerwear", "Add an outer layer", ["Jacket", "Coat", "Cardigan"],
+            missing_role_days["outerwear"], ["outerwear"])
+
+    if "warm" in missing_role_days:
+        add("warm", "Add a warm layer", ["Sweater", "Fleece", "Warm cardigan"],
+            missing_role_days["warm"], ["warm layer"],
+            "For very cold days, check that its warmth rating is at least 3.")
+    if "sun" in missing_role_days:
+        add("sun", "Add sun protection", ["Sun hat", "Sunglasses"],
+            missing_role_days["sun"], ["sun protection"])
+    return recommendations
 
 
 class EmptyArgs(BaseModel):
@@ -194,7 +241,7 @@ def tool_specs() -> list[dict[str, Any]]:
             "function": {
                 "name": "get_wardrobe",
                 "description": (
-                    "Retrieve the synthetic wardrobe available to the optimizer. "
+                    "Retrieve the user's wardrobe available to the optimizer. "
                     "Optionally filter by category or style. Call at most once unless "
                     "the user asks about different items."
                 ),
@@ -521,6 +568,8 @@ class TripTools:
             self.state.capsule = None
             self.state.checklist = None
             self.state.suggestions = []
+            self.state.missing_items = []
+            self.state.can_repeat_outfits = False
 
         if self.state.needs_clarification:
             self.state.status = "needs_clarification"
@@ -613,6 +662,8 @@ class TripTools:
             self.state.capsule = None
             self.state.checklist = None
             self.state.suggestions = []
+            self.state.missing_items = []
+            self.state.can_repeat_outfits = False
             self.state.missing_info = self.state.trip_details.compute_missing_fields()
             self.state.needs_clarification = True
             self.state.status = "needs_clarification"
@@ -633,12 +684,25 @@ class TripTools:
                 "next_action": "ask_user",
             }
 
+        expected_dates = {details.start_date + timedelta(days=i) for i in range((end - details.start_date).days + 1)}
+        available_dates = {day.date for day in weather.days if not day.synthetic and day.source == "open-meteo"}
+        if self.wardrobe_provider.name == "bo1" and (
+            weather.source != "open-meteo" or not expected_dates.issubset(available_dates)
+        ):
+            message = ("A real weather forecast is unavailable for these dates or destination. "
+                       "Try again when the trip is within the forecast window.")
+            self.state.status = "failed"
+            self.state.errors.append(message)
+            return {"ok": False, "error": message, "next_action": "ask_user"}
+
         self.state.weather = weather
         self.state.daily_requirements = []
         self.state.optimization_result = None
         self.state.capsule = None
         self.state.checklist = None
         self.state.suggestions = []
+        self.state.missing_items = []
+        self.state.can_repeat_outfits = False
         self.state.needs_clarification = False
         self.state.clarification_question = None
         self.state.status = "ready"
@@ -691,6 +755,8 @@ class TripTools:
         self.state.capsule = None
         self.state.checklist = None
         self.state.suggestions = []
+        self.state.missing_items = []
+        self.state.can_repeat_outfits = False
         self.state.status = "ready"
 
         return {
@@ -734,6 +800,8 @@ class TripTools:
         self.state.capsule = None
         self.state.checklist = None
         self.state.suggestions = []
+        self.state.missing_items = []
+        self.state.can_repeat_outfits = False
         self.state.status = "optimizing"
 
         result = run_optimization(
@@ -744,6 +812,7 @@ class TripTools:
             max_candidates_per_day=args.max_candidates_per_day,
             time_limit_seconds=args.time_limit_seconds,
             random_seed=args.random_seed,
+            allow_outfit_repeats=details.allow_outfit_repeats,
         )
         self.state.optimization_result = compact_result(result)
         self.state.optimization_runs += 1
@@ -829,6 +898,14 @@ class TripTools:
         no_candidate_days: list[int] = []
         compatibility_map = optimizer.build_compatibility_map(compatibility)
         rng = random.Random(42)
+        def cold_layer(row: pd.Series) -> bool:
+            try:
+                return ("warm" in item_roles.get(str(row["item_id"]), set())
+                        and float(row.get("warmth_level") or 0) >= 3)
+            except (TypeError, ValueError):
+                return False
+
+        has_cold_layer = any(cold_layer(row) for _, row in wardrobe.iterrows())
 
         for requirement in requirements:
             trip_row = requirement.model_dump(mode="python")
@@ -836,6 +913,8 @@ class TripTools:
             for role in sorted(required_roles):
                 if not role_pools.get(role):
                     missing_role_days.setdefault(role, []).append(requirement.day_number)
+            if requirement.temperature_c <= 5 and not has_cold_layer:
+                missing_role_days.setdefault("warm", []).append(requirement.day_number)
 
             candidates = optimizer.generate_outfits(
                 wardrobe,
@@ -848,12 +927,12 @@ class TripTools:
             if not candidates:
                 no_candidate_days.append(requirement.day_number)
 
-        for role, days in sorted(missing_role_days.items()):
-            suggestion = ROLE_SUGGESTIONS.get(role, f"add an item for the '{role}' role")
+        missing_items = missing_item_recommendations(role_pools, requirements, missing_role_days)
+        for item in missing_items:
             suggestions.append(
-                f"Day(s) {sorted(set(days))} require the '{role}' role, but the "
-                f"synthetic wardrobe has no item for it. To keep all hard constraints, "
-                f"{suggestion} in the wardrobe, or choose different dates/activities."
+                f"{item.title} for day(s) {item.days}: "
+                f"{' or '.join(item.examples)}."
+                + (f" {item.note}" if item.note else "")
             )
 
         if no_candidate_days:
@@ -875,8 +954,48 @@ class TripTools:
             else None
         )
 
+        can_repeat_outfits = False
+        if (result_status == "INFEASIBLE" and not missing_items and not no_candidate_days
+                and not details.allow_outfit_repeats and current_weight_g):
+            try:
+                repeat_diagnostic = run_optimization(
+                    wardrobe=wardrobe,
+                    compatibility=compatibility,
+                    requirements=requirements,
+                    max_weight_g=current_weight_g,
+                    max_candidates_per_day=200,
+                    time_limit_seconds=args.diagnostic_time_limit_seconds,
+                    random_seed=42,
+                    allow_outfit_repeats=True,
+                )
+                can_repeat_outfits = repeat_diagnostic.get("status") in {"OPTIMAL", "FEASIBLE"}
+                if can_repeat_outfits:
+                    outfits = repeat_diagnostic.get("daily_outfits") or []
+                    signatures: dict[tuple[str, ...], list[int]] = {}
+                    for outfit in outfits:
+                        signature = tuple(sorted(str(item_id) for item_id in outfit.get("item_ids", [])))
+                        signatures.setdefault(signature, []).append(int(outfit["day_number"]))
+                    repeated_days = sorted(day for days in signatures.values() if len(days) > 1 for day in days)
+                    missing_items.append(MissingItemRecommendation(
+                        key="variety",
+                        title="Add another suitable piece for more outfit combinations",
+                        examples=["Another top", "Another bottom", "Another dress", "Another pair of shoes"],
+                        days=repeated_days,
+                        covers=["outfit variety"],
+                        note="Choose a piece suitable for your trip, or allow a full outfit to be repeated. "
+                             "A new item may still need to meet the weather and activity requirements.",
+                    ))
+                    suggestions.append(
+                        "A plan is possible if you allow the same outfit on more than one day. "
+                        "You can choose to allow repeats, or add another suitable piece for more combinations."
+                    )
+            except Exception:
+                # An inconclusive diagnostic must never be offered as a proven fix.
+                pass
+
         suggested_weight_kg = None
-        if result_status == "INFEASIBLE" and not missing_role_days and not no_candidate_days:
+        if (result_status == "INFEASIBLE" and not missing_items and not no_candidate_days
+                and not can_repeat_outfits):
             total_wardrobe_weight = int(wardrobe["weight_g"].sum())
             diagnostic_limit = max(
                 total_wardrobe_weight,
@@ -892,6 +1011,7 @@ class TripTools:
                     max_candidates_per_day=200,
                     time_limit_seconds=args.diagnostic_time_limit_seconds,
                     random_seed=42,
+                    allow_outfit_repeats=details.allow_outfit_repeats,
                 )
                 if diagnostic.get("status") in {"OPTIMAL", "FEASIBLE"}:
                     needed_g = int(diagnostic.get("total_weight_g") or 0)
@@ -901,8 +1021,8 @@ class TripTools:
                             "The current clothing limit is the blocking constraint. A "
                             f"diagnostic run with the same hard constraints packed "
                             f"{needed_g / 1000:.2f} kg. Consider explicitly raising the "
-                            f"limit to at least {suggested_weight_kg:.1f} kg, or allow "
-                            "laundry / remove an activity."
+                            f"limit to at least {suggested_weight_kg:.1f} kg, or "
+                            "review the trip activities."
                         )
                     else:
                         suggestions.append(
@@ -942,10 +1062,14 @@ class TripTools:
             )
 
         self.state.suggestions = suggestions
+        self.state.missing_items = missing_items
+        self.state.can_repeat_outfits = can_repeat_outfits
         return {
             "ok": True,
             "status": result_status,
             "suggestions": suggestions,
+            "missing_items": [item.model_dump(mode="json") for item in missing_items],
+            "can_repeat_outfits": can_repeat_outfits,
             "suggested_weight_limit_kg": suggested_weight_kg,
             "hard_constraints_relaxed": False,
             "missing_roles_by_day": {
@@ -1030,6 +1154,8 @@ class TripTools:
         self.state.capsule = None
         self.state.checklist = None
         self.state.suggestions = []
+        self.state.missing_items = []
+        self.state.can_repeat_outfits = False
         self.state.status = (
             "needs_clarification" if self.state.needs_clarification else "ready"
         )

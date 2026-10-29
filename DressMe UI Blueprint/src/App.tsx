@@ -892,7 +892,7 @@ function AuthenticatedApp() {
       case "dashboard": return <DashboardPage />;
       case "wardrobe": return <WardrobePage />;
       case "outfit-studio": return <OutfitStudio />;
-      case "help-me-pack": return <HelpMePack />;
+      case "help-me-pack": return <HelpMePack onOpenWardrobe={() => setPage("wardrobe")} />;
       case "weather": return <WeatherPage />;
       case "should-i-buy": return <ShouldIBuyPage />;
       case "ai-stylist": return <StylistPage />;
