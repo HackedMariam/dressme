@@ -214,3 +214,24 @@ def test_shipped_services_yaml_declares_three_disabled_modules():
         assert module.keywords and og.uses_var(module.request, "wardrobe_items")
         for pattern in module.keywords:
             re.compile(pattern)
+
+
+# ------------------------------------------------------------------ service de base désactivé (enabled: false)
+def test_disabled_core_service_answers_clearly(fake):
+    from services import Service
+    services = dict(SERVICES)
+    services["bo5"] = Service("bo5", "BO5 RAG", "http://bo5.test", 5, extra={"enabled": False})
+    graph = og.build_graph(gateway=Gateway(services, transport=fake), llm=lambda s, m, sc: {"english": "x"},
+                           modules=modules())
+    state = run(graph, "Comment porter une robe longue ?")
+    assert state["route"] == "knowledge" and state["result"]["ok"] is False
+    assert "BO5 RAG n'est pas encore disponible" in state["response"]
+    assert not fake.to("bo5") and not fake.to("ollama")                 # ni appel, ni traduction
+    assert "knowledge -> bo5 désactivé dans services.yaml, aucun appel" in state["trace"]
+
+
+def test_shipped_services_yaml_matches_main():
+    from services import load_services
+    services = load_services()
+    assert services["bo5"].extra.get("enabled") is False                # rag_backend absent de main
+    assert all(services[name].extra.get("enabled", True) for name in ("bo1", "stylist", "purchase"))

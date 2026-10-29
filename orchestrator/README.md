@@ -32,6 +32,9 @@ START → route_intent ─┬─ stylist   (BO4 Stylist POST /api/chat)         
   Redundancy (qui a sa propre authentification) ni à BO5.
 - **Pannes** : chaque appel a un délai maximum (`services.yaml`) ; un service arrêté donne un message clair
   (« … ne répond pas (URL) … Réessaie quand le service est démarré. »), jamais une erreur 500.
+- **Service absent de cette version** : `enabled: false` sur un service de base (`services.yaml`) ; sa route répond
+  « … n'est pas encore disponible » sans rien appeler. Dans `main`, c'est le cas de **BO5 RAG** (`rag_backend/`
+  n'y est pas encore).
 - **Trace** : une ligne par node et par appel (`purchase -> purchase POST /analyze : HTTP 200 en 120 ms`).
 
 ## Modules externes
@@ -90,7 +93,7 @@ Services attendus (`services.yaml`, plan des ports d'`INTEGRATION.md`) :
 | BO1 | http://localhost:8000 | `cd backend` puis `uvicorn app.main:app --port 8000` |
 | Stylist | http://127.0.0.1:8061 | `cd bo4\backend` puis `python stylist_web.py --port 8061 --bo1-url http://localhost:8000` |
 | Purchase Redundancy | http://127.0.0.1:8040 | `cd purchase-redundancy-ai\backend` puis `$env:API_PORT="8040"; $env:CLIP_ENABLED="False"; python main.py` |
-| BO5 | http://127.0.0.1:8010 | branche `rag/try1` : `cd rag_backend` puis `uvicorn app:app --port 8010` |
+| BO5 | http://127.0.0.1:8010 | **désactivé dans `main`** ; branche `rag/try1` : `cd rag_backend` puis `uvicorn app:app --port 8010`, et `enabled: true` |
 | Ollama | http://localhost:11434 | modèle `qwen2.5:3b` |
 
 API : `POST /api/chat` `{message, thread_id}` (+ `Authorization: Bearer <jeton>`), `GET /api/graph?visited=…`
@@ -100,7 +103,7 @@ Tests (services simulés, aucun réseau) :
 
 ```powershell
 cd orchestrator
-.\.venv\Scripts\python.exe -m pytest tests -q        # 99 tests (Node.js requis pour 8 d'entre eux)
+.\.venv\Scripts\python.exe -m pytest tests -q        # 101 tests (Node.js requis pour 8 d'entre eux)
 ```
 
 ## Limites

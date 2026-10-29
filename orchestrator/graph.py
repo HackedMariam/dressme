@@ -540,7 +540,20 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
             update["pending_question"] = ""
         return update
 
+    def switched_off(route: str, service: str, state: OrchestratorState) -> Optional[dict]:
+        """Service de base désactivé dans services.yaml (enabled: false) : message clair, aucun appel."""
+        conf = gateway.services[service]
+        if conf.extra.get("enabled", True) is not False:
+            return None
+        result = {"service": route, "label": conf.label, "ok": False, "details": {},
+                  "text": f"{conf.label} n'est pas encore disponible dans cette version de DressMe "
+                          "(désactivé dans services.yaml)."}
+        return {"result": result, "last_route": route,
+                "trace": _line(state, route, f"{service} désactivé dans services.yaml, aucun appel")}
+
     def stylist(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
+        if off := switched_off("stylist", "stylist", state):
+            return off
         label = gateway.services["stylist"].label
         call = gateway.call("stylist", "POST", "/api/chat",
                             {"message": state["user_message"], "thread_id": conversation_id(config)},
@@ -555,6 +568,8 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         return {"result": result, "last_route": "stylist", "trace": _line(state, "stylist", call.trace())}
 
     def wardrobe(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
+        if off := switched_off("wardrobe", "bo1", state):
+            return off
         label = gateway.services["bo1"].label
         call = gateway.call("bo1", "GET", "/api/items", token=request_token(config))
         if not call.ok or not isinstance(call.data, list):
@@ -589,6 +604,8 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         return {"result": result, "last_route": "wardrobe", "trace": _line(state, "wardrobe", call.trace())}
 
     def purchase(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
+        if off := switched_off("purchase", "purchase", state):
+            return off
         label = gateway.services["purchase"].label
         message = state["user_message"]
         new_item = new_item_from_message(message)
@@ -632,6 +649,8 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         return {"result": result, "last_route": "purchase", "trace": trace}
 
     def knowledge(state: OrchestratorState) -> dict:
+        if off := switched_off("knowledge", "bo5", state):
+            return off
         label = gateway.services["bo5"].label
         message = state["user_message"]
         trace = list(state.get("trace") or [])

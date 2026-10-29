@@ -1,24 +1,27 @@
-# Services appelés par l'orchestrateur DressMe (plan des ports d'INTEGRATION.md).
+# Services appelés par l'orchestrateur DressMe (ports : BO1 8000, Purchase 8040, BO5 8010, Stylist 8061).
 # timeout : délai maximum d'un appel, en secondes. Aucune clé ici : seulement le NOM d'une variable
 # d'environnement (api_key_env), lue au moment de l'appel et jamais affichée.
+# enabled: false : le service n'est pas dans cette version de main ; sa route répond « pas encore disponible »
+# sans rien appeler.
 services:
   bo1:
     label: "BO1 Wardrobe"
-    url: "http://localhost:8000"
+    url: "http://localhost:8000"    # main : backend/app (uvicorn app.main:app --port 8000)
     timeout: 10
   stylist:
     label: "BO4 Stylist"
-    url: "http://127.0.0.1:8061"
+    url: "http://127.0.0.1:8061"    # main : bo4/backend/stylist_web.py --port 8061
     timeout: 120          # premier tour : chargement d'Ollama par le Stylist
   purchase:
     label: "Purchase Redundancy"
-    url: "http://127.0.0.1:8040"
+    url: "http://127.0.0.1:8040"    # main : purchase-redundancy-ai/backend (API_PORT=8040 python main.py), POST /analyze
     timeout: 30
   bo5:
     label: "BO5 RAG"
     url: "http://127.0.0.1:8010"
     timeout: 120
     api_key_env: "BO5_API_KEY"   # facultatif : en-tête X-API-Key si BO5 a un RAG_API_KEY
+    enabled: false               # rag_backend/ (branche rag/try1) n'est pas encore dans main
   ollama:
     label: "Ollama qwen2.5:3b"
     url: "http://localhost:11434"
@@ -38,7 +41,7 @@ modules:
   smart_purchasing:
     label: "Smart Purchasing"
     description: "evaluate a garment photo (URL) before buying it, against the user's wardrobe"
-    enabled: false
+    enabled: false               # smart_purchasing/ (branche shoppingAssistant) absent de main ; pas encore d'API HTTP
     url: "http://127.0.0.1:8050"
     health: "/health"
     method: "POST"
@@ -62,7 +65,7 @@ modules:
   helpmepack:
     label: "HelpMePack"
     description: "pack a suitcase for a trip from the user's wardrobe"
-    enabled: false
+    enabled: false               # packing_backend/ (branche helpmepack/try1) absent de main
     url: "http://127.0.0.1:8020"
     health: "/api/health"
     method: "POST"
@@ -83,7 +86,7 @@ modules:
   bo3:
     label: "BO3 Wardrobe Gaps"
     description: "find the pieces missing from the user's wardrobe for a goal"
-    enabled: false
+    enabled: false               # backend BO3 (branche wardrobe-gaps) absent de main
     url: "http://127.0.0.1:8030"
     health: "/api/health"
     method: "POST"
