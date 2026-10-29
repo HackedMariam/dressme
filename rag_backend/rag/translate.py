@@ -33,7 +33,21 @@ GLOSSARY = (
     (r"pantalons?", "trousers"), (r"vestes?", "jacket"), (r"blousons?", "jacket"), (r"manteaux?", "coat"),
     (r"pulls?", "sweater"), (r"chemises?", "shirt"), (r"robes?", "dress"), (r"chaussures?", "shoes"),
     (r"[ée]cossaise?s?", "plaid"), (r"foulards?", "scarf"), (r"laine", "wool"), (r"lin", "linen"),
+    (r"bleu marine|blue marine|marine blue", "navy blue"), (r"talons?", "heels"), (r"tendances?", "trends"),
 )
+# Terms replaced in the French question BEFORE translation: the small model otherwise translates them
+# literally ("blue marine"), drops them ("talons" -> "shoes with arch support") or truncates the sentence
+# ("tendances prevues" -> "fashion trends expected for?").
+SOURCE_TERMS = (
+    (r"bleu marine", "navy blue"), (r"talons?", "heels"), (r"tendances?", "trends"),
+    (r"pr[eé]vu(e)?s?", "forecast"),
+)
+
+
+def apply_source_terms(text: str) -> str:
+    for pattern, english in SOURCE_TERMS:
+        text = re.sub(rf"\b{pattern}\b", english, text, flags=re.IGNORECASE)
+    return text
 
 
 def plain(text: str) -> str:
@@ -68,7 +82,7 @@ def translate_query(question: str) -> str:
         response = chat_completion(
             model=get_settings().llm_model,
             messages=[{"role": "system", "content": TRANSLATE_PROMPT},
-                      {"role": "user", "content": question}],
+                      {"role": "user", "content": apply_source_terms(question)}],
             temperature=0.0,
             max_tokens=120,
         )

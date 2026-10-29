@@ -103,3 +103,23 @@ def test_generation_prompt_requires_citations_and_dont_know():
     source = (Path(translate.__file__).with_name("rag_service.py")).read_text(encoding="utf-8")
     assert 'DONT_KNOW_ANSWER = "I don\'t know: none of the DressMe sources answers this question."' in source
     assert "Every bullet must end with" in source and "General guidance" not in source
+
+
+@pytest.mark.parametrize("french, sent", [
+    ("Quelles couleurs associer au bleu marine ?", "Quelles couleurs associer au navy blue ?"),
+    ("Comment choisir des talons confortables ?", "Comment choisir des heels confortables ?"),
+    ("Comment les tendances de mode sont-elles prévues ?", "Comment les trends de mode sont-elles forecast ?"),
+])
+def test_source_terms_are_replaced_before_translation(llm, french, sent):
+    calls, _ = llm
+    translate.translate_query(french)
+    assert calls[0]["messages"][1]["content"] == sent
+
+
+@pytest.mark.parametrize("english, fixed", [
+    ("What colours go with blue marine?", "What colours go with navy blue?"),
+    ("How to choose comfortable talons?", "How to choose comfortable heels?"),
+    ("How are fashion tendances forecast?", "How are fashion trends forecast?"),
+])
+def test_glossary_fixes_colour_heels_and_trends(english, fixed):
+    assert translate.apply_glossary(english) == fixed
