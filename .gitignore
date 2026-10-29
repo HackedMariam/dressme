@@ -37,6 +37,9 @@ htmlcov/
 
 # Generated data / caches
 backend/local_data/
+backend/temp/
+DressMe UI Blueprint/public/models/generated/
+DressMe UI Blueprint/public/models/avatar_original_backup.glb
 rag_backend/data/extraction_cache/
 rag_backend/data/chunks.jsonl
 rag_backend/data/embedded_chunks.jsonl
