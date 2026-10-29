@@ -1,0 +1,154 @@
+{
+  "annotators": [
+    "A",
+    "B"
+  ],
+  "attributes": {
+    "motif": {
+      "items_common": 36,
+      "items_both_labelled": 36,
+      "items_excluded_uncertain_or_not_visible": 0,
+      "cohen_kappa": 0.7313432835820894,
+      "raw_agreement": 0.8888888888888888,
+      "consensus_items": 32,
+      "model_accuracy_on_consensus": 0.8125,
+      "confusion_consensus_vs_model": {
+        "uni": {
+          "uni": 23,
+          "raye": 0,
+          "carreaux": 2,
+          "fleuri": 0,
+          "graphique": 0,
+          "autre_motif": 1
+        },
+        "raye": {
+          "uni": 2,
+          "raye": 0,
+          "carreaux": 0,
+          "fleuri": 0,
+          "graphique": 0,
+          "autre_motif": 0
+        },
+        "carreaux": {
+          "uni": 0,
+          "raye": 0,
+          "carreaux": 0,
+          "fleuri": 0,
+          "graphique": 0,
+          "autre_motif": 0
+        },
+        "fleuri": {
+          "uni": 0,
+          "raye": 0,
+          "carreaux": 0,
+          "fleuri": 0,
+          "graphique": 0,
+          "autre_motif": 0
+        },
+        "graphique": {
+          "uni": 0,
+          "raye": 0,
+          "carreaux": 0,
+          "fleuri": 0,
+          "graphique": 0,
+          "autre_motif": 0
+        },
+        "autre_motif": {
+          "uni": 0,
+          "raye": 0,
+          "carreaux": 1,
+          "fleuri": 0,
+          "graphique": 0,
+          "autre_motif": 3
+        }
+      }
+    },
+    "formalite": {
+      "items_common": 36,
+      "items_both_labelled": 35,
+      "items_excluded_uncertain_or_not_visible": 1,
+      "cohen_kappa": 0.6867007672634272,
+      "raw_agreement": 0.8,
+      "consensus_items": 28,
+      "model_accuracy_on_consensus": 0.6785714285714286,
+      "confusion_consensus_vs_model": {
+        "decontracte": {
+          "decontracte": 15,
+          "habille_decontracte": 0,
+          "habille": 0
+        },
+        "habille_decontracte": {
+          "decontracte": 0,
+          "habille_decontracte": 3,
+          "habille": 3
+        },
+        "habille": {
+          "decontracte": 2,
+          "habille_decontracte": 4,
+          "habille": 1
+        }
+      }
+    },
+    "registre": {
+      "items_common": 36,
+      "items_both_labelled": 36,
+      "items_excluded_uncertain_or_not_visible": 0,
+      "cohen_kappa": 0.4793388429752067,
+      "raw_agreement": 0.6111111111111112,
+      "consensus_items": 22,
+      "model_accuracy_on_consensus": 0.4090909090909091,
+      "confusion_consensus_vs_model": {
+        "sport": {
+          "sport": 0,
+          "classique": 5,
+          "romantique": 0,
+          "tendance": 0
+        },
+        "classique": {
+          "sport": 0,
+          "classique": 6,
+          "romantique": 0,
+          "tendance": 3
+        },
+        "romantique": {
+          "sport": 0,
+          "classique": 1,
+          "romantique": 1,
+          "tendance": 2
+        },
+        "tendance": {
+          "sport": 0,
+          "classique": 2,
+          "romantique": 0,
+          "tendance": 2
+        }
+      }
+    },
+    "epaisseur": {
+      "items_common": 36,
+      "items_both_labelled": 31,
+      "items_excluded_uncertain_or_not_visible": 5,
+      "cohen_kappa": 0.7512038523274479,
+      "raw_agreement": 0.8387096774193549,
+      "consensus_items": 26,
+      "model_accuracy_on_consensus": 0.5,
+      "confusion_consensus_vs_model": {
+        "leger": {
+          "leger": 6,
+          "moyen": 6,
+          "epais": 0
+        },
+        "moyen": {
+          "leger": 2,
+          "moyen": 3,
+          "epais": 0
+        },
+        "epais": {
+          "leger": 1,
+          "moyen": 4,
+          "epais": 4
+        }
+      }
+    }
+  }
+}

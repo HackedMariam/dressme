@@ -1,25 +1,65 @@
-# Byte-compiled / optimized / DLL files
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local Notebooks & generated scripts (kept locally, not tracked on GitHub)
+*inference.ipynb
+dressme_agent_inference.ipynb
+create_inference_notebook.py
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Caches & checkpoints
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 .ipynb_checkpoints/
 data/checkpoints/
 smart_purchasing/data/checkpoints/
 
-# Environments & secrets
-.env
-.venv
-env/
-venv/
-ENV/
+# Node.js
+node_modules/
+dist/
+build/
+.cache/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
 
-# Local Notebooks (kept locally, not tracked on GitHub)
-*inference.ipynb
-dressme_agent_inference.ipynb
-create_inference_notebook.py
+# Generated data / caches
+backend/local_data/
+backend/temp/
+DressMe UI Blueprint/public/models/generated/
+DressMe UI Blueprint/public/models/avatar_original_backup.glb
+rag_backend/data/extraction_cache/
+rag_backend/data/chunks.jsonl
+rag_backend/data/embedded_chunks.jsonl
+rag_backend/data/extracted_pages.json
+rag_backend/data/evaluation_results.json
+rag_backend/data/quality_report.json
+*.sqlite3
+*.db
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
 
 # Archives & OS files
 *.rar
@@ -27,3 +67,7 @@ create_inference_notebook.py
 *.tar.gz
 .DS_Store
 Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp

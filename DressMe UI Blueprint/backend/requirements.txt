@@ -1,0 +1,11 @@
+torch>=2.6,<3
+transformers>=4.45,<5
+Pillow>=10,<13
+streamlit>=1.42,<2
+xgboost>=2.1,<4
+scikit-learn>=1.5,<2
+pandas>=2,<4
+openai>=1.40,<3
+python-dotenv>=1,<2
+fastapi>=0.115,<1
+uvicorn>=0.30,<1

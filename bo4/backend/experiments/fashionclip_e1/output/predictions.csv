@@ -1,0 +1,37 @@
+article_id,product_type_name,role,prod_name,motif_prediction,motif_second,motif_margin,motif_ambiguous,formalite_prediction,formalite_second,formalite_margin,formalite_ambiguous,registre_prediction,registre_second,registre_margin,registre_ambiguous,epaisseur_prediction,epaisseur_second,epaisseur_margin,epaisseur_ambiguous
+0108775015,Vest top,top,Strap top,uni,graphique,0.042436,0,decontracte,habille_decontracte,0.020246,0,classique,sport,0.001041,1,moyen,leger,0.0068,1
+0108775044,Vest top,top,Strap top,uni,graphique,0.036207,0,decontracte,habille_decontracte,0.021115,0,classique,romantique,0.003218,1,moyen,leger,0.001544,1
+0108775051,Vest top,top,Strap top (1),uni,raye,0.018818,0,decontracte,habille_decontracte,0.035652,0,classique,sport,0.008412,1,moyen,leger,0.002594,1
+0399201042,Trousers,bottom,Shaping Skinny H.W,uni,carreaux,0.041538,0,decontracte,habille_decontracte,0.000103,1,classique,tendance,0.050295,0,moyen,leger,0.003002,1
+0504154033,Sweater,top,Lady Di,uni,autre_motif,0.066389,0,decontracte,habille_decontracte,0.02671,0,classique,tendance,0.043304,0,moyen,leger,0.020644,0
+0545008001,Vest top,top,Tent tank top,uni,graphique,0.053061,0,decontracte,habille_decontracte,0.019238,0,sport,classique,0.000146,1,leger,moyen,0.006726,1
+0547522002,Skirt,bottom,Angelina Skirt,uni,fleuri,0.065455,0,habille,habille_decontracte,0.022525,0,tendance,romantique,0.02829,0,leger,moyen,0.032222,0
+0552473028,Shirt,top,DENISE S.8,uni,raye,0.063215,0,habille_decontracte,decontracte,0.018247,0,classique,tendance,0.031595,0,leger,moyen,0.019708,0
+0562245015,Trousers,bottom,Luna skinny 5 pkt,uni,carreaux,0.022636,0,decontracte,habille_decontracte,0.004888,1,classique,tendance,0.048927,0,leger,moyen,0.010697,0
+0586890001,Blouse,top,Goldfish Shirt,uni,graphique,0.020244,0,decontracte,habille_decontracte,8e-06,1,classique,tendance,0.029459,0,leger,moyen,0.011053,0
+0596983001,Jacket,outerwear,Straussburg,uni,carreaux,0.025339,0,habille_decontracte,decontracte,0.003582,1,tendance,classique,0.003434,1,moyen,epais,0.004304,1
+0646851002,Top,top,DNA Top,uni,fleuri,0.035873,0,decontracte,habille,0.011325,0,romantique,classique,0.073901,0,leger,moyen,0.005867,1
+0650269001,Vest top,top,Morning Body,autre_motif,raye,0.007829,1,habille,habille_decontracte,0.002359,1,sport,tendance,0.023465,0,moyen,leger,0.016272,0
+0651558012,Dress,dress,Panda Dress,uni,autre_motif,0.028896,0,habille,decontracte,0.013637,0,classique,sport,0.004773,1,moyen,leger,0.007383,1
+0665481011,Dress,dress,Swift Dress(1),autre_motif,carreaux,0.009535,1,habille,decontracte,0.019715,0,classique,tendance,0.009408,1,leger,moyen,0.012235,0
+0674310002,Blouse,top,ED Liddy blouse,uni,graphique,0.083398,0,habille_decontracte,decontracte,0.000133,1,classique,tendance,0.00819,1,moyen,leger,0.008149,1
+0681373004,Skirt,bottom,CHERRY JRSY SKIRT,carreaux,autre_motif,0.035984,0,habille_decontracte,decontracte,0.020071,0,tendance,classique,0.022157,0,moyen,epais,0.011046,0
+0702784001,Sweater,top,American Beauty intarsia,graphique,uni,0.052157,0,decontracte,habille_decontracte,0.051601,0,classique,tendance,0.006783,1,epais,moyen,0.012164,0
+0708730004,T-shirt,top,EQ DINGO TEE,uni,graphique,0.040742,0,decontracte,habille_decontracte,0.031673,0,tendance,sport,0.00218,1,moyen,leger,0.002672,1
+0713783002,Dress,dress,Mara off shoulder dress,uni,graphique,0.062906,0,habille,habille_decontracte,0.011826,0,tendance,classique,0.007721,1,moyen,leger,0.011203,0
+0733098023,Top,top,Minja top,autre_motif,fleuri,0.05897,0,habille_decontracte,decontracte,0.01418,0,tendance,classique,0.030629,0,moyen,leger,0.012285,0
+0740211002,Hoodie,top,Woodstock puffer,uni,carreaux,0.043726,0,decontracte,habille_decontracte,0.001594,1,classique,tendance,0.01871,0,epais,moyen,0.077729,0
+0741356005,Shorts,bottom,Pamela Shorts HW,carreaux,fleuri,0.007732,1,decontracte,habille_decontracte,0.028425,0,classique,tendance,0.011782,0,moyen,leger,0.016773,0
+0771338002,Skirt,bottom,Denize cord,uni,graphique,0.05919,0,habille_decontracte,decontracte,0.002839,1,classique,tendance,0.028445,0,leger,moyen,0.002119,1
+0777743001,Skirt,bottom,Greta Rhinestone,uni,graphique,0.027173,0,habille_decontracte,decontracte,0.014499,0,tendance,classique,0.009739,1,moyen,leger,0.02271,0
+0782769001,Sweater,top,ED Freddy,autre_motif,fleuri,0.058838,0,decontracte,habille_decontracte,0.016611,0,classique,tendance,0.005627,1,epais,moyen,0.025237,0
+0784075001,Top,top,Lilly LS,uni,autre_motif,0.078964,0,decontracte,habille_decontracte,0.019997,0,classique,romantique,0.012704,0,moyen,leger,0.003494,1
+0784392001,Coat,outerwear,Raining man coat,uni,carreaux,0.041876,0,habille_decontracte,habille,0.00759,1,classique,tendance,0.031521,0,leger,moyen,0.001929,1
+0810005001,Coat,outerwear,Poca Coat,uni,carreaux,0.064593,0,habille_decontracte,habille,0.008039,1,classique,romantique,0.051365,0,leger,moyen,0.006459,1
+0822895002,Skirt,bottom,Swim skirt,autre_motif,fleuri,0.058528,0,decontracte,habille_decontracte,0.004434,1,tendance,romantique,0.022377,0,leger,moyen,0.006137,1
+0851789001,Blouse,top,LORI MESH SPEED SS BLOUSE,autre_motif,carreaux,0.018022,0,habille,habille_decontracte,0.006085,1,romantique,tendance,0.022811,0,leger,moyen,0.01136,0
+0873279001,Sweater,top,Osman,uni,carreaux,0.013278,0,decontracte,habille_decontracte,0.011199,0,tendance,classique,0.01042,0,epais,moyen,0.022801,0
+0876332002,Top,top,Saffron body,uni,graphique,0.055703,0,decontracte,habille,0.000856,1,tendance,romantique,0.014705,0,moyen,leger,0.002793,1
+0887934002,Blazer,outerwear,Robban blazer,carreaux,raye,0.032643,0,habille_decontracte,decontracte,0.026501,0,classique,tendance,0.022605,0,leger,moyen,0.003004,1
+0894769001,Coat,outerwear,Clark long overshirt,carreaux,uni,0.006458,1,habille_decontracte,decontracte,0.01053,0,classique,tendance,0.049732,0,moyen,epais,0.016256,0
+0905507002,Top,top,SPORT Karin padded bra.,uni,graphique,0.020616,0,decontracte,habille_decontracte,0.010904,0,sport,classique,0.042962,0,leger,moyen,0.00325,1

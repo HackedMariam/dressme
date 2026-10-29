@@ -1,0 +1,63 @@
+{
+  "measured_calls": 5,
+  "warmup_calls": 1,
+  "errors": [],
+  "schema_valid": 4,
+  "done_stop": 4,
+  "near_limit": 1,
+  "prompt_eval_count": [
+    2207
+  ],
+  "eval_count": [
+    2048,
+    1104,
+    555,
+    304,
+    897
+  ],
+  "thinking_chars": [
+    7658,
+    4238,
+    2077,
+    1020,
+    3444
+  ],
+  "latency_p50_s": 28.019131900000502,
+  "latency_p95_s": 61.048383119999194,
+  "wall_minus_load_p50_s": 27.957738500000502,
+  "load_s": [
+    0.06,
+    0.05,
+    0.04,
+    0.04,
+    0.06
+  ],
+  "eval_tokens_per_s_median": 34.048105684105394,
+  "ram_min_available_mib": 691.1640625,
+  "vram_peak_mib": 2943,
+  "gpu_share_min": 0.7358684985093105,
+  "llama_server_mib_first_before": 0.0,
+  "llama_server_mib_after": [
+    1267.55078125,
+    1575.3828125,
+    2041.53125,
+    2403.6796875,
+    2706.484375,
+    2981.08984375
+  ],
+  "cache_hits": 0,
+  "total_duration_s": 190.46312390000094,
+  "config": {
+    "name": "R2",
+    "max_side": 640,
+    "num_ctx": 6144,
+    "unload_between": false
+  },
+  "options": {
+    "temperature": 0,
+    "seed": 0,
+    "num_ctx": 6144,
+    "num_predict": 2048
+  },
+  "stop_reason": null
+}

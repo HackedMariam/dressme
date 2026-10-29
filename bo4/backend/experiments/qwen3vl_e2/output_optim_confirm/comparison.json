@@ -1,0 +1,107 @@
+{
+  "stop_reason": null,
+  "vs_A0": {
+    "R1U": {
+      "by_item": {},
+      "identical_fields": 0,
+      "compared_fields": 0
+    }
+  },
+  "summaries": {
+    "R1U": {
+      "measured_calls": 10,
+      "warmup_calls": 1,
+      "errors": [],
+      "schema_valid": 9,
+      "done_stop": 9,
+      "near_limit": 1,
+      "prompt_eval_count": [
+        2207
+      ],
+      "eval_count": [
+        1028,
+        973,
+        1220,
+        1019,
+        603,
+        438,
+        1254,
+        577,
+        2048,
+        656
+      ],
+      "thinking_chars": [
+        4011,
+        3617,
+        4776,
+        3941,
+        2105,
+        1484,
+        5085,
+        1956,
+        8323,
+        2489
+      ],
+      "latency_p50_s": 40.437408400001004,
+      "latency_p95_s": 62.71629797999555,
+      "wall_minus_load_p50_s": 32.73086565000101,
+      "load_s": [
+        7.86,
+        7.91,
+        7.75,
+        7.5,
+        7.52,
+        7.77,
+        7.29,
+        7.23,
+        7.41,
+        6.15
+      ],
+      "eval_tokens_per_s_median": 33.44144909988947,
+      "ram_min_available_mib": 896.80078125,
+      "vram_peak_mib": 2943,
+      "gpu_share_min": 0.7358684985093105,
+      "llama_server_mib_first_before": 0.0,
+      "llama_server_mib_after": [
+        1268.28515625,
+        1267.89453125,
+        1268.484375,
+        1268.3515625,
+        1267.77734375,
+        1268.1328125,
+        1267.375,
+        1268.30859375,
+        1267.57421875,
+        1262.3203125,
+        1267.40234375
+      ],
+      "cache_hits": 0,
+      "total_duration_s": 443.51402440000675,
+      "config": {
+        "name": "R1U",
+        "max_side": 896,
+        "num_ctx": 6144,
+        "unload_between": true,
+        "measured": [
+          "0840606004",
+          "0781758009",
+          "0698425001",
+          "0781758064",
+          "0569973016",
+          "0783144006",
+          "0793493001",
+          "0801843006",
+          "0680192004",
+          "0706388001"
+        ]
+      },
+      "options": {
+        "temperature": 0,
+        "seed": 0,
+        "num_ctx": 6144,
+        "num_predict": 2048
+      },
+      "stop_reason": null
+    }
+  }
+}

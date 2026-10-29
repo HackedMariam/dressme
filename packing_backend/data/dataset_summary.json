@@ -1,0 +1,8 @@
+{
+  "wardrobe_items": 50,
+  "trips": 15,
+  "daily_requirements": 81,
+  "pairwise_compatibility_scores": 1225,
+  "seed": 42,
+  "warning": "All data and compatibility scores are synthetic; do not treat them as real-world predictions."
+}

@@ -1,0 +1,233 @@
+{
+  "v2": {
+    "calls": 10,
+    "schema_valid": 9,
+    "done_stop": 9,
+    "blocked_length": [
+      "0793493001"
+    ],
+    "errors": [],
+    "eval_count_median": 560.0,
+    "eval_count_max": 2048,
+    "eval_count_total": 6155,
+    "latency_p50_s": 29.992378549999557,
+    "latency_p95_s": 63.73453257000068,
+    "wall_minus_load_p50_s": 20.75505379999987,
+    "ram_min_available_mib": 1144.2109375,
+    "vram_peak_mib": 2943,
+    "prompt_eval_count": [
+      1970
+    ]
+  },
+  "v3": {
+    "calls": 10,
+    "schema_valid": 8,
+    "done_stop": 8,
+    "blocked_length": [
+      "0680192004",
+      "0793493001"
+    ],
+    "errors": [],
+    "eval_count_median": 649.5,
+    "eval_count_max": 2048,
+    "eval_count_total": 8559,
+    "latency_p50_s": 36.47586479999882,
+    "latency_p95_s": 92.1030006049994,
+    "wall_minus_load_p50_s": 25.375144599998816,
+    "ram_min_available_mib": 1166.4375,
+    "vram_peak_mib": 2943,
+    "prompt_eval_count": [
+      2172
+    ]
+  },
+  "per_image": {
+    "0569973016": {
+      "eval_v2": 187,
+      "eval_v3": 214,
+      "done_v2": "stop",
+      "done_v3": "stop",
+      "wall_v2": 18.5,
+      "wall_v3": 21.1
+    },
+    "0680192004": {
+      "eval_v2": 690,
+      "eval_v3": 2048,
+      "done_v2": "stop",
+      "done_v3": "length",
+      "wall_v2": 36.3,
+      "wall_v3": 91.3
+    },
+    "0698425001": {
+      "eval_v2": 809,
+      "eval_v3": 645,
+      "done_v2": "stop",
+      "done_v3": "stop",
+      "wall_v2": 33.9,
+      "wall_v3": 35.2
+    },
+    "0706388001": {
+      "eval_v2": 512,
+      "eval_v3": 380,
+      "done_v2": "stop",
+      "done_v3": "stop",
+      "wall_v2": 28.9,
+      "wall_v3": 27.9
+    },
+    "0781758009": {
+      "eval_v2": 218,
+      "eval_v3": 715,
+      "done_v2": "stop",
+      "done_v3": "stop",
+      "wall_v2": 15.6,
+      "wall_v3": 37.9
+    },
+    "0781758064": {
+      "eval_v2": 661,
+      "eval_v3": 639,
+      "done_v2": "stop",
+      "done_v3": "stop",
+      "wall_v2": 31.0,
+      "wall_v3": 33.8
+    },
+    "0783144006": {
+      "eval_v2": 210,
+      "eval_v3": 217,
+      "done_v2": "stop",
+      "done_v3": "stop",
+      "wall_v2": 20.0,
+      "wall_v3": 20.7
+    },
+    "0793493001": {
+      "eval_v2": 2048,
+      "eval_v3": 2048,
+      "done_v2": "length",
+      "done_v3": "length",
+      "wall_v2": 86.2,
+      "wall_v3": 92.8
+    },
+    "0801843006": {
+      "eval_v2": 608,
+      "eval_v3": 654,
+      "done_v2": "stop",
+      "done_v3": "stop",
+      "wall_v2": 32.7,
+      "wall_v3": 37.7
+    },
+    "0840606004": {
+      "eval_v2": 212,
+      "eval_v3": 999,
+      "done_v2": "stop",
+      "done_v3": "stop",
+      "wall_v2": 15.5,
+      "wall_v3": 49.8
+    }
+  },
+  "attribute_changes": {
+    "0680192004": "comparaison impossible (réponse invalide d'un côté)",
+    "0698425001": {
+      "thickness": {
+        "v2": "medium",
+        "v3": "light"
+      }
+    },
+    "0781758009": {
+      "thickness": {
+        "v2": "medium",
+        "v3": "light"
+      }
+    },
+    "0783144006": {
+      "primary_color": {
+        "v2": "brown",
+        "v3": "burgundy"
+      }
+    },
+    "0793493001": "comparaison impossible (réponse invalide d'un côté)",
+    "0801843006": {
+      "material_appearance": {
+        "v2": "jersey_fine_knit",
+        "v3": "smooth_woven"
+      }
+    },
+    "0840606004": {
+      "fit": {
+        "v2": "fitted",
+        "v3": "regular"
+      }
+    }
+  },
+  "watched": {
+    "0783144006": {
+      "primary_color": {
+        "v2": "brown",
+        "v3": "burgundy"
+      },
+      "hm_metadata_signal_not_proof": {
+        "product_type": "Blazer",
+        "colour_group": "Dark Red"
+      }
+    },
+    "0793493001": {
+      "category": {
+        "v2": null,
+        "v3": null
+      },
+      "primary_color": {
+        "v2": null,
+        "v3": null
+      },
+      "hm_metadata_signal_not_proof": {
+        "product_type": "Cardigan",
+        "colour_group": "Black"
+      }
+    },
+    "0680192004": {
+      "category": {
+        "v2": "jacket",
+        "v3": null
+      },
+      "primary_color": {
+        "v2": "white",
+        "v3": null
+      },
+      "hm_metadata_signal_not_proof": {
+        "product_type": "Cardigan",
+        "colour_group": "White"
+      }
+    }
+  },
+  "human_exploratory": {
+    "v2": {
+      "by_item": {
+        "0781758009": 6,
+        "0783144006": 7,
+        "0801843006": 6,
+        "0840606004": 7
+      },
+      "total": 26,
+      "compared": 32
+    },
+    "v3": {
+      "by_item": {
+        "0781758009": 7,
+        "0783144006": 8,
+        "0801843006": 7,
+        "0840606004": 6
+      },
+      "total": 28,
+      "compared": 32
+    },
+    "warning": "1 annotateur, 4 images : indicatif, pas une évaluation indépendante."
+  },
+  "verdict": {
+    "checks": {
+      "multicolour_cardigan_fixed": false,
+      "white_cardigan_still_fixed": false,
+      "valid_not_lower": false,
+      "tokens_and_latency_kept": false,
+      "no_manifest_degradation_exploratory": true
+    },
+    "promising": false,
+    "target_10_of_10": false
+  }
+}
