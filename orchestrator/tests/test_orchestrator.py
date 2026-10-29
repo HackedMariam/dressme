@@ -369,3 +369,40 @@ def test_each_node_writes_a_trace_line(fake):
     assert any(line.startswith("purchase -> bo1 GET /api/items : HTTP 200 en") for line in state["trace"])
     assert any(line.startswith("purchase -> purchase POST /analyze : HTTP 200 en") for line in state["trace"])
     assert state["trace"][-1].startswith("respond -> ")
+
+
+# ------------------------------------------------------------------ connexion requise / jeton expiré
+class ProtectedFake(FakeServices):
+    """Stylist et BO1 protégés (comme en production) : sans jeton -> 401 ; jeton inconnu -> 401."""
+
+    def __call__(self, request, timeout):
+        host = request.full_url.split("//", 1)[1].split(".test", 1)[0]
+        auth = request.get_header("Authorization")
+        if host in ("stylist", "bo1") and auth != f"Bearer {TOKEN}":
+            self.calls.append({"host": host, "path": request.full_url.split(".test", 1)[1], "body": None, "auth": auth})
+            return 401, b'{"detail": "Connexion requise"}'
+        return super().__call__(request, timeout)
+
+
+@pytest.mark.parametrize("message, text", [
+    ("J'ai un entretien demain, que porter ?", "Connecte-toi pour utiliser le Stylist."),
+    ("Est-ce que j'ai une jupe noire ?", "Connecte-toi pour utiliser ta garde-robe."),
+    ("Should I buy a black leather jacket?", "Connecte-toi pour utiliser l'avis d'achat."),
+])
+def test_without_login_the_answer_asks_to_sign_in(message, text):
+    state = run(og.build_graph(gateway=Gateway(SERVICES, transport=ProtectedFake()), llm=None), message)
+    assert state["response"].startswith(text) and "reconnecte-toi" not in state["response"]
+    assert state["result"]["details"]["login_required"] is True
+
+
+def test_expired_token_still_says_sign_in_again():
+    state = run(og.build_graph(gateway=Gateway(SERVICES, transport=ProtectedFake()), llm=None),
+                "J'ai un entretien demain, que porter ?", user="uuid-alice", token="jeton-expire")
+    assert "reconnecte-toi" in state["response"] and "Connecte-toi pour utiliser" not in state["response"]
+    assert state["result"]["details"]["login_required"] is False
+
+
+def test_ollama_calls_keep_the_model_loaded(fake):
+    run(make(fake, llm="ollama"), "Quels conseils pour une tenue de soirée ?")
+    body = fake.to("ollama")[0]["body"]
+    assert body["keep_alive"] == "30m"

@@ -155,9 +155,11 @@ LLM = Callable[[str, str, dict], Optional[dict]]
 def ollama_llm(gateway: Gateway, trace: list[str], node: str) -> LLM:
     """Appel Ollama en JSON contraint ; chaque appel ajoute sa ligne à la trace du node."""
     model = gateway.services["ollama"].extra.get("model", "qwen2.5:3b")
+    keep_alive = gateway.services["ollama"].extra.get("keep_alive", "30m")   # modèle gardé en mémoire
 
     def call(system: str, message: str, schema: dict) -> Optional[dict]:
-        body = {"model": model, "stream": False, "format": schema, "options": {"temperature": 0},
+        body = {"model": model, "stream": False, "format": schema, "keep_alive": keep_alive,
+                "options": {"temperature": 0},
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": message}]}
         result = gateway.call("ollama", "POST", "/api/chat", body)
         trace.append(f"{node} -> {result.trace()}")
@@ -498,12 +500,21 @@ def _line(state: dict, node: str, text: str) -> list[str]:
     return list(state.get("trace") or []) + [f"{node} -> {text}"]
 
 
-def _failure(label: str, call: CallResult) -> str:
+def _failure(label: str, call: CallResult, token_sent: bool = True, login_label: Optional[str] = None) -> str:
+    """Message d'échec. 401/403 sans jeton : l'utilisateur n'est pas connecté (« Connecte-toi… ») ;
+    avec un jeton : il est expiré ou refusé (« reconnecte-toi »)."""
     if call.status is None:
         return f"{call.error}. Réessaie quand le service est démarré."
+    if call.status in (401, 403) and not token_sent:
+        return f"Connecte-toi pour utiliser {login_label or label}."
     if call.status in (401, 403):
         return f"{label} refuse la connexion (HTTP {call.status}) : reconnecte-toi."
     return call.error or f"{label} a répondu HTTP {call.status}."
+
+
+def _needs_login(call: CallResult, token_sent: bool) -> bool:
+    """Vrai si la page doit proposer le bouton de connexion (service protégé, aucun jeton envoyé)."""
+    return call.status in (401, 403) and not token_sent
 
 
 # --------------------------------------------------------------------------------------
@@ -555,25 +566,30 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         if off := switched_off("stylist", "stylist", state):
             return off
         label = gateway.services["stylist"].label
+        token = request_token(config)
         call = gateway.call("stylist", "POST", "/api/chat",
-                            {"message": state["user_message"], "thread_id": conversation_id(config)},
-                            token=request_token(config))
+                            {"message": state["user_message"], "thread_id": conversation_id(config)}, token=token)
         if call.ok and isinstance(call.data, dict):
             outfits = [{"rank": o.get("rank"), "score": o.get("score"),
                         "items": [i.get("name") for i in o.get("items") or []]} for o in call.data.get("outfits") or []]
             result = {"service": "stylist", "label": label, "ok": True, "text": call.data.get("response") or "",
                       "details": {"outfits": outfits, "visited": call.data.get("visited") or []}}
         else:
-            result = {"service": "stylist", "label": label, "ok": False, "text": _failure(label, call), "details": {}}
+            result = {"service": "stylist", "label": label, "ok": False,
+                      "text": _failure(label, call, bool(token), "le Stylist"),
+                      "details": {"login_required": _needs_login(call, bool(token))}}
         return {"result": result, "last_route": "stylist", "trace": _line(state, "stylist", call.trace())}
 
     def wardrobe(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
         if off := switched_off("wardrobe", "bo1", state):
             return off
         label = gateway.services["bo1"].label
-        call = gateway.call("bo1", "GET", "/api/items", token=request_token(config))
+        token = request_token(config)
+        call = gateway.call("bo1", "GET", "/api/items", token=token)
         if not call.ok or not isinstance(call.data, list):
-            result = {"service": "wardrobe", "label": label, "ok": False, "text": _failure(label, call), "details": {}}
+            result = {"service": "wardrobe", "label": label, "ok": False,
+                      "text": _failure(label, call, bool(token), "ta garde-robe"),
+                      "details": {"login_required": _needs_login(call, bool(token))}}
             return {"result": result, "last_route": "wardrobe", "trace": _line(state, "wardrobe", call.trace())}
         items = call.data
         message = state["user_message"]
@@ -616,12 +632,14 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
                               "(par exemple « une veste en cuir noire à 80 € »)."}
             return {"result": result, "last_route": "purchase",
                     "trace": trace + ["purchase -> article non reconnu, aucun appel"]}
-        wardrobe_call = gateway.call("bo1", "GET", "/api/items", token=request_token(config))
+        token = request_token(config)
+        wardrobe_call = gateway.call("bo1", "GET", "/api/items", token=token)
         trace.append(f"purchase -> {wardrobe_call.trace()}")
         if not wardrobe_call.ok or not isinstance(wardrobe_call.data, list):
-            text = _failure(gateway.services["bo1"].label, wardrobe_call) + \
+            text = _failure(gateway.services["bo1"].label, wardrobe_call, bool(token), "l'avis d'achat") + \
                 " Sans ta garde-robe, l'analyse d'achat n'aurait pas de sens."
-            result = {"service": "purchase", "label": label, "ok": False, "text": text, "details": {}}
+            result = {"service": "purchase", "label": label, "ok": False, "text": text,
+                      "details": {"login_required": _needs_login(wardrobe_call, bool(token))}}
             return {"result": result, "last_route": "purchase", "trace": trace}
         wardrobe_items = [bo1_to_purchase(i) for i in wardrobe_call.data][:PURCHASE_MAX_ITEMS]
         body = {"new_item": new_item, "wardrobe_items": wardrobe_items, "use_llm": use_llm_for_purchase,
@@ -727,11 +745,13 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         ctx = {**message_context(state["user_message"]), "user_id": _configurable(config).get("user_id"),
                "thread_id": conversation_id(config)}
         if uses_var(module.request, "wardrobe_items"):
+            token_sent = bool(request_token(config))
             items_call = gateway.call("bo1", "GET", "/api/items", token=request_token(config))
             trace.append(f"external -> {items_call.trace()}")
             if not items_call.ok or not isinstance(items_call.data, list):
-                return done(False, _failure(gateway.services["bo1"].label, items_call)
-                            + f" Sans ta garde-robe, {label} ne peut pas répondre.")
+                return done(False, _failure(gateway.services["bo1"].label, items_call, token_sent, label)
+                            + f" Sans ta garde-robe, {label} ne peut pas répondre.",
+                            {"login_required": _needs_login(items_call, token_sent)})
             ctx["wardrobe_items"] = [contract_item(row) for row in items_call.data]
         body = render_template(module.request, ctx) if module.method != "GET" else None
         call = gateway.call(name, module.method, module.path, body,

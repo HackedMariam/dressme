@@ -27,6 +27,7 @@ services:
     url: "http://localhost:11434"
     timeout: 60
     model: "qwen2.5:3b"
+    keep_alive: "30m"    # Ollama garde le modèle en mémoire 30 min après chaque appel (5 min par défaut)
 
 # Modules externes, appelés par le node générique « external » avec la garde-robe BO1 de l'utilisateur
 # (wardrobe_items, format : orchestrator/integration_contract.md). Le module ne lit ni Supabase ni BO1 lui-même.

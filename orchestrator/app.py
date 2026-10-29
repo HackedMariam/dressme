@@ -261,6 +261,7 @@ PAGE = r"""<!doctype html>
   .card .sources { margin-top:10px; padding-top:8px; border-top:1px solid var(--border); font-size:13px; }
   .card .sources ul { margin:4px 0 0; padding-left:20px; }
   .card .why { color:var(--muted); font-size:12px; margin-top:8px; }
+  .card .card-login { margin-top:10px; }
   form#f { display:flex; gap:8px; padding:14px 28px 22px; border-top:1px solid var(--border); }
   input { font:inherit; color:var(--ink); background:var(--offwhite); border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
   #q { flex:1; min-width:0; }
@@ -428,6 +429,14 @@ PAGE = r"""<!doctype html>
     const body = document.createElement("div"); body.className = "body";
     body.appendChild(window.DressMeMarkdown.render(isBo5 ? details.answer : data.response, document));
     card.appendChild(body);
+    if (details.login_required && !accessToken) {
+      // Service protégé et aucune session : bouton de connexion directement dans la carte.
+      const login = document.createElement("button");
+      login.type = "button"; login.className = "btn primary card-login"; login.textContent = "Se connecter";
+      if (client) login.addEventListener("click", openLogin);
+      else { login.disabled = true; login.title = "Connexion indisponible : orchestrator/.env non configuré"; }
+      card.appendChild(login);
+    }
     if (isBo5) {
       const box = document.createElement("div"); box.className = "sources";
       const sources = details.sources || [], masked = details.masked_sources || 0;
