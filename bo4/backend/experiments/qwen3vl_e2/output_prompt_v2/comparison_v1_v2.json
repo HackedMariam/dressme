@@ -1,0 +1,212 @@
+{
+  "v1": {
+    "calls": 10,
+    "schema_valid": 9,
+    "done_stop": 9,
+    "blocked_length": [
+      "0680192004"
+    ],
+    "errors": [],
+    "eval_count_median": 996.0,
+    "eval_count_max": 2048,
+    "eval_count_total": 9816,
+    "latency_p50_s": 40.437408400001004,
+    "latency_p95_s": 62.71629797999555,
+    "wall_minus_load_p50_s": 32.73086565000101,
+    "ram_min_available_mib": 1014.9375,
+    "vram_peak_mib": 2943,
+    "prompt_eval_count": [
+      2207
+    ]
+  },
+  "v2": {
+    "calls": 10,
+    "schema_valid": 9,
+    "done_stop": 9,
+    "blocked_length": [
+      "0793493001"
+    ],
+    "errors": [],
+    "eval_count_median": 560.0,
+    "eval_count_max": 2048,
+    "eval_count_total": 6155,
+    "latency_p50_s": 29.992378549999557,
+    "latency_p95_s": 63.73453257000068,
+    "wall_minus_load_p50_s": 20.75505379999987,
+    "ram_min_available_mib": 1144.2109375,
+    "vram_peak_mib": 2943,
+    "prompt_eval_count": [
+      1970
+    ]
+  },
+  "per_image": {
+    "0569973016": {
+      "eval_v1": 603,
+      "eval_v2": 187,
+      "done_v1": "stop",
+      "done_v2": "stop",
+      "wall_v1": 27.0,
+      "wall_v2": 18.5
+    },
+    "0680192004": {
+      "eval_v1": 2048,
+      "eval_v2": 690,
+      "done_v1": "length",
+      "done_v2": "stop",
+      "wall_v1": 75.2,
+      "wall_v2": 36.3
+    },
+    "0698425001": {
+      "eval_v1": 1220,
+      "eval_v2": 809,
+      "done_v1": "stop",
+      "done_v2": "stop",
+      "wall_v1": 47.4,
+      "wall_v2": 33.9
+    },
+    "0706388001": {
+      "eval_v1": 656,
+      "eval_v2": 512,
+      "done_v1": "stop",
+      "done_v2": "stop",
+      "wall_v1": 27.2,
+      "wall_v2": 28.9
+    },
+    "0781758009": {
+      "eval_v1": 973,
+      "eval_v2": 218,
+      "done_v1": "stop",
+      "done_v2": "stop",
+      "wall_v1": 40.9,
+      "wall_v2": 15.6
+    },
+    "0781758064": {
+      "eval_v1": 1019,
+      "eval_v2": 661,
+      "done_v1": "stop",
+      "done_v2": "stop",
+      "wall_v1": 39.9,
+      "wall_v2": 31.0
+    },
+    "0783144006": {
+      "eval_v1": 438,
+      "eval_v2": 210,
+      "done_v1": "stop",
+      "done_v2": "stop",
+      "wall_v1": 22.3,
+      "wall_v2": 20.0
+    },
+    "0793493001": {
+      "eval_v1": 1254,
+      "eval_v2": 2048,
+      "done_v1": "stop",
+      "done_v2": "length",
+      "wall_v1": 47.2,
+      "wall_v2": 86.2
+    },
+    "0801843006": {
+      "eval_v1": 577,
+      "eval_v2": 608,
+      "done_v1": "stop",
+      "done_v2": "stop",
+      "wall_v1": 25.9,
+      "wall_v2": 32.7
+    },
+    "0840606004": {
+      "eval_v1": 1028,
+      "eval_v2": 212,
+      "done_v1": "stop",
+      "done_v2": "stop",
+      "wall_v1": 42.6,
+      "wall_v2": 15.5
+    }
+  },
+  "attribute_changes": {
+    "0569973016": {
+      "primary_color": {
+        "v1": "blue",
+        "v2": "navy"
+      }
+    },
+    "0680192004": "comparaison impossible (réponse invalide d'un côté)",
+    "0698425001": {
+      "category": {
+        "v1": "top",
+        "v2": "tshirt"
+      },
+      "primary_color": {
+        "v1": "yellow",
+        "v2": "pink"
+      },
+      "pattern": {
+        "v1": "floral",
+        "v2": "graphic_print"
+      },
+      "thickness": {
+        "v1": "light",
+        "v2": "medium"
+      }
+    },
+    "0781758009": {
+      "pattern": {
+        "v1": "checked",
+        "v2": "dotted"
+      }
+    },
+    "0781758064": {
+      "thickness": {
+        "v1": "light",
+        "v2": "medium"
+      }
+    },
+    "0783144006": {
+      "primary_color": {
+        "v1": "burgundy",
+        "v2": "brown"
+      }
+    },
+    "0793493001": "comparaison impossible (réponse invalide d'un côté)",
+    "0840606004": {
+      "material_appearance": {
+        "v1": "smooth_woven",
+        "v2": "jersey_fine_knit"
+      },
+      "fit": {
+        "v1": "regular",
+        "v2": "fitted"
+      }
+    }
+  },
+  "human_exploratory": {
+    "v1": {
+      "by_item": {
+        "0781758009": 5,
+        "0783144006": 8,
+        "0801843006": 6,
+        "0840606004": 7
+      },
+      "total": 26,
+      "compared": 32
+    },
+    "v2": {
+      "by_item": {
+        "0781758009": 6,
+        "0783144006": 7,
+        "0801843006": 6,
+        "0840606004": 7
+      },
+      "total": 26,
+      "compared": 32
+    },
+    "warning": "1 annotateur, 4 images : indicatif, pas une évaluation indépendante."
+  },
+  "verdict": {
+    "checks": {
+      "blocked_item_fixed": true,
+      "valid_not_lower": true,
+      "fewer_tokens_or_faster": true,
+      "no_manifest_degradation_exploratory": true
+    },
+    "promising": true
+  }
+}

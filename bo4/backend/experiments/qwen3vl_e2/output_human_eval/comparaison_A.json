@@ -1,0 +1,206 @@
+{
+  "annotator": "A",
+  "annotations_sha256": "757d4bc2cf298932f72eb9ba22c8c5301c6363b78aa7ef209cf8b52891412947",
+  "form_version": "7d5eec339ec8",
+  "prediction_sources": {
+    "0840606004": "output_single_check/single_check.json",
+    "0781758009": "output_mini3_v4/results.jsonl",
+    "0783144006": "output_mini3_v4/results.jsonl",
+    "0801843006": "output_mini3_v4/results.jsonl"
+  },
+  "scores": {
+    "by_attribute": {
+      "category": {
+        "n": 4,
+        "strict": 3,
+        "lenient": 3,
+        "exploratory": false,
+        "differences": [
+          {
+            "article_id": "0783144006",
+            "human": "blazer",
+            "human_alternative": null,
+            "qwen": "jacket"
+          }
+        ]
+      },
+      "primary_color": {
+        "n": 4,
+        "strict": 4,
+        "lenient": 4,
+        "exploratory": false,
+        "differences": []
+      },
+      "pattern": {
+        "n": 4,
+        "strict": 3,
+        "lenient": 3,
+        "exploratory": false,
+        "differences": [
+          {
+            "article_id": "0801843006",
+            "human": "other_pattern",
+            "human_alternative": null,
+            "qwen": "floral"
+          }
+        ]
+      },
+      "material_appearance": {
+        "n": 4,
+        "strict": 2,
+        "lenient": 2,
+        "exploratory": false,
+        "differences": [
+          {
+            "article_id": "0801843006",
+            "human": "smooth_woven",
+            "human_alternative": null,
+            "qwen": "jersey_fine_knit"
+          },
+          {
+            "article_id": "0840606004",
+            "human": "smooth_woven",
+            "human_alternative": null,
+            "qwen": "jersey_fine_knit"
+          }
+        ]
+      },
+      "fit": {
+        "n": 4,
+        "strict": 3,
+        "lenient": 3,
+        "exploratory": false,
+        "differences": [
+          {
+            "article_id": "0840606004",
+            "human": "fitted",
+            "human_alternative": null,
+            "qwen": "regular"
+          }
+        ]
+      },
+      "style": {
+        "n": 4,
+        "strict": 4,
+        "lenient": 4,
+        "exploratory": true,
+        "differences": []
+      },
+      "formality": {
+        "n": 4,
+        "strict": 3,
+        "lenient": 3,
+        "exploratory": false,
+        "differences": [
+          {
+            "article_id": "0781758009",
+            "human": "smart_casual",
+            "human_alternative": null,
+            "qwen": "casual"
+          }
+        ],
+        "ordinal_distances": [
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      "thickness": {
+        "n": 4,
+        "strict": 3,
+        "lenient": 3,
+        "exploratory": false,
+        "differences": [
+          {
+            "article_id": "0781758009",
+            "human": "light",
+            "human_alternative": null,
+            "qwen": "medium"
+          }
+        ],
+        "ordinal_distances": [
+          1,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "overall": {
+      "n": 32,
+      "strict": 25,
+      "lenient": 25
+    },
+    "overall_without_style": {
+      "n": 28,
+      "strict": 21,
+      "lenient": 21
+    },
+    "overall_blind_items_only": {
+      "n": 32,
+      "strict": 25,
+      "lenient": 25
+    },
+    "by_item": {
+      "0781758009": {
+        "n": 8,
+        "strict": 6,
+        "lenient": 6
+      },
+      "0783144006": {
+        "n": 8,
+        "strict": 7,
+        "lenient": 7
+      },
+      "0801843006": {
+        "n": 8,
+        "strict": 6,
+        "lenient": 6
+      },
+      "0840606004": {
+        "n": 8,
+        "strict": 6,
+        "lenient": 6
+      }
+    }
+  },
+  "certainty": [
+    {
+      "article_id": "0781758009",
+      "human_certainty": "medium",
+      "qwen_certainty": "high",
+      "qwen_strict_matches": 6,
+      "n_attributes": 8
+    },
+    {
+      "article_id": "0783144006",
+      "human_certainty": "high",
+      "qwen_certainty": "high",
+      "qwen_strict_matches": 7,
+      "n_attributes": 8
+    },
+    {
+      "article_id": "0801843006",
+      "human_certainty": "medium",
+      "qwen_certainty": "high",
+      "qwen_strict_matches": 6,
+      "n_attributes": 8
+    },
+    {
+      "article_id": "0840606004",
+      "human_certainty": "medium",
+      "qwen_certainty": "high",
+      "qwen_strict_matches": 6,
+      "n_attributes": 8
+    }
+  ],
+  "exposed_items": [],
+  "comments": {},
+  "limits": [
+    "1 annotateur et 4 images : comptages indicatifs, aucune exactitude généralisable.",
+    "L'annotation humaine est une référence, pas une vérité absolue (un 2e annotateur permettrait un accord).",
+    "`style` est exploratoire ; `certainty` est exclue des scores.",
+    "Les images marquées déjà vues ne sont pas en aveugle."
+  ]
+}

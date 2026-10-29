@@ -1,0 +1,11 @@
+article_id,image_path,image_sha256,product_type_name,role,index_group_name,graphical_appearance_name,colour_group_name,split,selection_reason
+0840606004,images/084/0840606004.jpg,5eb51b89c2ebeee952d2f050900dbbb7a799ce3c0c2df77e745028622f95aaf5,Trousers,bottom,Baby/Children,Stripe,Pink,e2_microbench_dev,motif requis Stripe
+0781758009,images/078/0781758009.jpg,6710002a38090fe78414f53a01e5bee3469d80ec0147c73906cb309e2291f989,Shirt,top,Menswear,Dot,Dark Red,e2_microbench_dev,motif requis Dot
+0698425001,images/069/0698425001.jpg,f5d21f65763e180c3cff4e2243a620069fb311e440dbf9b00a485c34cdfba60c,T-shirt,top,Baby/Children,Front print,Light Pink,e2_microbench_dev,motif requis Front print
+0781758064,images/078/0781758064.jpg,698859e438b339dc1789988fe87dcd4662694f90c5c7cb53c5880034c62a7dbf,Shirt,top,Menswear,Check,Yellowish Brown,e2_microbench_dev,motif H&M nouveau
+0569973016,images/056/0569973016.jpg,2b9ff34d36decbb73d68cdc9a954a2978f7dd5f5f7aa4e54a8bf96854aeaf9fc,Hoodie,top,Menswear,Slub,Dark Blue,e2_microbench_dev,motif H&M nouveau
+0783144006,images/078/0783144006.jpg,909dfd613ea829c43266cfdd913bc01ad68b20371778c630bd96bcaa54a6a2f6,Blazer,outerwear,Menswear,Solid,Dark Red,e2_microbench_dev,motif H&M nouveau
+0793493001,images/079/0793493001.jpg,29ff727f1323e0da28068246627ba34d3b8d71555e7dd6afb01a7aaf1dede009,Cardigan,outerwear,Menswear,All over pattern,Black,e2_microbench_dev,motif H&M nouveau
+0801843006,images/080/0801843006.jpg,36e199e35e35d79a00c0d0d3f81eba27064a43e7908028e4117b2ae5a871cb33,Dress,dress,Baby/Children,All over pattern,Light Pink,e2_microbench_dev,rôle dress manquant
+0680192004,images/068/0680192004.jpg,cb8f12a7b2f639c74c3215b6652c9a27b7864f88f7a1613a1066f53228477f4b,Cardigan,outerwear,Menswear,Solid,White,e2_microbench_dev,complément (ordre de priorité)
+0706388001,images/070/0706388001.jpg,cfa57e922d90f297c0fedb0d2ac99060b986a8e9833e2784310bcaaf02a81cbf,Hoodie,top,Menswear,Solid,Black,e2_microbench_dev,complément (ordre de priorité)

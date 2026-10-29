@@ -1,0 +1,36 @@
+{
+  "planned_calls": 3,
+  "calls": 0,
+  "errors": [],
+  "done_stop": 0,
+  "json_parsed": 0,
+  "schema_valid": 0,
+  "eval_count_hit_limit": 0,
+  "eval_count": [],
+  "thinking_chars": [],
+  "wall_s": [],
+  "wall_minus_load_s": [],
+  "wall_median_s": null,
+  "wall_max_s": null,
+  "eval_tokens_per_s": [],
+  "vram_peak_mib": null,
+  "ram_min_available_mib": null,
+  "gpu_share": [],
+  "indicative_vs_acceptance": {
+    "latency_within_p50_max": [],
+    "latency_within_p95_max": [],
+    "ram_ok": false,
+    "vram_ok": false
+  },
+  "stop_reason": "contrôle RAM échoué avant 0781758009",
+  "preflights": [
+    {
+      "article_id": "0781758009",
+      "available_mib": 559.15625,
+      "model_loaded": false,
+      "required_mib": 1918.0,
+      "ok": false,
+      "model_ram_in_use_mib": null
+    }
+  ]
+}

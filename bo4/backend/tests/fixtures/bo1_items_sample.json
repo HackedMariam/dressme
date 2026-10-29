@@ -1,0 +1,134 @@
+[
+  {
+    "id": "a1000000-0000-4000-8000-000000000001", "user_id": "local", "name": "White Tee",
+    "category": "top", "category_group": "Tops", "subcategory": "crew-neck t-shirt",
+    "color_name": "white", "color_hex": "#f5f5f2", "color_family": "neutral", "pattern": "solid",
+    "material": "cotton", "seasons": ["spring", "summer"], "style": "casual",
+    "occasions": ["everyday", "travel"], "formality": 1, "warmth": 1,
+    "description": "A short-sleeve white t-shirt.", "tags": ["top", "white"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000001/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000001/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000002", "user_id": "local", "name": "Light Blue Shirt",
+    "category": "top", "category_group": "Tops", "subcategory": "long-sleeve button-up shirt",
+    "color_name": "light blue", "color_hex": "#9cc3e6", "color_family": "pastel", "pattern": "solid",
+    "material": "cotton", "seasons": ["spring", "autumn"], "style": "classic",
+    "occasions": ["work", "everyday"], "formality": 3, "warmth": 2,
+    "description": "A crisp button-up shirt.", "tags": ["shirt"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000002/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000002/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000003", "user_id": "local", "name": "Grey Knit",
+    "category": "sweater", "category_group": "Tops", "subcategory": "knit sweater",
+    "color_name": "grey", "color_hex": "#8a8a8a", "color_family": "neutral", "pattern": "knit texture",
+    "material": "wool blend", "seasons": ["autumn", "winter"], "style": "minimalist",
+    "occasions": ["everyday", "work"], "formality": 2, "warmth": 4,
+    "description": "A long-sleeve grey knit.", "tags": ["sweater"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000003/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000003/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000004", "user_id": "local", "name": "Navy Blazer",
+    "category": "jacket", "category_group": "Outerwear", "subcategory": "single-breasted blazer",
+    "color_name": "navy", "color_hex": "#1f2a4d", "color_family": "neutral", "pattern": "solid",
+    "material": "wool blend", "seasons": ["spring", "autumn"], "style": "business",
+    "occasions": ["work", "ceremony"], "formality": 4, "warmth": 3,
+    "description": "A tailored navy blazer.", "tags": ["blazer"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000004/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000004/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000005", "user_id": "local", "name": "Black Puffer",
+    "category": "jacket", "category_group": "Outerwear", "subcategory": "puffer jacket",
+    "color_name": "black", "color_hex": "#1c1c1c", "color_family": "neutral", "pattern": "solid",
+    "material": "nylon", "seasons": ["winter"], "style": "casual",
+    "occasions": ["everyday", "outdoor"], "formality": 1, "warmth": 5,
+    "description": "A warm quilted puffer jacket.", "tags": ["jacket"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000005/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000005/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000006", "user_id": "local", "name": "Beige Chinos",
+    "category": "pants", "category_group": "Bottoms", "subcategory": "chino trousers",
+    "color_name": "beige", "color_hex": "#d6bf98", "color_family": "neutral", "pattern": "solid",
+    "material": "cotton", "seasons": ["spring", "summer", "autumn"], "style": "classic",
+    "occasions": ["work", "everyday"], "formality": 3, "warmth": 2,
+    "description": "Straight-leg chino trousers.", "tags": ["pants"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000006/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000006/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000007", "user_id": "local", "name": "Blue Jeans",
+    "category": "pants", "category_group": "Bottoms", "subcategory": "slim jeans",
+    "color_name": "denim blue", "color_hex": "#4a6890", "color_family": "cool", "pattern": "denim",
+    "material": "denim", "seasons": ["spring", "autumn", "winter"], "style": "casual",
+    "occasions": ["everyday"], "formality": 1, "warmth": 3,
+    "description": "Classic slim-fit jeans.", "tags": ["jeans", "denim"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000007/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000007/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000008", "user_id": "local", "name": "Black Skirt",
+    "category": "skirt", "category_group": "Bottoms", "subcategory": "a-line midi skirt",
+    "color_name": "black", "color_hex": "#1c1c1c", "color_family": "neutral", "pattern": "solid",
+    "material": "polyester", "seasons": ["spring", "summer", "autumn"], "style": "elegant",
+    "occasions": ["work", "party"], "formality": 3, "warmth": 2,
+    "description": "A flowing midi skirt.", "tags": ["skirt"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000008/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000008/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000009", "user_id": "local", "name": "Burgundy Dress",
+    "category": "dress", "category_group": "Dresses", "subcategory": "wrap dress",
+    "color_name": "burgundy", "color_hex": "#6e1f2e", "color_family": "warm", "pattern": "solid",
+    "material": "viscose", "seasons": ["autumn", "winter"], "style": "elegant",
+    "occasions": ["party", "date night"], "formality": 4, "warmth": 2,
+    "description": "A long-sleeve wrap dress.", "tags": ["dress"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000009/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000009/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000010", "user_id": "local", "name": "Charcoal Vest",
+    "category": "vest", "category_group": "Tops", "subcategory": "knit vest",
+    "color_name": "charcoal", "color_hex": "#3d3d3d", "color_family": "neutral", "pattern": "solid",
+    "material": "wool", "seasons": ["autumn"], "style": "streetwear",
+    "occasions": ["everyday"], "formality": 2, "warmth": 2,
+    "description": "A sleeveless knit vest.", "tags": ["vest"],
+    "needs_review": true, "status": "review",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000010/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000010/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000011", "user_id": "local", "name": "White Sneakers",
+    "category": "shoe", "category_group": "Shoes", "subcategory": "sneakers",
+    "color_name": "white", "color_hex": "#f5f5f2", "color_family": "neutral", "pattern": "solid",
+    "material": "leather", "seasons": ["spring", "summer", "autumn"], "style": "casual",
+    "occasions": ["everyday"], "formality": 1, "warmth": 1,
+    "description": "Low-top sneakers.", "tags": ["shoe"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000011/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000011/cutout.png"
+  },
+  {
+    "id": "a1000000-0000-4000-8000-000000000012", "user_id": "local", "name": "Tan Tote",
+    "category": "bag", "category_group": "Bags", "subcategory": "tote bag",
+    "color_name": "tan", "color_hex": "#c9a27a", "color_family": "earth", "pattern": "solid",
+    "material": "leather", "seasons": ["spring", "summer", "autumn", "winter"], "style": "classic",
+    "occasions": ["work", "everyday"], "formality": 3, "warmth": 1,
+    "description": "A leather tote bag.", "tags": ["bag"],
+    "needs_review": false, "status": "auto",
+    "image_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000012/original.jpg",
+    "cutout_url": "http://localhost:8000/files/local/a1000000-0000-4000-8000-000000000012/cutout.png"
+  }
+]

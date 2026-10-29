@@ -1,0 +1,10 @@
+# Orchestrateur DressMe (versions testées le 29/10/2026, Python 3.11)
+langgraph==1.2.16
+langchain-core==1.6.13
+fastapi==0.143.0
+uvicorn==0.54.0
+pydantic==2.14.0
+PyYAML==6.0.3
+# tests
+httpx==0.28.1
+pytest==8.4.2
