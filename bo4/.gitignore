@@ -1,0 +1,24 @@
+# Environnements virtuels
+.venv/
+.venv-*/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Données et modèles lourds (dataset H&M à la racine uniquement : les petits
+# fichiers de protocole dans backend/**/data/ restent versionnés)
+/data/
+models/
+*.pt
+bo1/outputs/
+local_data/
+
+# Formulaires d'annotation autonomes (> 5 Mo, images intégrées, régénérables)
+backend/evaluation/data/annotation_pilote.html
+backend/experiments/fashionclip_e1/output/annotation_attributs.html
+
+# État local et secrets
+stylist_feedback.json
+.env

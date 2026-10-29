@@ -1,0 +1,1227 @@
+{
+  "created": "2026-10-23T00:01:17",
+  "model": "qwen2.5:3b",
+  "ollama_version": "0.40.6",
+  "temperature": 0,
+  "n_cases": 15,
+  "llm_latency_s": {
+    "median": 3.262,
+    "max": 3.426,
+    "min": 3.039,
+    "calls": 15
+  },
+  "llm_failures": 0,
+  "guard_rejections": 15,
+  "summary": {
+    "A": {
+      "n": 15,
+      "occasion_accuracy": 0.6,
+      "occasion_correct": 9,
+      "season_accuracy": 1.0,
+      "season_correct": 15,
+      "feedback_accuracy": 0.8,
+      "feedback_correct": 12,
+      "wants_another_accuracy": 0.867,
+      "wants_another_correct": 13,
+      "exclusion_tp": 0,
+      "exclusion_fp": 0,
+      "exclusion_fn": 2,
+      "exclusion_precision": null,
+      "exclusion_recall": 0.0,
+      "invented_constraints": 0,
+      "cases_with_invented_constraints": 0,
+      "all_fields_correct": 4
+    },
+    "B": {
+      "n": 15,
+      "occasion_accuracy": 0.933,
+      "occasion_correct": 14,
+      "season_accuracy": 1.0,
+      "season_correct": 15,
+      "feedback_accuracy": 0.8,
+      "feedback_correct": 12,
+      "wants_another_accuracy": 0.8,
+      "wants_another_correct": 12,
+      "exclusion_tp": 2,
+      "exclusion_fp": 37,
+      "exclusion_fn": 0,
+      "exclusion_precision": 0.051,
+      "exclusion_recall": 1.0,
+      "invented_constraints": 37,
+      "cases_with_invented_constraints": 11,
+      "all_fields_correct": 1
+    },
+    "C": {
+      "n": 15,
+      "occasion_accuracy": 0.867,
+      "occasion_correct": 13,
+      "season_accuracy": 1.0,
+      "season_correct": 15,
+      "feedback_accuracy": 0.8,
+      "feedback_correct": 12,
+      "wants_another_accuracy": 0.867,
+      "wants_another_correct": 13,
+      "exclusion_tp": 0,
+      "exclusion_fp": 0,
+      "exclusion_fn": 2,
+      "exclusion_precision": null,
+      "exclusion_recall": 0.0,
+      "invented_constraints": 0,
+      "cases_with_invented_constraints": 0,
+      "all_fields_correct": 8
+    }
+  },
+  "by_category": {
+    "simple": {
+      "A": {
+        "n": 2,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 2,
+        "season_accuracy": 1.0,
+        "season_correct": 2,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 2,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 2,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 2
+      },
+      "B": {
+        "n": 2,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 2,
+        "season_accuracy": 1.0,
+        "season_correct": 2,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 2,
+        "wants_another_accuracy": 0.5,
+        "wants_another_correct": 1,
+        "exclusion_tp": 0,
+        "exclusion_fp": 2,
+        "exclusion_fn": 0,
+        "exclusion_precision": 0.0,
+        "exclusion_recall": null,
+        "invented_constraints": 2,
+        "cases_with_invented_constraints": 1,
+        "all_fields_correct": 0
+      },
+      "C": {
+        "n": 2,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 2,
+        "season_accuracy": 1.0,
+        "season_correct": 2,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 2,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 2,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 2
+      }
+    },
+    "paraphrase": {
+      "A": {
+        "n": 7,
+        "occasion_accuracy": 0.143,
+        "occasion_correct": 1,
+        "season_accuracy": 1.0,
+        "season_correct": 7,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 7,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 7,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 1
+      },
+      "B": {
+        "n": 7,
+        "occasion_accuracy": 0.857,
+        "occasion_correct": 6,
+        "season_accuracy": 1.0,
+        "season_correct": 7,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 7,
+        "wants_another_accuracy": 0.857,
+        "wants_another_correct": 6,
+        "exclusion_tp": 0,
+        "exclusion_fp": 22,
+        "exclusion_fn": 0,
+        "exclusion_precision": 0.0,
+        "exclusion_recall": null,
+        "invented_constraints": 22,
+        "cases_with_invented_constraints": 7,
+        "all_fields_correct": 0
+      },
+      "C": {
+        "n": 7,
+        "occasion_accuracy": 0.714,
+        "occasion_correct": 5,
+        "season_accuracy": 1.0,
+        "season_correct": 7,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 7,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 7,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 5
+      }
+    },
+    "contrainte": {
+      "A": {
+        "n": 2,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 2,
+        "season_accuracy": 1.0,
+        "season_correct": 2,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 2,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 2,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 2,
+        "exclusion_precision": null,
+        "exclusion_recall": 0.0,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 0
+      },
+      "B": {
+        "n": 2,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 2,
+        "season_accuracy": 1.0,
+        "season_correct": 2,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 2,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 2,
+        "exclusion_tp": 2,
+        "exclusion_fp": 3,
+        "exclusion_fn": 0,
+        "exclusion_precision": 0.4,
+        "exclusion_recall": 1.0,
+        "invented_constraints": 3,
+        "cases_with_invented_constraints": 1,
+        "all_fields_correct": 1
+      },
+      "C": {
+        "n": 2,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 2,
+        "season_accuracy": 1.0,
+        "season_correct": 2,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 2,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 2,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 2,
+        "exclusion_precision": null,
+        "exclusion_recall": 0.0,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 0
+      }
+    },
+    "sans_occasion": {
+      "A": {
+        "n": 1,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 1,
+        "season_accuracy": 1.0,
+        "season_correct": 1,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 1,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 1,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 1
+      },
+      "B": {
+        "n": 1,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 1,
+        "season_accuracy": 1.0,
+        "season_correct": 1,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 1,
+        "wants_another_accuracy": 0.0,
+        "wants_another_correct": 0,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 0
+      },
+      "C": {
+        "n": 1,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 1,
+        "season_accuracy": 1.0,
+        "season_correct": 1,
+        "feedback_accuracy": 1.0,
+        "feedback_correct": 1,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 1,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 1
+      }
+    },
+    "retour": {
+      "A": {
+        "n": 3,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 3,
+        "season_accuracy": 1.0,
+        "season_correct": 3,
+        "feedback_accuracy": 0.0,
+        "feedback_correct": 0,
+        "wants_another_accuracy": 0.333,
+        "wants_another_correct": 1,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 0
+      },
+      "B": {
+        "n": 3,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 3,
+        "season_accuracy": 1.0,
+        "season_correct": 3,
+        "feedback_accuracy": 0.0,
+        "feedback_correct": 0,
+        "wants_another_accuracy": 1.0,
+        "wants_another_correct": 3,
+        "exclusion_tp": 0,
+        "exclusion_fp": 10,
+        "exclusion_fn": 0,
+        "exclusion_precision": 0.0,
+        "exclusion_recall": null,
+        "invented_constraints": 10,
+        "cases_with_invented_constraints": 2,
+        "all_fields_correct": 0
+      },
+      "C": {
+        "n": 3,
+        "occasion_accuracy": 1.0,
+        "occasion_correct": 3,
+        "season_accuracy": 1.0,
+        "season_correct": 3,
+        "feedback_accuracy": 0.0,
+        "feedback_correct": 0,
+        "wants_another_accuracy": 0.333,
+        "wants_another_correct": 1,
+        "exclusion_tp": 0,
+        "exclusion_fp": 0,
+        "exclusion_fn": 0,
+        "exclusion_precision": null,
+        "exclusion_recall": null,
+        "invented_constraints": 0,
+        "cases_with_invented_constraints": 0,
+        "all_fields_correct": 0
+      }
+    }
+  },
+  "rows": [
+    {
+      "id": 101,
+      "category": "paraphrase",
+      "message": "Je dois aller signer mon contrat d'embauche demain",
+      "expected": {
+        "occasion": "work",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "skirt",
+          "shorts",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "skirt",
+          "shorts",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion outerwear",
+        "exclusion skirt",
+        "exclusion shorts",
+        "exclusion jeans"
+      ]
+    },
+    {
+      "id": 102,
+      "category": "paraphrase",
+      "message": "On sort danser en boîte vendredi",
+      "expected": {
+        "occasion": "evening",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "skirt",
+          "shorts",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "skirt",
+          "shorts",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion outerwear",
+        "exclusion skirt",
+        "exclusion shorts",
+        "exclusion jeans"
+      ]
+    },
+    {
+      "id": 103,
+      "category": "paraphrase",
+      "message": "Je file au partiel de droit dans une heure",
+      "expected": {
+        "occasion": "university",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "casual",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "casual",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "casual",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion outerwear",
+        "exclusion skirt",
+        "exclusion jeans"
+      ]
+    },
+    {
+      "id": 104,
+      "category": "paraphrase",
+      "message": "Grasse matinée puis brunch avec ma coloc",
+      "expected": {
+        "occasion": "casual",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "casual",
+        "season": null,
+        "exclude_categories": [
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "casual",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "casual",
+        "season": null,
+        "exclude_categories": [
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion skirt",
+        "exclusion jeans"
+      ]
+    },
+    {
+      "id": 105,
+      "category": "paraphrase",
+      "message": "Je présente mes résultats trimestriels au conseil d'administration",
+      "expected": {
+        "occasion": "work",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [
+          "black",
+          "blue"
+        ],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [
+          "black",
+          "blue"
+        ],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion outerwear",
+        "exclusion skirt",
+        "exclusion jeans",
+        "exclusion couleur black",
+        "exclusion couleur blue"
+      ]
+    },
+    {
+      "id": 106,
+      "category": "paraphrase",
+      "message": "J'ai rendez-vous avec mon conseiller bancaire pour mon prêt",
+      "expected": {
+        "occasion": "work",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": true
+      },
+      "C": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": true
+      },
+      "guard_rejected": [
+        "exclusion skirt",
+        "exclusion jeans",
+        "demande d'une autre tenue"
+      ]
+    },
+    {
+      "id": 107,
+      "category": "simple",
+      "message": "Team meeting with the new manager on Monday",
+      "expected": {
+        "occasion": "work",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion skirt",
+        "exclusion jeans"
+      ]
+    },
+    {
+      "id": 108,
+      "category": "paraphrase",
+      "message": "Petit rendez-vous amoureux samedi",
+      "expected": {
+        "occasion": "evening",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [
+          "skirt",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion skirt",
+        "exclusion jeans"
+      ]
+    },
+    {
+      "id": 109,
+      "category": "contrainte",
+      "message": "Pour le boulot demain, j'aimerais éviter le noir",
+      "expected": {
+        "occasion": "work",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": [
+          "black"
+        ]
+      },
+      "A": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "dress",
+          "jeans"
+        ],
+        "exclude_colors": [
+          "black"
+        ],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "work",
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "dress",
+          "jeans"
+        ],
+        "exclude_colors": [
+          "black"
+        ],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion outerwear",
+        "exclusion dress",
+        "exclusion jeans",
+        "exclusion couleur black"
+      ]
+    },
+    {
+      "id": 110,
+      "category": "contrainte",
+      "message": "Un look pour la soirée de gala, évite les jupes",
+      "expected": {
+        "occasion": "evening",
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [
+          "skirt"
+        ],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [
+          "skirt"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "evening",
+        "season": null,
+        "exclude_categories": [
+          "skirt"
+        ],
+        "exclude_colors": [],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion skirt"
+      ]
+    },
+    {
+      "id": 111,
+      "category": "retour",
+      "message": "Celle-là me plaît, la deuxième",
+      "expected": {
+        "occasion": null,
+        "season": null,
+        "feedback": {
+          "verdict": "like",
+          "rank": 2
+        },
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "dress",
+          "skirt",
+          "shorts",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "C": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "dress",
+          "skirt",
+          "shorts",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": false
+      },
+      "guard_rejected": [
+        "exclusion outerwear",
+        "exclusion dress",
+        "exclusion skirt",
+        "exclusion shorts",
+        "exclusion jeans"
+      ]
+    },
+    {
+      "id": 112,
+      "category": "retour",
+      "message": "Bof la troisième, tu peux trouver mieux ?",
+      "expected": {
+        "occasion": null,
+        "season": null,
+        "feedback": {
+          "verdict": "dislike",
+          "rank": 3
+        },
+        "wants_another": true,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": true
+      },
+      "C": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "wants_another": true
+      },
+      "guard_rejected": [
+        "demande d'une autre tenue"
+      ]
+    },
+    {
+      "id": 113,
+      "category": "retour",
+      "message": "Pas convaincue par la dernière",
+      "expected": {
+        "occasion": null,
+        "season": null,
+        "feedback": {
+          "verdict": "dislike",
+          "rank": 3
+        },
+        "wants_another": true,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "dress",
+          "skirt",
+          "shorts",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": true
+      },
+      "C": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [
+          "outerwear",
+          "dress",
+          "skirt",
+          "shorts",
+          "jeans"
+        ],
+        "exclude_colors": [],
+        "wants_another": true
+      },
+      "guard_rejected": [
+        "exclusion outerwear",
+        "exclusion dress",
+        "exclusion skirt",
+        "exclusion shorts",
+        "exclusion jeans",
+        "demande d'une autre tenue"
+      ]
+    },
+    {
+      "id": 114,
+      "category": "sans_occasion",
+      "message": "Tu peux m'aider à choisir quoi mettre ?",
+      "expected": {
+        "occasion": null,
+        "season": null,
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": true
+      },
+      "C": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": null,
+        "season": null,
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "wants_another": true
+      },
+      "guard_rejected": [
+        "demande d'une autre tenue"
+      ]
+    },
+    {
+      "id": 115,
+      "category": "simple",
+      "message": "Une tenue pour une soirée entre amis cet automne",
+      "expected": {
+        "occasion": "evening",
+        "season": "autumn",
+        "feedback": null,
+        "wants_another": false,
+        "exclude_categories": [],
+        "exclude_colors": []
+      },
+      "A": {
+        "occasion": "evening",
+        "season": "autumn",
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "B": {
+        "occasion": "evening",
+        "season": "autumn",
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": true
+      },
+      "C": {
+        "occasion": "evening",
+        "season": "autumn",
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "feedback": null,
+        "wants_another": false
+      },
+      "llm_raw": {
+        "occasion": "evening",
+        "season": "autumn",
+        "exclude_categories": [],
+        "exclude_colors": [],
+        "wants_another": true
+      },
+      "guard_rejected": [
+        "demande d'une autre tenue"
+      ]
+    }
+  ],
+  "cases_file": "intent_holdout.jsonl"
+}
