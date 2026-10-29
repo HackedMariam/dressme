@@ -106,3 +106,35 @@ status matrix.
 - `LLM_MODEL=gpt-4o` (default), `gpt-4.1`, or `gpt-4o-mini` to reduce costs. `LLM_IMAGE_DETAIL=high` helps on fine patterns.
 - The `corrections` table is a ready-to-use dataset for retraining YOLO on its mistakes.
 - License: Ultralytics/YOLO11 is AGPL-3.0 — take this into account if the app becomes commercial.
+
+## Lancer DressMe
+
+Tout DressMe en local, depuis la racine du dépôt (Windows PowerShell) :
+
+```powershell
+.\start_all.ps1          # démarre, vérifie la santé, précharge qwen2.5:3b
+.\start_all.ps1 -Stop    # arrête ce que le script a lancé
+```
+
+| Service | Port | Lancement par le script |
+|---|---|---|
+| BO1 Wardrobe (`backend/`) | 8000 | `uvicorn app.main:app` |
+| Purchase Redundancy (`purchase-redundancy-ai/backend/`) | 8040 | `API_PORT=8040 python main.py` (son port par défaut, 8000, est celui de BO1) |
+| Ollama `qwen2.5:3b` | 11434 | `ollama serve` avec `OLLAMA_KEEP_ALIVE=30m` |
+| BO4 Stylist (`bo4/backend/`) | 8061 | `stylist_web.py --require-auth --bo1-url http://localhost:8000` |
+| Orchestrateur (`orchestrator/`) | 8070 | `app.py` : page de conversation sur http://127.0.0.1:8070/ |
+
+Chaque service utilise le Python de son dossier (`.venv`, `venv` ou `.venv-*`) ; sinon, indiquer le chemin de
+`python.exe` dans `DRESSME_PY_BO1`, `DRESSME_PY_PURCHASE`, `DRESSME_PY_STYLIST` ou `DRESSME_PY_ORCHESTRATOR`.
+Journaux : `%TEMP%\dressme-run`.
+
+Fichiers `.env` (ignorés par git ; ne jamais les commiter). Seuls les **noms** des variables sont donnés ici :
+
+| Fichier | Variables |
+|---|---|
+| `.env` ou `backend/.env` (BO1) | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY` ; facultatif : `LLM_MODEL`, `CORS_ORIGINS`, `PUBLIC_API_URL` |
+| `orchestrator/.env` | `SUPABASE_URL`, `SUPABASE_ANON_KEY` (connexion des utilisateurs sur la page) |
+| `purchase-redundancy-ai/.env` | voir `purchase-redundancy-ai/.env.example` (`SECRET_KEY`, `AUTH_REQUIRED`, `CLIP_ENABLED`, `DB_TYPE`…) ; `API_PORT` est fixé par le script |
+| `frontend/.env` | `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
+
+Le Stylist n'a pas de `.env` : avec `--require-auth`, il vérifie le jeton de l'utilisateur auprès de BO1.

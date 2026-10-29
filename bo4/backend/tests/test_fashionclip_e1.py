@@ -203,6 +203,7 @@ def full_run(model, tmp_path_factory):
     return {"items": items, "embeddings": embeddings, "results": results, "rows": rows, "out": out}
 
 
+@pytest.mark.hm_images
 def test_model_outputs_are_finite_and_well_formed(full_run):
     assert full_run["embeddings"].shape == (36, 512)
     assert np.isfinite(full_run["embeddings"]).all()
@@ -219,6 +220,7 @@ def test_model_outputs_are_finite_and_well_formed(full_run):
     assert metadata["offline"]["HF_HUB_OFFLINE"] == "1" and metadata["schema_sha256"] == attributes.schema_fingerprint()
 
 
+@pytest.mark.hm_images
 def test_predictions_are_reproducible(model, full_run):
     subset = full_run["items"][:3]
     again, results = run_e1.run_predictions(model, subset, "pad")
@@ -228,6 +230,7 @@ def test_predictions_are_reproducible(model, full_run):
                [r["prediction"] for r in full_run["results"][attribute][:3]]
 
 
+@pytest.mark.hm_images
 def test_committed_predictions_match_a_fresh_run(full_run):
     committed = E1_DIR / "output" / "predictions.csv"
     if not committed.is_file():
@@ -240,6 +243,7 @@ def test_committed_predictions_match_a_fresh_run(full_run):
                 row[f"{attribute}_margin"], abs=1e-5)
 
 
+@pytest.mark.hm_images
 def test_inference_opens_no_database_connection(model, monkeypatch):
     import psycopg
 

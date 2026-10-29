@@ -11,6 +11,10 @@ import pytest
 
 from bo4_fixtures import DRESS_DB_ROWS, REFERENCE_DB_ROWS, REFERENCE_WARDROBE, FakeConnection
 
+# main.py monte data/hm/images à l'import (StaticFiles refuse un dossier absent) ; main.py est protégé par les
+# empreintes E1, donc ces tests sont ignorés sans le dataset H&M plutôt que de modifier main.py
+pytestmark = pytest.mark.hm_images
+
 PUBLIC_ITEM_KEYS = ["id", "user_id", "article_id", "name", "category", "color", "style", "image_path"]
 RECOMMENDATION_KEYS = {
     "items", "occasion", "season", "score", "color_score", "style_score",

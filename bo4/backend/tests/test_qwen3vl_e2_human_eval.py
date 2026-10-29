@@ -110,6 +110,7 @@ def test_build_never_overwrites(setup):
         human_eval.build(out, [], root)
 
 
+@pytest.mark.hm_images
 def test_real_images_are_the_exact_selection_files():
     items = human_eval.annotation_items()
     assert [i["article_id"] for i in items] == sorted(["0840606004", "0781758009", "0783144006", "0801843006"])

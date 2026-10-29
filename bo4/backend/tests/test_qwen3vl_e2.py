@@ -163,6 +163,7 @@ def test_candidates_exclude_e1_and_other_segments(tmp_path):
     assert bad == []
 
 
+@pytest.mark.hm_images
 def test_real_selection_excludes_every_e1_image():
     selection = E2_DIR / "data" / "microbench_e2.csv"
     if not selection.is_file():
