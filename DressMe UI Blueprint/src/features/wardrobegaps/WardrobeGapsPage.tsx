@@ -145,47 +145,6 @@ function TraceView({ trace }: { trace: TraceStep[] }) {
   );
 }
 
-// Exact TreeSHAP values: base value + contributions = ranking score.
-function ShapPanel({ gap }: { gap: RankedGap }) {
-  const rows = FEATURES.map((f) => ({ ...f, value: gap[f.key] as number, contribution: gap.shap.contributions[f.key] ?? 0 })).sort(
-    (a, b) => Math.abs(b.contribution) - Math.abs(a.contribution),
-  );
-  const scale = Math.max(...rows.map((r) => Math.abs(r.contribution)), 0.01);
-  return (
-    <div className="bg-[#FAF9F6] rounded-lg p-4 mb-3">
-      <p className="text-[10.5px] font-bold tracking-widest uppercase text-[#8C8A82]">Why this piece · SHAP explanation</p>
-      <p className="text-[11px] text-[#8C8A82] mt-1 mb-3">How much each feature pushed this piece up or down the ranking.</p>
-      <div className="space-y-2">
-        {rows.map((r) => {
-          const width = (Math.abs(r.contribution) / scale) * 50;
-          const up = r.contribution >= 0;
-          return (
-            <div key={r.key} className="grid grid-cols-[118px_1fr_48px] items-center gap-2 text-[11px]">
-              <span className="text-[#1C1C1C] truncate" title={`${r.label}: feature value ${r.value.toFixed(2)}`}>
-                {r.label} <span className="text-[#8C8A82]">{r.value.toFixed(2)}</span>
-              </span>
-              <div className="relative h-2.5 bg-[#EFEBE4] rounded">
-                <div className="absolute left-1/2 top-[-2px] bottom-[-2px] w-px bg-[#C9C2B6]" />
-                <div
-                  className={`absolute top-0 bottom-0 rounded ${up ? "bg-[#556B2F]" : "bg-[#B9714F]"}`}
-                  style={up ? { left: "50%", width: `${width}%` } : { right: "50%", width: `${width}%` }}
-                />
-              </div>
-              <span className={`text-right font-mono ${up ? "text-[#556B2F]" : "text-[#9A5A3C]"}`}>
-                {up ? "+" : ""}{r.contribution.toFixed(2)}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <p className="text-[11px] text-[#8C8A82] pt-3">
-        Base {gap.shap.base_value.toFixed(2)} + contributions = ranking score <b className="text-[#1C1C1C]">{gap.ranking_score.toFixed(2)}</b>.
-        Scores order pieces; they are not probabilities.
-      </p>
-    </div>
-  );
-}
-
 function GapCard({
   gap,
   rank,
@@ -206,7 +165,6 @@ function GapCard({
   onAsk: () => void;
 }) {
   const [preview, setPreview] = useState(false);
-  const [why, setWhy] = useState(false);
   return (
     <article className="bg-white border border-[#E2E0D8] rounded-xl p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -255,11 +213,8 @@ function GapCard({
         </div>
       )}
 
-      {why && <ShapPanel gap={gap} />}
-
       <div className="flex flex-wrap gap-1.5 border-t border-[#E2E0D8] pt-2.5">
         {[
-          { label: why ? "Hide why" : "Why this piece?", onClick: () => setWhy(!why), pressed: why },
           { label: confirmed ? "✓ I need this" : "I need this", onClick: onConfirm, pressed: confirmed },
           { label: "Not relevant", onClick: onDismiss, pressed: false },
         ].map((b) => (

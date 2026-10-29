@@ -7,29 +7,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from xgboost_ranker import FEATURES, rank_gap_candidates
+from xgboost_ranker import rank_gap_candidates
 
 from .coverage import GOALS, compute_coverage, get_requirement
-from .learning import DEMO_MODEL_PATH, active_model_path, model_metadata, shap_contributions
+from .learning import DEMO_MODEL_PATH, active_model_path, model_metadata
 from .memory import AgentMemory
-from .wardrobe_source import load_wardrobe as _load_wardrobe
+from .wardrobe_source import load_wardrobe
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BACKEND_DIR / "data"
-
-CATEGORY_LABELS = {
-    "top": "a top or shirt",
-    "bottom": "trousers, jeans or a skirt",
-    "dress": "a dress",
-    "outerwear": "a coat or jacket",
-    "shoes": "a pair of shoes",
-    "accessory": "a bag, hat or accessory",
-}
-COLOR_LABELS = ["white", "black", "grey", "navy", "blue", "beige", "camel", "brown", "green", "red", "pink", "yellow"]
-
-
-def load_wardrobe() -> list[dict[str, Any]]:
-    return _load_wardrobe()
 
 
 def load_profile() -> dict[str, Any]:
@@ -130,13 +116,12 @@ def _priority(rank: int, total: int) -> str:
 
 
 class GapAgentTools:
-    """Binds the tools to one user, conversation and optional uploaded image."""
+    """Binds the tools to one user and conversation."""
 
     def __init__(self, memory: AgentMemory, user_id: str, conversation_id: str | None = None) -> None:
         self.memory = memory
         self.user_id = user_id
         self.conversation_id = conversation_id
-        self.uploaded_image: Path | None = None
         self.last_ranking: dict[str, Any] | None = None
 
     def get_wardrobe(self) -> dict[str, Any]:
@@ -164,11 +149,9 @@ class GapAgentTools:
         scored = score_candidates(goal, coverage["candidates"], wardrobe, profile)
         model_path = active_model_path()
         ranked = rank_gap_candidates(scored, model_path=model_path)
-        explanations = shap_contributions([[gap[name] for name in FEATURES] for gap in ranked], model_path)
-        for gap, explanation in zip(ranked, explanations):
+        for gap in ranked:
             gap["priority"] = _priority(gap["rank"], len(ranked))
             gap["ranking_score"] = round(gap["ranking_score"], 4)
-            gap["shap"] = explanation
 
         metadata = model_metadata()
         result = {
@@ -187,30 +170,6 @@ class GapAgentTools:
         self.last_ranking = result
         return result
 
-    def analyze_uploaded_garment(self) -> dict[str, Any]:
-        if self.uploaded_image is None:
-            return {"error": "No image has been uploaded. Ask the user to upload one."}
-        if not fashionclip_available():
-            return {"error": "FashionCLIP weights are missing. Run python backend/download_fashionclip.py."}
-
-        encoder = _encoder()
-        image = encoder.encode_images([self.uploaded_image])
-        categories = list(CATEGORY_LABELS)
-        category_sims = (image @ encoder.encode_text([f"a photo of {CATEGORY_LABELS[c]}" for c in categories]).T)[0]
-        color_sims = (image @ encoder.encode_text([f"a photo of a {c} garment" for c in COLOR_LABELS]).T)[0]
-
-        wardrobe = load_wardrobe()
-        owned_sims = (image @ encoder.encode_text([item_description(i) for i in wardrobe]).T)[0]
-        closest = owned_sims.argsort(descending=True)[:3].tolist()
-        return {
-            "predicted_category": categories[int(category_sims.argmax())],
-            "predicted_color": COLOR_LABELS[int(color_sims.argmax())],
-            "closest_owned_items": [
-                {"name": wardrobe[i]["name"], "similarity": round(owned_sims[i].item(), 4)} for i in closest
-            ],
-            "note": "Zero-shot FashionCLIP predictions; similarities are not probabilities.",
-        }
-
     def get_past_analyses(self) -> dict[str, Any]:
         return {"past_analyses": self.memory.past_gap_analyses(self.user_id)}
 
@@ -219,7 +178,6 @@ class GapAgentTools:
             "get_wardrobe": self.get_wardrobe,
             "compute_coverage": self.compute_coverage,
             "rank_gaps": self.rank_gaps,
-            "analyze_uploaded_garment": self.analyze_uploaded_garment,
             "get_past_analyses": self.get_past_analyses,
         }
         if name not in handlers:
@@ -267,14 +225,6 @@ TOOL_SCHEMAS = [
                 "properties": {"goal": {"type": "string", "enum": GOAL_ENUM}},
                 "required": ["goal"],
             },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "analyze_uploaded_garment",
-            "description": "Analyse the garment photo the user uploaded with FashionCLIP: category, colour and closest owned items.",
-            "parameters": {"type": "object", "properties": {}},
         },
     },
     {

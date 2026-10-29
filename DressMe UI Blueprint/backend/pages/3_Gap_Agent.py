@@ -2,7 +2,6 @@
 
 import sys
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 import pandas as pd
 import streamlit as st
@@ -70,17 +69,13 @@ with st.sidebar:
     st.write(f"**LLM:** `{model}`")
     st.caption(base_url)
 
-    uploaded = st.file_uploader("Garment photo (optional)", type=["jpg", "jpeg", "png", "webp"])
-    if uploaded is not None:
-        st.image(uploaded, width=200)
-
     st.button("New conversation", on_click=new_conversation)
     st.subheader("Try")
     for prompt in EXAMPLE_PROMPTS:
         st.code(prompt, language=None)
 
 st.title("Wardrobe Gap Agent (BO3)")
-st.write("Ask what your wardrobe is missing. The agent calls coverage rules, FashionCLIP and the XGBoost ranker.")
+st.write("Ask what your wardrobe is missing. The agent calls the coverage rules, FashionCLIP redundancy and the XGBoost ranker.")
 
 for turn in st.session_state.chat:
     with st.chat_message(turn["role"]):
@@ -97,13 +92,6 @@ if question := st.chat_input("e.g. What am I missing for winter work days?"):
     memory = get_memory()
     conversation_id = st.session_state.conversation_id
     tools = GapAgentTools(memory, USER_ID, conversation_id)
-    temporary_image: Path | None = None
-    if uploaded is not None:
-        with NamedTemporaryFile(suffix=Path(uploaded.name).suffix or ".jpg", delete=False) as image_file:
-            image_file.write(uploaded.getvalue())
-            temporary_image = Path(image_file.name)
-        tools.uploaded_image = temporary_image
-
     history = [{"role": t["role"], "content": t["content"]} for t in st.session_state.chat]
     with st.chat_message("assistant"):
         try:
@@ -112,9 +100,6 @@ if question := st.chat_input("e.g. What am I missing for winter work days?"):
         except Exception as error:
             st.error(f"Agent error: {error}")
             st.stop()
-        finally:
-            if temporary_image is not None:
-                temporary_image.unlink(missing_ok=True)
 
         st.markdown(result.answer)
         if result.ranking:

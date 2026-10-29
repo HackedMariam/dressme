@@ -1,4 +1,4 @@
-"""Human-in-the-loop learning for the BO3 ranker: feedback -> retraining -> SHAP explanations.
+"""Human-in-the-loop learning for the BO3 ranker: feedback -> retraining.
 
 Feedback labels: "I need this" = 3, "Not relevant" = 0. Candidates shown for the same goal
 but left unrated are treated as neutral (1), so a single click already forms a usable
@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 from sklearn.metrics import ndcg_score
-from xgboost import DMatrix, XGBRanker
+from xgboost import XGBRanker
 
 from xgboost_ranker import FEATURES, MODEL_PATH, load_ranker
 
@@ -43,19 +43,6 @@ def model_metadata() -> dict[str, Any] | None:
     return None
 
 
-def shap_contributions(feature_rows: list[list[float]], model_path: Path | None = None) -> list[dict[str, Any]]:
-    """Exact TreeSHAP values from XGBoost: per-feature contribution to each ranking score."""
-    booster = load_ranker(model_path or active_model_path()).get_booster()
-    contributions = booster.predict(DMatrix(np.array(feature_rows, dtype=float)), pred_contribs=True)
-    return [
-        {
-            "contributions": {name: round(float(value), 4) for name, value in zip(FEATURES, row[:-1])},
-            "base_value": round(float(row[-1]), 4),
-        }
-        for row in contributions
-    ]
-
-
 def _synthetic_groups() -> list[tuple[list[list[float]], list[int]]]:
     grouped: dict[str, tuple[list[list[float]], list[int]]] = defaultdict(lambda: ([], []))
     with SYNTHETIC_DATA.open(encoding="utf-8-sig", newline="") as source:
@@ -68,7 +55,7 @@ def _synthetic_groups() -> list[tuple[list[list[float]], list[int]]]:
 
 def feedback_groups(memory: AgentMemory, user_id: str) -> list[dict[str, Any]]:
     """One ranking group per goal the user rated, completed with neutral unrated candidates."""
-    # Imported here to avoid a circular import: tools uses this module for SHAP.
+    # Imported here to avoid a circular import: tools uses this module for the active model.
     from .tools import load_profile, load_wardrobe, score_candidates
 
     by_goal: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)

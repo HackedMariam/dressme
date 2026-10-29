@@ -20,7 +20,6 @@ export type RankedGap = {
   redundancy_score: number;
   closest_owned_item: string;
   pairable_owned_items: number;
-  shap: { contributions: Record<string, number>; base_value: number };
 };
 
 export type TrainingRun = {

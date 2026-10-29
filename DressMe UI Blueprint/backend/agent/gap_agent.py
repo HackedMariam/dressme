@@ -9,7 +9,6 @@ from typing import Any
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .memory import AgentMemory
 from .prompts import SYSTEM_PROMPT
 from .tools import TOOL_SCHEMAS, GapAgentTools
 
@@ -51,8 +50,6 @@ class GapAgent:
             *history,
             {"role": "user", "content": user_message},
         ]
-        if self.tools.uploaded_image is not None:
-            messages[-1]["content"] += "\n\n(The user has uploaded a garment photo.)"
 
         trace: list[dict[str, Any]] = []
         self.tools.last_ranking = None
@@ -92,22 +89,3 @@ class GapAgent:
             self.tools.last_ranking,
         )
 
-
-def main() -> None:
-    """Command-line chat for quick testing without Streamlit."""
-    memory = AgentMemory()
-    conversation_id = memory.start_conversation("demo_user")
-    agent = GapAgent(GapAgentTools(memory, "demo_user", conversation_id))
-    history: list[dict[str, str]] = []
-    while (question := input("\nYou: ").strip()) not in ("", "exit", "quit"):
-        result = agent.run(question, history)
-        for entry in result.trace:
-            print(f"  [step {entry['step']}] {entry['tool']}({entry['arguments']})")
-        print(f"\nAgent: {result.answer}")
-        history += [{"role": "user", "content": question}, {"role": "assistant", "content": result.answer}]
-        memory.add_message(conversation_id, "user", question)
-        memory.add_message(conversation_id, "assistant", result.answer)
-
-
-if __name__ == "__main__":
-    main()
