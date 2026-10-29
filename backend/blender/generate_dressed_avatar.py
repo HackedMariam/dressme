@@ -173,6 +173,7 @@ def load_garment_configs() -> dict:
         maximum = garment.get("max")
         configs[garment["id"]] = {
             "label": garment["label"],
+            "slot": garment["slot"],
             "color": tuple(garment["color"]),
             "offset": float(garment["offset"]),
             "thickness": float(garment["thickness"]),
@@ -472,6 +473,88 @@ def make_textured_material(name, texture_path, color, roughness=0.8):
     return mat
 
 
+# The avatar faces -Y (see render_preview.py / generate_avatar.py), so the
+# flat front-view cutout must only be printed on faces pointing that way.
+# Everything else (back, sides, shoulders, inner shell, rim) gets a plain
+# material so the photo is never mirrored onto the back of the avatar.
+FRONT_FACING_NORMAL_Y = -0.25
+
+
+def _bounds_center_y(matrix, verts):
+    ys = [(matrix @ vert.co).y for vert in verts]
+    return (min(ys) + max(ys)) * 0.5 if ys else 0.0
+
+
+def _world_face_geometry(matrix, verts, normal):
+    if not verts:
+        return Vector((0.0, 0.0, 0.0)), Vector((0.0, 0.0, -1.0))
+    center = Vector((0.0, 0.0, 0.0))
+    for vert in verts:
+        center += matrix @ vert.co
+    center /= len(verts)
+    world_normal = matrix.to_3x3() @ normal
+    if world_normal.length_squared > 1e-12:
+        world_normal.normalize()
+    else:
+        world_normal = Vector((0.0, 0.0, -1.0))
+    return center, world_normal
+
+
+def _is_front_face(center, normal, bounds_center_y):
+    return center.y < bounds_center_y and normal.y < FRONT_FACING_NORMAL_Y
+
+
+def _split_bmesh_front_back(bm, matrix, textured_idx=0, solid_idx=1):
+    """Tag bmesh faces: front keeps the print, everything else goes solid."""
+    bounds_y = _bounds_center_y(matrix, bm.verts)
+    bm.normal_update()
+    for face in bm.faces:
+        center, normal = _world_face_geometry(matrix, face.verts, face.normal)
+        face.material_index = (
+            textured_idx if _is_front_face(center, normal, bounds_y) else solid_idx
+        )
+
+
+def _textured_slot(materials):
+    """Index of the first material that carries an image texture, if any."""
+    for index, mat in enumerate(materials):
+        if mat is None or not mat.node_tree:
+            continue
+        if any(node.type == "TEX_IMAGE" for node in mat.node_tree.nodes):
+            return index
+    return None
+
+
+def split_mesh_front_back(obj, solid_color, roughness, name_suffix):
+    """Re-tag an already-built mesh so only front faces keep their texture."""
+    textured_idx = _textured_slot(obj.data.materials)
+    if textured_idx is None:
+        return
+    solid_idx = None
+    for index, mat in enumerate(obj.data.materials):
+        if index == textured_idx or mat is None or not mat.node_tree:
+            continue
+        if not any(node.type == "TEX_IMAGE" for node in mat.node_tree.nodes):
+            solid_idx = index
+            break
+    if solid_idx is None:
+        obj.data.materials.append(
+            make_material(f"{name_suffix}_back", solid_color, roughness)
+        )
+        solid_idx = len(obj.data.materials) - 1
+
+    matrix = obj.matrix_world
+    mesh = obj.data
+    bounds_y = _bounds_center_y(matrix, mesh.vertices)
+    for poly in mesh.polygons:
+        verts = [mesh.vertices[i] for i in poly.vertices]
+        center, normal = _world_face_geometry(matrix, verts, poly.normal)
+        poly.material_index = (
+            textured_idx if _is_front_face(center, normal, bounds_y) else solid_idx
+        )
+    mesh.update()
+
+
 def _world_bounds(obj):
     points = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
     if not points:
@@ -481,6 +564,72 @@ def _world_bounds(obj):
         min(point.y for point in points), max(point.y for point in points),
         min(point.z for point in points), max(point.z for point in points),
     )
+
+
+ARM_LABELS = {
+    "shoulder_L", "shoulder_R",
+    "upperarm_L", "upperarm_R",
+    "forearm_L", "forearm_R",
+    "hand_L", "hand_R",
+}
+
+
+def _body_width_at(body_obj, segments, z_center, tolerance=0.06):
+    """Actual torso/leg breadth (flesh included) in a horizontal slice.
+
+    Arms (and especially hands in A-pose) reach far outside the torso, so
+    including them would blow the measured width up to arm span.
+    """
+    matrix = body_obj.matrix_world
+    xs = []
+    for vertex in body_obj.data.vertices:
+        world = matrix @ vertex.co
+        if abs(world.z - z_center) > tolerance:
+            continue
+        if classify_vertices([world], segments)[0] in ARM_LABELS:
+            continue
+        xs.append(world.x)
+    if len(xs) < 8:
+        return None
+    return max(xs) - min(xs)
+
+
+def _body_y_span(body_obj, segments):
+    """Front-to-back span (centre, depth) of the torso, ignoring outstretched arms.
+
+    The full-body bounds are centred on the hands, so they must not be used to
+    recentre the garment: the back sheet would start inside the torso, and a
+    shrinkwrap raycast from inside the body misses (backface culling).
+    """
+    matrix = body_obj.matrix_world
+    ys = []
+    for vertex in body_obj.data.vertices:
+        world = matrix @ vertex.co
+        if classify_vertices([world], segments)[0] in ARM_LABELS:
+            continue
+        ys.append(world.y)
+    if len(ys) < 8:
+        return None
+    return (min(ys) + max(ys)) * 0.5, max(ys) - min(ys)
+
+
+def _mesh_band_width(obj, bounds, band, from_bottom=True):
+    """Photo silhouette width inside a horizontal band of its own height."""
+    z_min, z_max = bounds[4], bounds[5]
+    height = max(z_max - z_min, 1e-5)
+    if from_bottom:
+        low, high = z_min, z_min + band * height
+    else:
+        low, high = z_max - band * height, z_max
+    xs = []
+    matrix = obj.matrix_world
+    for vertex in obj.data.vertices:
+        world = matrix @ vertex.co
+        if low <= world.z <= high:
+            xs.append(world.x)
+    if len(xs) < 6:
+        return None
+    return max(xs) - min(xs)
 
 
 def _fit_mesh_to_envelope(obj, body_obj, landmarks, garment_id):
@@ -498,28 +647,54 @@ def _fit_mesh_to_envelope(obj, body_obj, landmarks, garment_id):
     hip_width = max((hip_l - hip_r).length, 0.10)
     ankle_width = max((ankle_l - ankle_r).length, 0.08)
     body_bounds = _world_bounds(body_obj)
-    body_depth = max(body_bounds[3] - body_bounds[2], 0.12)
+    segments = build_segments(landmarks)
+    torso_span = _body_y_span(body_obj, segments)
+    if torso_span:
+        body_center_y, body_depth = torso_span
+    else:
+        body_center_y = (body_bounds[2] + body_bounds[3]) * 0.5
+        body_depth = max(body_bounds[3] - body_bounds[2], 0.12)
+
+    # `width_band` describes which part of the *photo* corresponds to the body
+    # slice measured at `body_z` (tops: the hem band across the hips, bottoms:
+    # the waist band across the pelvis, shoes: the soles across the feet).
+    # Joint distances alone are far too narrow to cover a real torso.
+    width_band = None
+    body_z = None
+    clearance = 1.12
 
     if slot in {"top", "outerwear"}:
         min_z = hip_mid.z - (0.10 if slot == "top" else 0.14)
         max_z = shoulder_mid.z + (0.06 if slot == "top" else 0.10)
-        target_width = shoulder_width * (1.10 if slot == "top" else 1.16)
+        target_width = shoulder_width * (1.55 if slot == "top" else 1.65)
         target_center = shoulder_mid
+        width_band = (0.22, True)
+        body_z = min_z + 0.08
+        clearance = 1.12 if slot == "top" else 1.18
     elif slot == "bottom":
         min_z = min(ankle_l.z, ankle_r.z)
         max_z = hip_mid.z + 0.05
-        target_width = hip_width * 1.14
+        target_width = hip_width * 1.6
         target_center = hip_mid
+        width_band = (0.18, False)
+        body_z = max_z - 0.05
+        clearance = 1.12
     elif slot == "dress":
         min_z = min(ankle_l.z, ankle_r.z)
         max_z = shoulder_mid.z + 0.06
-        target_width = max(shoulder_width, hip_width) * 1.12
+        target_width = max(shoulder_width, hip_width) * 1.5
         target_center = (shoulder_mid + hip_mid) * 0.5
+        width_band = (0.22, True)
+        body_z = min_z + 0.10
+        clearance = 1.30
     elif slot == "shoes":
         min_z = min(ankle_l.z, ankle_r.z)
         max_z = min_z + 0.12
         target_width = ankle_width * 0.72
         target_center = (ankle_l + ankle_r) * 0.5
+        width_band = (0.15, True)
+        body_z = 0.06
+        clearance = 1.08
     else:
         min_z = hip_mid.z - 0.12
         max_z = shoulder_mid.z + 0.04
@@ -531,7 +706,19 @@ def _fit_mesh_to_envelope(obj, body_obj, landmarks, garment_id):
     current_depth = max(bounds[3] - bounds[2], 1e-5)
     current_height = max(bounds[5] - bounds[4], 1e-5)
     target_height = max(max_z - min_z, 0.08)
-    target_depth = body_depth * (1.12 if slot in {"top", "outerwear", "dress"} else 1.08)
+    # Only push the flat sheet a little past the skin on each side; the
+    # shrinkwrap does the real conforming, and less stretch keeps the
+    # triangles from elongating into slivers.
+    target_depth = body_depth * (1.05 if slot in {"top", "outerwear", "dress"} else 1.03)
+
+    if width_band is not None and body_z is not None:
+        band, from_bottom = width_band
+        band_width = _mesh_band_width(obj, bounds, band, from_bottom)
+        body_width = _body_width_at(body_obj, segments, body_z)
+        if band_width and body_width:
+            target_width = body_width * clearance * (current_width / band_width)
+            target_width = min(target_width, current_width * 2.5)
+
     sx = target_width / current_width
     sy = target_depth / current_depth
     sz = target_height / current_height
@@ -539,12 +726,68 @@ def _fit_mesh_to_envelope(obj, body_obj, landmarks, garment_id):
     for vertex in obj.data.vertices:
         world = obj.matrix_world @ vertex.co
         world.x = target_center.x + (world.x - (bounds[0] + bounds[1]) * 0.5) * sx
-        world.y = (body_bounds[2] + body_bounds[3]) * 0.5 + (
+        world.y = body_center_y + (
             world.y - (bounds[2] + bounds[3]) * 0.5
         ) * sy
         world.z = min_z + (world.z - bounds[4]) * sz
         vertex.co = inverse @ world
     obj.data.update()
+
+
+def _far_vertices(obj, body_obj, limit):
+    """Indices of vertices further than `limit` from the body surface."""
+    to_body = body_obj.matrix_world.inverted()
+    world_matrix = obj.matrix_world
+    far = []
+    for index, vertex in enumerate(obj.data.vertices):
+        local = to_body @ (world_matrix @ vertex.co)
+        hit, location, _normal, _face = body_obj.closest_point_on_mesh(local)
+        if not hit or (local - location).length > limit:
+            far.append(index)
+    return far
+
+
+def _outline_vertices(obj):
+    """Vertices on the photo slab's rim (the boundary between the sheets).
+
+    Faces whose world normal points sideways belong to the extruded outline;
+    everything else faces front or back. Detected right after import, before
+    any fitting moves the mesh around.
+    """
+    normal_matrix = obj.matrix_world.to_3x3()
+    found = set()
+    for polygon in obj.data.polygons:
+        normal = (normal_matrix @ polygon.normal).normalized()
+        if abs(normal.y) < 0.3:
+            found.update(polygon.vertices)
+    return found
+
+
+def _push_out_inside(obj, body_obj, offset):
+    """Move any vertex buried in the body back out along the surface normal.
+
+    Projection and seam blending can leave rim/outline vertices a few
+    millimetres inside the torso's side bulge; those faces disappear behind
+    the skin and show up as a gap strip in three-quarter views.
+    """
+    to_body = body_obj.matrix_world.inverted()
+    to_obj = obj.matrix_world.inverted()
+    body_matrix = body_obj.matrix_world
+    world_matrix = obj.matrix_world
+    moved = 0
+    for vertex in obj.data.vertices:
+        local = to_body @ (world_matrix @ vertex.co)
+        hit, location, normal, _face = body_obj.closest_point_on_mesh(local)
+        if not hit:
+            continue
+        delta = local - location
+        if delta.length > 1e-6 and delta.dot(normal) >= 0.0:
+            continue
+        vertex.co = to_obj @ (body_matrix @ (location + normal * offset))
+        moved += 1
+    if moved:
+        obj.data.update()
+    return moved
 
 
 def fit_provider_mesh(body_obj, landmarks, garment_id, mesh_path, color):
@@ -562,15 +805,160 @@ def fit_provider_mesh(body_obj, landmarks, garment_id, mesh_path, color):
     bpy.ops.object.join()
     garment = imported[0]
     garment.name = f"provider_garment_{garment_id}"
+    # glTF stores each material in its own primitive, so vertices shared
+    # between the front sheet, back sheet, and rim come back as duplicated,
+    # unconnected copies (the source imports as ~180 loose islands). Weld them
+    # before measuring the outline, otherwise moving the rim leaves the sheets
+    # behind and a slit opens along the flank.
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.remove_doubles(threshold=1e-4)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    outline = _outline_vertices(garment)
     _fit_mesh_to_envelope(garment, body_obj, landmarks, garment_id)
 
+    wrap_offset = max(float(GARMENTS[garment_id]["offset"]), 0.006)
+    # Project along Y: the photo keeps its x/z layout (no scrambling) and only
+    # wraps in depth onto the chest/back.
+    # Snapshot pre-projection world positions: photo columns past the body's
+    # silhouette need their original y later (Y-project leaves them behind or
+    # crushes them onto the tangent line).
+    pre_world = [garment.matrix_world @ v.co for v in garment.data.vertices]
     shrinkwrap = garment.modifiers.new("FitToAvatar", "SHRINKWRAP")
     shrinkwrap.target = body_obj
-    shrinkwrap.wrap_method = "NEAREST_SURFACEPOINT"
-    shrinkwrap.wrap_mode = "OUTSIDE"
-    shrinkwrap.offset = max(float(GARMENTS[garment_id]["offset"]), 0.006)
+    shrinkwrap.wrap_method = "PROJECT"
+    shrinkwrap.use_project_y = True
+    shrinkwrap.use_positive_direction = True
+    shrinkwrap.use_negative_direction = True
+    shrinkwrap.offset = wrap_offset
     bpy.context.view_layer.objects.active = garment
     bpy.ops.object.modifier_apply(modifier=shrinkwrap.name)
+
+    # Rim treatment. Two vertex groups need special care after the Y-project:
+    #  - Outline verts whose photo x reaches past the body's half width must
+    #    all wrap onto the body's SIDE (same anchor for the front and back
+    #    sheet) so the rim closes over the flank. Snapping them one by one to
+    #    their nearest point instead makes the rim zigzag between projected
+    #    and snapped verts, which shows as spikes and skin gaps.
+    #  - Any other vertex whose Y-ray missed the body (sleeve tips past the
+    #    silhouette, cloth over the crotch gap) falls back to its own nearest
+    #    surface point, which keeps the photo layout intact.
+    far = set(_far_vertices(garment, body_obj, limit=0.05))
+    segments = build_segments(landmarks)
+    torso_span = _body_y_span(body_obj, segments)
+    body_center_y = torso_span[0] if torso_span else 0.0
+
+    body_matrix = body_obj.matrix_world
+    to_body = body_matrix.inverted()
+    world_matrix = garment.matrix_world
+    to_garment = world_matrix.inverted()
+
+    body_points = [body_matrix @ vertex.co for vertex in body_obj.data.vertices]
+    body_labels = classify_vertices(body_points, segments)
+    half_cache = {}
+
+    def body_half(z):
+        key = round(z, 2)
+        if key not in half_cache:
+            xs = [
+                point.x for point, label in zip(body_points, body_labels)
+                if label not in ARM_LABELS and abs(point.z - key) <= 0.05 and point.x > 0
+            ]
+            # The body is centred on x=0, so the rightmost non-arm vertex in
+            # the slice is the half width.
+            half_cache[key] = max(xs) if len(xs) >= 8 else None
+        return half_cache[key]
+
+    side_snapped = set()
+    for index in outline:
+        vertex = garment.data.vertices[index]
+        world = world_matrix @ vertex.co
+        half = body_half(world.z)
+        if half is None or abs(world.x) < 0.5 * half:
+            continue
+        # Keep the vert's own x when it is already past the flank radius so
+        # sleeve cuffs stay spread along the arm instead of piling onto the
+        # shoulder; torso-edge verts (x <= half) still anchor at the flank.
+        anchor = to_body @ Vector((
+            math.copysign(max(abs(world.x), half + 0.06), world.x),
+            body_center_y,
+            world.z,
+        ))
+        hit, location, normal, _face = body_obj.closest_point_on_mesh(anchor)
+        if hit:
+            vertex.co = to_garment @ (body_matrix @ (location + normal * wrap_offset))
+            side_snapped.add(index)
+
+    # Photo columns at or past the silhouette edge either miss the Y-ray
+    # (x > half width) or hit it at a grazing angle and pile up on the tangent
+    # line, which shows as sliver gashes and comb teeth along the side. Wrap
+    # them around the flank instead, anchored at their own pre-projection y so
+    # the columns stay spread out (outline verts keep the shared centre-y
+    # anchor above so the rim still closes).
+    silhouette = set()
+    for index, vertex in enumerate(garment.data.vertices):
+        if index in outline:
+            continue
+        world = world_matrix @ vertex.co
+        half = body_half(world.z)
+        if half is None or abs(world.x) < half - 0.01:
+            continue
+        ax = abs(world.x)
+        if ax <= half + 0.06:
+            # Flank band: the anchor x is constant, so the columns must be
+            # separated by y instead - slide from the column's own
+            # pre-projection y toward the shared seam y as it rounds the
+            # corner, otherwise every vert of a row lands on one point and
+            # the sheet collapses into slivers.
+            t = min(max((ax - (half - 0.01)) / 0.07, 0.0), 1.0)
+            anchor_y = pre_world[index].y + (body_center_y - pre_world[index].y) * t
+        else:
+            # Past the flank radius (sleeves): keep the sheet's own depth so
+            # front and back stay wrapped around opposite sides of the arm.
+            anchor_y = pre_world[index].y
+        anchor = to_body @ Vector((
+            math.copysign(max(ax, half + 0.06), world.x),
+            anchor_y,
+            world.z,
+        ))
+        hit, location, normal, _face = body_obj.closest_point_on_mesh(anchor)
+        if hit:
+            vertex.co = to_garment @ (body_matrix @ (location + normal * wrap_offset))
+            silhouette.add(index)
+
+    for index in far - side_snapped - silhouette:
+        vertex = garment.data.vertices[index]
+        local = to_body @ (world_matrix @ vertex.co)
+        hit, location, normal, _face = body_obj.closest_point_on_mesh(local)
+        if hit:
+            vertex.co = to_garment @ (body_matrix @ (location + normal * wrap_offset))
+    garment.data.update()
+    print(
+        f"FIT_DEBUG outline={len(outline)} side_snapped={len(side_snapped)} "
+        f"silhouette={len(silhouette)} far={len(far)} "
+        f"half_z10={body_half(1.0)} half_z12={body_half(1.2)}",
+        flush=True,
+    )
+
+    # Relax the projection a little so concavities (armpits, neckline) do not
+    # leave spiky artefacts behind. Outline verts must NOT be smoothed: the
+    # front and back rim verts were welded to the same flank/hem anchor above,
+    # and averaging them with their own sheet's interior would pull the seam
+    # back open (the visible slit along the side).
+    relax_group = garment.vertex_groups.new(name="relax_non_outline")
+    relax_group.add(
+        [index for index in range(len(garment.data.vertices)) if index not in outline],
+        1.0,
+        "REPLACE",
+    )
+    relax = garment.modifiers.new("Relax", "SMOOTH")
+    relax.factor = 0.4
+    relax.iterations = 2
+    relax.vertex_group = relax_group.name
+    bpy.ops.object.modifier_apply(modifier=relax.name)
+
+    _push_out_inside(garment, body_obj, max(wrap_offset, 0.008))
+
     garment.data.validate(verbose=False)
     if not garment.data.polygons:
         raise RuntimeError(f"Provider mesh for {garment_id!r} became empty after fitting")
@@ -582,6 +970,14 @@ def fit_provider_mesh(body_obj, landmarks, garment_id, mesh_path, color):
                 GARMENTS[garment_id]["roughness"],
             )
         )
+    # The imported GLB is a solidified photo slab: its back sheet must not
+    # keep the front print.
+    split_mesh_front_back(
+        garment,
+        color or GARMENTS[garment_id]["color"],
+        GARMENTS[garment_id]["roughness"],
+        f"provider_{garment_id}",
+    )
     for polygon in garment.data.polygons:
         polygon.use_smooth = True
     return garment
@@ -630,6 +1026,24 @@ def build_skirt(body_obj, landmarks, garment_id, color=None, texture_path=None):
 
     bm.normal_update()
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+    textured = bool(texture_path)
+    if textured:
+        # The photo belongs across the front of the skirt only: planar X/Z UVs
+        # (hem = bottom of the image) and a solid back.
+        xs = [v.co.x for v in bm.verts]
+        zs = [v.co.z for v in bm.verts]
+        min_x, max_x = min(xs), max(xs)
+        min_z, max_z = min(zs), max(zs)
+        span_x = max(1e-6, max_x - min_x)
+        span_z = max(1e-6, max_z - min_z)
+        uv_layer = bm.loops.layers.uv.verify()
+        for face in bm.faces:
+            for loop in face.loops:
+                co = loop.vert.co
+                loop[uv_layer].uv = ((co.x - min_x) / span_x, (co.z - min_z) / span_z)
+        _split_bmesh_front_back(bm, body_obj.matrix_world, textured_idx=0, solid_idx=1)
+
     new_mesh = bpy.data.meshes.new(f"garment_{garment_id}")
     bm.to_mesh(new_mesh)
     bm.free()
@@ -641,6 +1055,14 @@ def build_skirt(body_obj, landmarks, garment_id, color=None, texture_path=None):
     else:
         material = make_material(f"mat_{garment_id}", color or cfg["color"], cfg["roughness"])
     new_mesh.materials.append(material)
+    if textured:
+        new_mesh.materials.append(
+            make_material(
+                f"mat_{garment_id}_back",
+                color or cfg["color"],
+                cfg["roughness"],
+            )
+        )
     for poly in new_mesh.polygons:
         poly.use_smooth = True
 
@@ -654,6 +1076,12 @@ def build_skirt(body_obj, landmarks, garment_id, color=None, texture_path=None):
     solid = obj.modifiers.new("Solidify", "SOLIDIFY")
     solid.thickness = cfg["thickness"]
     solid.offset = 1.0
+    if textured:
+        # offset=1 keeps the split original faces as the OUTER shell (front
+        # print / solid back); the generated inner shell inherits the same
+        # indices so alpha-clip holes still see through to the skin. Only the
+        # rim is forced solid so the fabric edge is not a cutout.
+        solid.material_offset_rim = 1
     bpy.ops.object.modifier_apply(modifier=solid.name)
     obj.data.validate(verbose=False)
     return obj
@@ -746,6 +1174,11 @@ def build_garment(body_obj, landmarks, garment_id, color=None, texture_path=None
                 co = loop.vert.co
                 loop[uv_layer].uv = ((co.x - min_x) / span_x, (co.z - min_z) / span_z)
 
+    textured = bool(texture_path)
+    if textured:
+        # Front faces keep the planar photo UV; back/sides/shoulders go solid.
+        _split_bmesh_front_back(bm, body_obj.matrix_world, textured_idx=0, solid_idx=1)
+
     new_mesh = bpy.data.meshes.new(f"garment_{garment_id}")
     bm.to_mesh(new_mesh)
     bm.free()
@@ -760,6 +1193,14 @@ def build_garment(body_obj, landmarks, garment_id, color=None, texture_path=None
     else:
         material = make_material(f"mat_{garment_id}", color or cfg["color"], cfg["roughness"])
     new_mesh.materials.append(material)
+    if textured:
+        new_mesh.materials.append(
+            make_material(
+                f"mat_{garment_id}_back",
+                color or cfg["color"],
+                cfg["roughness"],
+            )
+        )
     for poly in new_mesh.polygons:
         poly.use_smooth = True
 
@@ -773,6 +1214,10 @@ def build_garment(body_obj, landmarks, garment_id, color=None, texture_path=None
     solid = obj.modifiers.new("Solidify", "SOLIDIFY")
     solid.thickness = cfg["thickness"]
     solid.offset = 1.0
+    if textured:
+        # Same split as the skirt: split originals = outer shell, generated
+        # inner shell inherits indices (clip holes stay see-through), rim solid.
+        solid.material_offset_rim = 1
     bpy.ops.object.modifier_apply(modifier=solid.name)
     obj.data.validate(verbose=False)
     return obj

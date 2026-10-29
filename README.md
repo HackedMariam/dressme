@@ -45,6 +45,12 @@ category rules and can be reclassified later ("Re-run AI").
 
 ## Installation
 
+### 0. Quick start (everything, one line)
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+```
+Starts all three services, each in its own window: wardrobe API `:8000`, avatar API `:8001`, frontend `:8443`.
+
 ### 1. Keys
 ```bash
 cp .env.example .env                    # OPENAI_API_KEY (+ Supabase in production)

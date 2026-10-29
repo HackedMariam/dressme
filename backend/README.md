@@ -231,10 +231,28 @@ are available:
 - `GET /api/items/{item_id}/mesh` returns the current status and URL.
 - `GET /api/health` reports `mesh_providers` and `hf_3d`.
 
+Notes and limitations:
+
+- **Front print, solid back.** The cutout is projected onto the avatar's front
+  only (faces with `normal.y < -0.25` keep the photo); every other face uses a
+  flat material built from the cutout's average colour. The back of a printed
+  top is therefore a solid colour and does not repeat the design.
+- **Cutout edges are dilated opaque** before texturing (`hardened_image` in
+  `generate_item_mesh.py` / `texture_item_mesh.py`), otherwise the
+  alpha-clip shading hides the shell's edge cells and a translucent skin-coloured
+  strip shows along the silhouette.
+- **Provider meshes are welded after import.** glTF stores each material in its
+  own primitive, so the front sheet, back sheet, and rim arrive as ~180 loose
+  islands; `fit_provider_mesh` merges coincident vertices before fitting, wraps
+  the photo's outline and silhouette columns around the body's flank, and keeps
+  the rim welded (the front and back outline share one anchor). Sleeve areas
+  remain approximate - the photo sleeve is horizontal while the avatar's arms
+  are angled, so sleeve tops can look puffy or slightly ruffled.
+
 The main wardrobe backend runs on port 8000. The avatar backend runs on port
 8001; set `VITE_AVATAR_API_URL=http://127.0.0.1:8001` in the frontend `.env`.
 
-`backend/blender/render_preview.py` renders front / three-quarter / side PNGs of any
+`backend/blender/render_preview.py` renders front / three-quarter / side / back PNGs of any
 GLB - useful for eyeballing fit:
 
     blender --background --python blender/render_preview.py -- --glb model.glb --out previews\\m

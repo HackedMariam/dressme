@@ -65,6 +65,7 @@ def main():
         "front": Vector((0.0, -1.0, 0.0)),
         "threeq": Vector((0.7, -0.9, 0.1)),
         "side": Vector((1.0, 0.0, 0.0)),
+        "back": Vector((0.0, 1.0, 0.0)),
     }
     for name, direction in views.items():
         direction = direction.normalized()

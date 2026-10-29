@@ -63,9 +63,7 @@ def decimate(objects, target_faces):
     return sum(len(obj.data.polygons) for obj in objects)
 
 
-def make_material(texture_path):
-    image = bpy.data.images.load(texture_path, check_existing=False)
-    image.pack()
+def make_material(image):
     material = bpy.data.materials.new("item_cutout")
     material.use_nodes = True
     nodes = material.node_tree.nodes
@@ -90,6 +88,59 @@ def make_material(texture_path):
         pass
     material.use_backface_culling = False
     return material
+
+
+def hardened_image(image, name, passes=8):
+    """Return a copy of the cutout with its anti-aliased border made opaque.
+
+    CLIP shading discards fragments whose texel alpha is below the shading
+    threshold, so a semi-transparent border would erase the mesh outline on
+    the avatar (a bare strip of skin). Low-alpha texels near the garment take
+    the colour of their nearest opaque neighbour and become fully opaque; the
+    result is saved to Blender's temp dir and packed so the glTF exporter
+    embeds it instead of the original PNG.
+    """
+    width, height = image.size
+    count = width * height
+    source = list(image.pixels)
+    if len(source) < count * 4:
+        return image
+    out = source[:]
+    seen = bytearray(count)
+    frontier = []
+    for i in range(count):
+        if source[i * 4 + 3] >= 0.16:
+            seen[i] = 1
+            frontier.append(i)
+    steps = 0
+    while frontier and steps < passes:
+        nxt = []
+        for i in frontier:
+            x = i % width
+            y = i // width
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                    continue
+                j = ny * width + nx
+                if seen[j]:
+                    continue
+                seen[j] = 1
+                out[j * 4] = out[i * 4]
+                out[j * 4 + 1] = out[i * 4 + 1]
+                out[j * 4 + 2] = out[i * 4 + 2]
+                out[j * 4 + 3] = 1.0
+                nxt.append(j)
+        frontier = nxt
+        steps += 1
+
+    stem = os.path.splitext(os.path.basename(image.filepath or name))[0] or name
+    result = bpy.data.images.new(name, width, height, alpha=True)
+    result.pixels[:] = out
+    result.filepath_raw = os.path.join(bpy.app.tempdir, f"{stem}_edges.png")
+    result.file_format = "PNG"
+    result.save()
+    result.pack()
+    return result
 
 
 def add_uvs(objects):
@@ -119,6 +170,59 @@ def add_uvs(objects):
             polygon.use_smooth = True
 
 
+def average_opaque_color(image):
+    """Average colour of the cutout's opaque pixels (used for the back side)."""
+    width, height = image.size
+    pixels = list(image.pixels)
+    if len(pixels) < width * height * 4:
+        return (0.5, 0.5, 0.5)
+    step = max(1, (width * height) // 20000)
+    r = g = b = n = 0
+    for i in range(0, width * height, step):
+        index = i * 4
+        if pixels[index + 3] >= 0.16:
+            r += pixels[index]
+            g += pixels[index + 1]
+            b += pixels[index + 2]
+            n += 1
+    if n == 0:
+        return (0.5, 0.5, 0.5)
+    return (r / n, g / n, b / n)
+
+
+def make_solid_material(color, name="item_back_material"):
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    material.diffuse_color = (*color, 1.0)
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    if bsdf is None:
+        bsdf = material.node_tree.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Base Color"].default_value = (*color, 1.0)
+    if "Roughness" in bsdf.inputs:
+        bsdf.inputs["Roughness"].default_value = 0.85
+    if "Metallic" in bsdf.inputs:
+        bsdf.inputs["Metallic"].default_value = 0.0
+    return material
+
+
+def split_front_back(obj):
+    """Only front-facing faces keep the print; back and sides go solid."""
+    mesh = obj.data
+    if len(mesh.materials) < 2:
+        return
+    ys = [v.co.y for v in mesh.vertices]
+    if not ys:
+        return
+    bounds_center_y = (min(ys) + max(ys)) * 0.5
+    for polygon in mesh.polygons:
+        verts = [mesh.vertices[i] for i in polygon.vertices]
+        centre_y = sum(v.co.y for v in verts) / max(1, len(verts))
+        polygon.material_index = (
+            0 if centre_y < bounds_center_y and polygon.normal.y < -0.25 else 1
+        )
+    mesh.update()
+
+
 def main():
     args = parse_args()
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -132,10 +236,16 @@ def main():
     faces = decimate(objects, args.target_faces)
     add_uvs(objects)
 
-    material = make_material(args.texture)
+    image = bpy.data.images.load(args.texture, check_existing=False)
+    image.pack()
+    back_color = average_opaque_color(image)
+    material = make_material(hardened_image(image, "item_edges"))
+    back_material = make_solid_material(back_color)
     for obj in objects:
         obj.data.materials.clear()
         obj.data.materials.append(material)
+        obj.data.materials.append(back_material)
+        split_front_back(obj)
 
     bpy.ops.object.select_all(action="DESELECT")
     for obj in objects:

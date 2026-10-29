@@ -31,6 +31,7 @@ import {
 import { analyzeBodyPhotos, type PhotoPairAnalysis } from "../lib/bodyPhotos"
 import { saveGalleryPhoto } from "../lib/photoGallery"
 import { useAuth } from "../features/auth/AuthProvider"
+import { galleryPhotoUrl, listGalleryPhotos, type GalleryPhoto } from "../lib/photoGallery"
 import { preloadPoseModel } from "../lib/pose"
 import { preloadSilhouetteModel } from "../lib/silhouette"
 import { BODY_SHAPES, CUP_SIZES, GENDERS, measurementRows } from "../lib/questionnaire"
@@ -48,6 +49,7 @@ type Proportions = {
 }
 
 const DEFAULT_PROPORTIONS: Proportions = { shoulderToHip: 1.3, torsoToLeg: 0.75 }
+const DEFAULT_AVATAR_URL = "/models/avatar.glb"
 const PROPORTION_LIMITS: Record<keyof Proportions, { min: number; max: number; step: number }> = {
   shoulderToHip: { min: 0.9, max: 1.8, step: 0.01 },
   torsoToLeg: { min: 0.5, max: 1.1, step: 0.01 },
@@ -88,6 +90,9 @@ export default function CustomizeAvatar({
   const [sideFile, setSideFile] = useState<File | null>(null)
   const [frontUrl, setFrontUrl] = useState<string | null>(null)
   const [sideUrl, setSideUrl] = useState<string | null>(null)
+  const [galleryPhotos, setGalleryPhotos] = useState<GalleryPhoto[]>([])
+  const [galleryUrls, setGalleryUrls] = useState<Record<string, string>>({})
+  const [gallerySlot, setGallerySlot] = useState<"front" | "side" | null>(null)
   const [photoAnalysis, setPhotoAnalysis] = useState<Extract<PhotoPairAnalysis, { ok: true }> | null>(null)
   const [photoState, setPhotoState] = useState<"idle" | "running" | "success" | "error">("idle")
   const [photoError, setPhotoError] = useState<string | null>(null)
@@ -119,7 +124,7 @@ export default function CustomizeAvatar({
 
   const [genState, setGenState] = useState<"idle" | "running" | "success" | "error">("idle")
   const [genError, setGenError] = useState<string | null>(null)
-  const [generatedUrl, setGeneratedUrl] = useState<string | null>(initialUrl ?? null)
+  const [generatedUrl, setGeneratedUrl] = useState<string>(initialUrl ?? DEFAULT_AVATAR_URL)
   const [lastJob, setLastJob] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<GenerateResult | null>(null)
   const [genIteration, setGenIteration] = useState(0)
@@ -148,6 +153,30 @@ export default function CustomizeAvatar({
     preloadPoseModel().catch(() => undefined)
     preloadSilhouetteModel().catch(() => undefined)
   }, [])
+
+  useEffect(() => {
+    if (!user?.id) {
+      setGalleryPhotos([])
+      return
+    }
+    let active = true
+    void listGalleryPhotos(user.id)
+      .then((photos) => {
+        if (active) setGalleryPhotos(photos)
+      })
+      .catch((error) => {
+        if (active) setPhotoError(error instanceof Error ? error.message : "Could not load your gallery.")
+      })
+    return () => {
+      active = false
+    }
+  }, [user?.id])
+
+  useEffect(() => {
+    const urls = Object.fromEntries(galleryPhotos.map((photo) => [photo.id, galleryPhotoUrl(photo)]))
+    setGalleryUrls(urls)
+    return () => Object.values(urls).forEach((url) => URL.revokeObjectURL(url))
+  }, [galleryPhotos])
 
   useEffect(() => {
     if (genState !== "running" && optState !== "running") return
@@ -242,6 +271,15 @@ export default function CustomizeAvatar({
     setPhotoError(null)
     setVisionResult(null)
     setVisionState("idle")
+  }
+
+  const chooseGalleryPhoto = (photo: GalleryPhoto) => {
+    if (!gallerySlot) return
+    const file = new File([photo.blob], photo.name || "DressMe gallery photo", {
+      type: photo.type || photo.blob.type || "image/jpeg",
+    })
+    onPhotoFile(gallerySlot, file)
+    setGallerySlot(null)
     cancelOptimization()
   }
 
@@ -770,7 +808,8 @@ export default function CustomizeAvatar({
             {captureMode === "photos" && (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block cursor-pointer">
+                  <div>
+                    <label className="block cursor-pointer">
                     <span className="text-[10px] text-[#8C8A82] uppercase tracking-wide">Front photo</span>
                     <div className="mt-1 h-48 rounded-lg overflow-hidden bg-white border border-dashed border-[#C9C6BB] flex items-center justify-center">
                       {frontUrl ? (
@@ -788,8 +827,18 @@ export default function CustomizeAvatar({
                         e.target.value = ""
                       }}
                     />
-                  </label>
-                  <label className="block cursor-pointer">
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setGallerySlot("front")}
+                      disabled={!galleryPhotos.length}
+                      className="mt-2 w-full rounded-lg border border-[#E2E0D8] bg-white px-3 py-2 text-xs font-semibold text-[#556B2F] transition-colors hover:bg-[#F0EFEA] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Choose from gallery
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block cursor-pointer">
                     <span className="text-[10px] text-[#8C8A82] uppercase tracking-wide">Side photo</span>
                     <div className="mt-1 h-48 rounded-lg overflow-hidden bg-white border border-dashed border-[#C9C6BB] flex items-center justify-center">
                       {sideUrl ? (
@@ -807,8 +856,56 @@ export default function CustomizeAvatar({
                         e.target.value = ""
                       }}
                     />
-                  </label>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setGallerySlot("side")}
+                      disabled={!galleryPhotos.length}
+                      className="mt-2 w-full rounded-lg border border-[#E2E0D8] bg-white px-3 py-2 text-xs font-semibold text-[#556B2F] transition-colors hover:bg-[#F0EFEA] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Choose from gallery
+                    </button>
+                  </div>
                 </div>
+                {gallerySlot && (
+                  <div className="rounded-lg border border-[#E2E0D8] bg-white p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-xs font-semibold text-[#1C1C1C]">
+                        Choose a {gallerySlot} photo
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setGallerySlot(null)}
+                        className="text-xs font-semibold text-[#8C8A82] hover:text-[#1C1C1C]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                      {galleryPhotos.map((photo) => (
+                        <button
+                          key={photo.id}
+                          type="button"
+                          onClick={() => chooseGalleryPhoto(photo)}
+                          className="overflow-hidden rounded-lg border border-[#E2E0D8] text-left transition-colors hover:border-[#556B2F]"
+                        >
+                          {galleryUrls[photo.id] ? (
+                            <img
+                              src={galleryUrls[photo.id]}
+                              alt={photo.name}
+                              className="aspect-square w-full object-cover"
+                            />
+                          ) : (
+                            <div className="aspect-square bg-[#F0EFEA]" />
+                          )}
+                          <span className="block truncate px-2 py-1 text-[10px] text-[#8C8A82]">
+                            {photo.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <label htmlFor="photo-height" className="text-xs font-semibold text-[#8C8A82]">
                     Your height
@@ -1272,7 +1369,7 @@ export default function CustomizeAvatar({
         </div>
 
         <div className="space-y-4">
-          <AvatarCanvas url={generatedUrl ?? undefined} />
+          <AvatarCanvas url={generatedUrl} />
           {genState === "success" && (
             <div className="grid grid-cols-2 gap-2">
               {onGoToTryOn && (

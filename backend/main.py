@@ -714,25 +714,28 @@ def generate(
         saved_at: str | None = None
         save_error: str | None = None
 
-        try:
-            row = AVATAR_STORE.save_avatar(
-                user.id,
-                {
-                    "targets": targets,
-                    "details": details,
-                    "outfit": [item.model_dump() for item in snapshots],
-                    "metrics": metrics,
-                    "height_cm": req.height_cm,
-                    "generated_at": datetime.now(timezone.utc).isoformat(),
-                },
-                final_path.read_bytes(),
-            )
-            response_url = str(row.get("url") or response_url)
-            saved = True
-            saved_at = row.get("updated_at") or row.get("generated_at")
-        except Exception as exc:  # noqa: BLE001 - generation succeeds even if storage is down
-            save_error = str(exc)
-            print(f"[avatar] could not save latest avatar for {user.id}: {exc}", flush=True)
+        if specs:
+            print(f"[avatar] try-on job {job_id}: dressed result kept as {final_name}, not saved as last avatar", flush=True)
+        else:
+            try:
+                row = AVATAR_STORE.save_avatar(
+                    user.id,
+                    {
+                        "targets": targets,
+                        "details": details,
+                        "outfit": [item.model_dump() for item in snapshots],
+                        "metrics": metrics,
+                        "height_cm": req.height_cm,
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    final_path.read_bytes(),
+                )
+                response_url = str(row.get("url") or response_url)
+                saved = True
+                saved_at = row.get("updated_at") or row.get("generated_at")
+            except Exception as exc:  # noqa: BLE001 - generation succeeds even if storage is down
+                save_error = str(exc)
+                print(f"[avatar] could not save latest avatar for {user.id}: {exc}", flush=True)
 
         return GenerateResponse(
             jobId=job_id,
@@ -775,6 +778,7 @@ def _update_opt_job(job_id: str, **fields) -> None:
 
 def _run_optimize(
     job_id: str,
+    user_id: str,
     targets: dict[str, float],
     details: dict[str, float],
     silhouettes: dict[str, str],
@@ -811,6 +815,30 @@ def _run_optimize(
         result["jobId"] = job_id
         result["url"] = f"/models/generated/{final_name}"
         result["bytes"] = final_path.stat().st_size
+
+        opt_metrics = result.get("metrics") or {}
+        opt_metrics = {k: float(v) for k, v in opt_metrics.items() if isinstance(v, (int, float))}
+        try:
+            row = AVATAR_STORE.save_avatar(
+                user_id,
+                {
+                    "targets": result.get("targets") or targets,
+                    "details": result.get("details") or details,
+                    "outfit": [],
+                    "metrics": opt_metrics,
+                    "height_cm": height_cm,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                final_path.read_bytes(),
+            )
+            result["url"] = str(row.get("url") or result["url"])
+            result["saved"] = True
+            result["savedAt"] = row.get("updated_at") or row.get("generated_at")
+        except Exception as exc:  # noqa: BLE001 - optimization succeeds even if storage is down
+            result["saved"] = False
+            result["saveError"] = str(exc)
+            print(f"[avatar] could not save optimized avatar for {user_id}: {exc}", flush=True)
+
         _update_opt_job(job_id, status="done", result=result)
     except Exception as exc:
         _update_opt_job(job_id, status="error", error=str(exc))
@@ -829,7 +857,7 @@ def _validate_silhouettes(silhouettes: dict[str, str]) -> None:
 
 
 @app.post("/api/avatar/optimize")
-def start_optimize(payload: OptimizeRequest) -> dict:
+def start_optimize(payload: OptimizeRequest, user: User = Depends(current_user)) -> dict:
     targets = validate_targets(payload.targets)
     details = validate_details(payload.details)
     _validate_silhouettes(payload.silhouettes)
@@ -853,7 +881,7 @@ def start_optimize(payload: OptimizeRequest) -> dict:
     try:
         thread = threading.Thread(
             target=_run_optimize,
-            args=(job_id, targets, details, payload.silhouettes, payload.maxEvaluations, payload.height_cm),
+            args=(job_id, user.id, targets, details, payload.silhouettes, payload.maxEvaluations, payload.height_cm),
             daemon=True,
         )
         thread.start()

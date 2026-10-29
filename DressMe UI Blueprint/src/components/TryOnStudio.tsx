@@ -101,8 +101,12 @@ export default function TryOnStudio({
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    if (initialAvatar?.url) setUrl(initialAvatar.url)
-  }, [initialAvatar?.url])
+    if (!initialAvatar?.url) return
+    setUrl(versionedUrl(initialAvatar.url, initialAvatar.updatedAt))
+    setLastResult(null)
+    setGenState("idle")
+    setCompare(false)
+  }, [initialAvatar?.url, initialAvatar?.updatedAt])
 
   useEffect(() => {
     if (genState !== "running") return
@@ -179,8 +183,8 @@ export default function TryOnStudio({
       setCompare(false)
       setGenState("success")
       if (result.saved !== false) onAvatarSaved?.()
-      if (result.saved === false) {
-        setSaveMessage(result.saveError || "Generated, but the avatar could not be saved.")
+      if (result.saved === false && result.saveError) {
+        setSaveMessage(result.saveError)
       }
     } catch (e) {
       const aborted = controller.signal.aborted
@@ -431,7 +435,7 @@ export default function TryOnStudio({
               {healthError && (
                 <p className="text-xs text-[#8A2E2E]">
                   {healthError}. Start it with{" "}
-                  <code className="font-mono">cd backend && uvicorn main:app --host 127.0.0.1 --port 8000</code>.
+                  <code className="font-mono">cd backend && uvicorn main:app --host 127.0.0.1 --port 8001</code>.
                 </p>
               )}
               {health && !backendReady && (
@@ -467,7 +471,7 @@ export default function TryOnStudio({
               {lastResult
                 ? "Showing your generated outfit. Change the selection and generate again to compare."
                 : initialAvatar
-                  ? "Showing your last saved avatar. Generate to update it with the current selection."
+                  ? "Showing your saved avatar body. Generate to dress it with the current selection."
                   : "Showing the bundled base outfit. Press Generate to fit wardrobe items to your body shape."}
             </p>
             {lastResult?.metrics && Object.keys(lastResult.metrics).length > 0 && (

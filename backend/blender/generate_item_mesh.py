@@ -15,6 +15,7 @@ It prints one machine-readable line:
 
 import argparse
 import json
+import os
 import sys
 import traceback
 
@@ -188,6 +189,113 @@ def make_material(texture, name="item_material"):
     return material
 
 
+def make_solid_material(color, name="item_back_material"):
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    material.diffuse_color = (*color, 1.0)
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    if bsdf is None:
+        bsdf = material.node_tree.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Base Color"].default_value = (*color, 1.0)
+    if "Roughness" in bsdf.inputs:
+        bsdf.inputs["Roughness"].default_value = 0.85
+    if "Metallic" in bsdf.inputs:
+        bsdf.inputs["Metallic"].default_value = 0.0
+    return material
+
+
+def average_opaque_color(image, width, height):
+    """Average colour of the cutout's opaque pixels, used for the back side."""
+    pixels = list(image.pixels)
+    if len(pixels) < width * height * 4:
+        return (0.5, 0.5, 0.5)
+    step = max(1, (width * height) // 20000)
+    r = g = b = n = 0
+    for i in range(0, width * height, step):
+        index = i * 4
+        if pixels[index + 3] >= ALPHA_THRESHOLD:
+            r += pixels[index]
+            g += pixels[index + 1]
+            b += pixels[index + 2]
+            n += 1
+    if n == 0:
+        return (0.5, 0.5, 0.5)
+    return (r / n, g / n, b / n)
+
+
+def hardened_image(image, name, passes=8):
+    """Return a copy of the cutout with its anti-aliased border made opaque.
+
+    Cells keep pixels whose average alpha clears the threshold, but the border
+    around them still contains texels with lower alpha. CLIP shading discards
+    those fragments at render time, which leaves a bare strip of skin on the
+    avatar where the garment outline should be. Low-alpha texels near the
+    garment take the colour of their nearest opaque neighbour and become fully
+    opaque; the result is saved to Blender's temp dir and packed so the glTF
+    exporter embeds it instead of the original PNG.
+    """
+    width, height = image.size
+    count = width * height
+    source = list(image.pixels)
+    if len(source) < count * 4:
+        return image
+    out = source[:]
+    seen = bytearray(count)
+    frontier = []
+    for i in range(count):
+        if source[i * 4 + 3] >= ALPHA_THRESHOLD:
+            seen[i] = 1
+            frontier.append(i)
+    steps = 0
+    while frontier and steps < passes:
+        nxt = []
+        for i in frontier:
+            x = i % width
+            y = i // width
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                    continue
+                j = ny * width + nx
+                if seen[j]:
+                    continue
+                seen[j] = 1
+                out[j * 4] = out[i * 4]
+                out[j * 4 + 1] = out[i * 4 + 1]
+                out[j * 4 + 2] = out[i * 4 + 2]
+                out[j * 4 + 3] = 1.0
+                nxt.append(j)
+        frontier = nxt
+        steps += 1
+
+    stem = os.path.splitext(os.path.basename(image.filepath or name))[0] or name
+    result = bpy.data.images.new(name, width, height, alpha=True)
+    result.pixels[:] = out
+    result.filepath_raw = os.path.join(bpy.app.tempdir, f"{stem}_edges.png")
+    result.file_format = "PNG"
+    result.save()
+    result.pack()
+    return result
+
+
+def split_front_back(obj):
+    """Keep the print on the front sheet only; back sheet + rim go solid.
+
+    The slab is centred on y=0, so the front sheet is the one whose centre sits
+    at negative y with a -Y normal (the item is later placed with its front
+    toward the avatar's -Y side).
+    """
+    mesh = obj.data
+    if len(mesh.materials) < 2:
+        return
+    for polygon in mesh.polygons:
+        verts = [mesh.vertices[i] for i in polygon.vertices]
+        centre_y = sum(v.co.y for v in verts) / max(1, len(verts))
+        polygon.material_index = (
+            0 if centre_y < 0.0 and polygon.normal.y < -0.25 else 1
+        )
+    mesh.update()
+
+
 def main():
     args = parse_args()
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -199,7 +307,10 @@ def main():
     target_size = args.max_size or SLOT_MAX_SIZE.get(args.slot, 0.6)
     dimensions = normalise(obj, cells, grid_w, grid_h, target_size, args.thickness)
 
-    obj.data.materials.append(make_material(texture))
+    obj.data.materials.append(make_material(hardened_image(texture, "item_edges")))
+    back_color = average_opaque_color(work, grid_w, grid_h)
+    obj.data.materials.append(make_solid_material(back_color))
+    split_front_back(obj)
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
@@ -213,7 +324,6 @@ def main():
         export_image_format="AUTO",
     )
 
-    import os
     size = os.path.getsize(output)
     if size <= 0:
         raise RuntimeError("Export produced an empty file")

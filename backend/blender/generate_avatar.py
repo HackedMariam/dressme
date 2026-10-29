@@ -287,6 +287,11 @@ def bake_shape_keys_if_any(TargetService, obj):
 
 
 DETAIL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
+GARMENT_NAME_RE = re.compile(
+    r"(?:^|[_\-.])(?:garment|clothing|clothes|trouser|pants|shirt|top|"
+    r"jacket|coat|dress|skirt|shoe|boot|footwear|underwear)(?:$|[_\-.])",
+    re.IGNORECASE,
+)
 
 
 def read_details(path):
@@ -323,6 +328,20 @@ def apply_detail_targets(TargetService, basemesh, details):
             TargetService.load_target(basemesh, full_path, weight=value, name=name)
         applied[name] = value
     return applied, missing
+
+
+def remove_garments(export_root, ObjectService):
+    """Keep generated bare avatars free of clothing from the source scene."""
+    descendants = list(ObjectService.get_list_of_children(export_root))
+    removed = []
+    for obj in descendants:
+        names = [obj.name]
+        names.extend(collection.name for collection in obj.users_collection)
+        if not any(GARMENT_NAME_RE.search(name) for name in names):
+            continue
+        bpy.data.objects.remove(obj, do_unlink=True)
+        removed.append(obj.name)
+    return removed
 
 
 def main():
@@ -373,6 +392,7 @@ def main():
         raise RuntimeError("Missing pelvis landmark on the avatar rig")
 
     export_root = ExportService.create_character_copy(basemesh, name_suffix="_gen")
+    remove_garments(export_root, ObjectService)
     export_basemesh = ObjectService.find_object_of_type_amongst_nearest_relatives(export_root, "Basemesh")
     ExportService.bake_modifiers_remove_helpers(
         export_basemesh,

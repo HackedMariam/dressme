@@ -511,7 +511,7 @@ export async function startAvatarOptimization(
   try {
     res = await fetch(`${API_BASE}/api/avatar/optimize`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         targets,
         details,
@@ -533,7 +533,10 @@ export async function startAvatarOptimization(
 export async function getAvatarOptimization(jobId: string, signal?: AbortSignal): Promise<OptimizeJob> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api/avatar/optimize/${jobId}`, { signal })
+    res = await fetch(`${API_BASE}/api/avatar/optimize/${jobId}`, {
+      headers: await authHeaders(),
+      signal,
+    })
   } catch {
     throw new Error("Cannot reach the local optimization backend.")
   }

@@ -1147,18 +1147,16 @@ function AuthenticatedApp() {
   }, [page]);
 
   useEffect(() => {
-    if (!latestAvatar) return;
+    if (!latestAvatar || restoredLatest.current) return;
     setAvatarParams({ ...defaultBodyTargets(), ...latestAvatar.targets });
     setAvatarDetails(latestAvatar.details ?? {});
     if (latestAvatar.heightCm) setAvatarHeightCm(latestAvatar.heightCm);
     setHasCustomized(true);
-    if (!restoredLatest.current) {
-      const restored = tryOnItemsFromSnapshots(latestAvatar.outfit);
-      if (restored.length) {
-        setTryOnSelection(restored);
-        restoredLatest.current = true;
-      }
+    const restored = tryOnItemsFromSnapshots(latestAvatar.outfit);
+    if (restored.length) {
+      setTryOnSelection(restored);
     }
+    restoredLatest.current = true;
   }, [latestAvatar]);
 
   const renderPage = () => {
