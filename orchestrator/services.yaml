@@ -1,0 +1,102 @@
+# Services appelés par l'orchestrateur DressMe (plan des ports d'INTEGRATION.md).
+# timeout : délai maximum d'un appel, en secondes. Aucune clé ici : seulement le NOM d'une variable
+# d'environnement (api_key_env), lue au moment de l'appel et jamais affichée.
+services:
+  bo1:
+    label: "BO1 Wardrobe"
+    url: "http://localhost:8000"
+    timeout: 10
+  stylist:
+    label: "BO4 Stylist"
+    url: "http://127.0.0.1:8061"
+    timeout: 120          # premier tour : chargement d'Ollama par le Stylist
+  purchase:
+    label: "Purchase Redundancy"
+    url: "http://127.0.0.1:8040"
+    timeout: 30
+  bo5:
+    label: "BO5 RAG"
+    url: "http://127.0.0.1:8010"
+    timeout: 120
+    api_key_env: "BO5_API_KEY"   # facultatif : en-tête X-API-Key si BO5 a un RAG_API_KEY
+  ollama:
+    label: "Ollama qwen2.5:3b"
+    url: "http://localhost:11434"
+    timeout: 60
+    model: "qwen2.5:3b"
+
+# Modules externes, appelés par le node générique « external » avec la garde-robe BO1 de l'utilisateur
+# (wardrobe_items, format : orchestrator/integration_contract.md). Le module ne lit ni Supabase ni BO1 lui-même.
+# - enabled: false tant que le module n'expose pas l'endpoint du contrat (message clair à l'utilisateur) ;
+#   activé, il est d'abord sondé (health) : s'il ne répond pas, message clair, aucun appel.
+# - keywords : expressions régulières (texte en minuscules, sans accents) qui envoient la demande au module.
+# - request : modèle JSON ; variables : $message, $language, $user_id, $thread_id, $wardrobe_items,
+#   $first_url (première URL du message), $price, $budget (montants repérés dans le message).
+# - response : fields (étiquette + chemin JSON), text (chemins de texte), list (chemin d'une liste + format).
+# - forward_token : false par défaut (le module reçoit des données, pas le jeton de l'utilisateur).
+modules:
+  smart_purchasing:
+    label: "Smart Purchasing"
+    description: "evaluate a garment photo (URL) before buying it, against the user's wardrobe"
+    enabled: false
+    url: "http://127.0.0.1:8050"
+    health: "/health"
+    method: "POST"
+    path: "/api/purchase/evaluate"
+    timeout: 90
+    keywords:
+      - "https?://\\S+\\.(jpe?g|png|webp)\\b"
+      - "\\b(cette photo|sur la photo|cette image|this photo|this picture)\\b"
+    request:
+      wardrobe_items: "$wardrobe_items"
+      user_id: "$user_id"
+      prompt: "$message"
+      candidate: {image_url: "$first_url", price: "$price", budget: "$budget"}
+    response:
+      fields:
+        - {label: "Décision", path: "agent_verdict.decision"}
+        - {label: "Score", path: "agent_verdict.score"}
+        - {label: "Redondance", path: "tool_evidence.redundancy_score", suffix: " %"}
+        - {label: "Pièce la plus proche", path: "tool_evidence.closest_wardrobe_match"}
+      text: ["agent_verdict.reasons"]
+  helpmepack:
+    label: "HelpMePack"
+    description: "pack a suitcase for a trip from the user's wardrobe"
+    enabled: false
+    url: "http://127.0.0.1:8020"
+    health: "/api/health"
+    method: "POST"
+    path: "/api/trips"
+    timeout: 120
+    keywords:
+      - "\\b(valises?|bagages?|voyages?|partir en week-end|packing|pack|trip|luggage|suitcase)\\b"
+    request:
+      mode: "text"
+      text: "$message"
+      wardrobe_items: "$wardrobe_items"
+      user_id: "$user_id"
+    response:
+      fields:
+        - {label: "Statut", path: "status"}
+        - {label: "Optimisation", path: "optimization_status"}
+      text: ["message", "clarification_question"]
+  bo3:
+    label: "BO3 Wardrobe Gaps"
+    description: "find the pieces missing from the user's wardrobe for a goal"
+    enabled: false
+    url: "http://127.0.0.1:8030"
+    health: "/api/health"
+    method: "POST"
+    path: "/api/bo3/gaps"
+    timeout: 60
+    keywords:
+      - "\\b(me manque|manque-t-il|ce qui manque|pieces? manquantes?|completer ma garde-robe|what am i missing|missing pieces|gaps?)\\b"
+    request:
+      goal: "winter_work"
+      wardrobe_items: "$wardrobe_items"
+      user_id: "$user_id"
+    response:
+      fields:
+        - {label: "Objectif", path: "goal_label"}
+      list: {path: "ranked_gaps", format: "{rank}. {name} (priorité {priority})", limit: 5}
+      text: ["note"]
