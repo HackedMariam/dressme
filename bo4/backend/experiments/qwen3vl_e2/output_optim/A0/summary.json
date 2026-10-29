@@ -1,0 +1,63 @@
+{
+  "measured_calls": 5,
+  "warmup_calls": 1,
+  "errors": [],
+  "schema_valid": 4,
+  "done_stop": 4,
+  "near_limit": 2,
+  "prompt_eval_count": [
+    3107
+  ],
+  "eval_count": [
+    1905,
+    777,
+    596,
+    423,
+    2048
+  ],
+  "thinking_chars": [
+    6881,
+    2895,
+    2149,
+    1489,
+    8331
+  ],
+  "latency_p50_s": 29.05056060000061,
+  "latency_p95_s": 81.50765991999943,
+  "wall_minus_load_p50_s": 28.948848100000607,
+  "load_s": [
+    0.07,
+    0.1,
+    0.06,
+    0.09,
+    0.07
+  ],
+  "eval_tokens_per_s_median": 30.23032707968893,
+  "ram_min_available_mib": 347.3125,
+  "vram_peak_mib": 2977,
+  "gpu_share_min": 0.7358684985093105,
+  "llama_server_mib_first_before": 0.0,
+  "llama_server_mib_after": [
+    1301.35546875,
+    555.80078125,
+    1085.40234375,
+    1495.69140625,
+    1902.0625,
+    2279.89453125
+  ],
+  "cache_hits": 0,
+  "total_duration_s": 280.67883230000007,
+  "config": {
+    "name": "A0",
+    "max_side": null,
+    "num_ctx": 6144,
+    "unload_between": false
+  },
+  "options": {
+    "temperature": 0,
+    "seed": 0,
+    "num_ctx": 6144,
+    "num_predict": 2048
+  },
+  "stop_reason": null
+}

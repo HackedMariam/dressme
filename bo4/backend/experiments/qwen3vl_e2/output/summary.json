@@ -1,0 +1,39 @@
+{
+  "cold": {
+    "wall_s": 20.851414699998713,
+    "load_duration": 10426158400,
+    "error": null
+  },
+  "warm": {
+    "calls": 30,
+    "errors": {},
+    "json_parsed_rate": 0.0,
+    "schema_valid_rate": 0.0,
+    "done_stop_rate": 0.0,
+    "thinking_present_calls": 30,
+    "latency_p50_s": 9.161623599999075,
+    "latency_p95_s": 10.378331370001796,
+    "latency_max_s": 11.390244500002154,
+    "eval_tokens_per_s_median": 39.80379937674671,
+    "vram_peak_mib": 3001,
+    "ram_min_available_mib": 9.7265625,
+    "gpu_share_min": 0.8134090630871172,
+    "stability": {
+      "items_compared": 0,
+      "mean_field_agreement": null,
+      "items_fully_identical": 0
+    }
+  },
+  "acceptance": {
+    "checks": {
+      "schema_valid": false,
+      "done_stop": false,
+      "latency_p50": true,
+      "latency_p95": true,
+      "ram": false,
+      "vram": true,
+      "stability": false
+    },
+    "go_for_e2b": false
+  }
+}
