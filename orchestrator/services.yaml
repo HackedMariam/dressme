@@ -66,12 +66,13 @@ modules:
   helpmepack:
     label: "HelpMePack"
     description: "pack a suitcase for a trip from the user's wardrobe"
-    enabled: false               # packing_backend/ (branche helpmepack/try1) absent de main
+    enabled: true
     url: "http://127.0.0.1:8020"
     health: "/api/health"
     method: "POST"
     path: "/api/trips"
     timeout: 120
+    forward_token: true
     keywords:
       - "\\b(valises?|bagages?|voyages?|partir en week-end|packing|pack|trip|luggage|suitcase)\\b"
     request:

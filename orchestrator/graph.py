@@ -22,6 +22,7 @@ import json
 import re
 import unicodedata
 from typing import Any, Callable, Optional, TypedDict
+from urllib.parse import quote
 
 try:  # LangGraph n'injecte la configuration du tour que dans un paramètre typé RunnableConfig.
     from langchain_core.runnables import RunnableConfig
@@ -209,6 +210,13 @@ def decide_route(message: str, state: dict, llm: Optional[LLM],
     if pending and (choice := re.match(r"^\s*([1-4])\b", text)):
         return CHOICE[choice.group(1)], "réponse à la question de clarification", []
     candidates = rule_candidates(message, modules)
+    if not candidates and state.get("packing_pending") and state.get("packing_session_id"):
+        return "external:helpmepack", "packing clarification", []
+    if (not candidates and state.get("last_route") == "external:helpmepack"
+            and state.get("packing_session_id")
+            and re.search(r"\b(change|update|make it|instead|laundry|weight|kilograms?|kg|modifier|changer|"
+                          r"plutot|lessive|poids)\b", text)):
+        return "external:helpmepack", "packing follow-up", []
     if len(candidates) == 1:
         return candidates[0], "règles", candidates
     if not candidates and re.search(GREETING, text):
@@ -540,6 +548,8 @@ class OrchestratorState(TypedDict, total=False):
     result: dict                   # carte du service : {service, label, ok, text, details}
     response: str
     trace: list[str]
+    packing_session_id: str
+    packing_pending: bool
 
 
 def new_turn(message: str) -> dict:
@@ -813,14 +823,23 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
                             + f" Sans ta garde-robe, {label} ne peut pas répondre.",
                             {"login_required": _needs_login(items_call, token_sent)})
             ctx["wardrobe_items"] = [contract_item(row) for row in items_call.data]
-        body = render_template(module.request, ctx) if module.method != "GET" else None
-        call = gateway.call(name, module.method, module.path, body,
-                            token=request_token(config) if module.forward_token else None)
+        continuing = (name == "helpmepack" and
+                      state.get("route_source") in {"packing clarification", "packing follow-up"})
+        path = (f"/api/trips/{quote(state['packing_session_id'], safe='')}/messages"
+                if continuing else module.path)
+        body = ({"text": state["user_message"]} if continuing else
+                render_template(module.request, ctx) if module.method != "GET" else None)
+        call = gateway.call(name, module.method, path, body,
+                             token=request_token(config) if module.forward_token else None)
         trace.append(f"external -> {call.trace()}")
         if not call.ok:
             return done(False, _failure(label, call))
-        return done(True, render_module_response(module.response, call.data, label),
-                    {"wardrobe_sent": len(ctx.get("wardrobe_items") or [])})
+        update = done(True, render_module_response(module.response, call.data, label),
+                      {"wardrobe_sent": len(ctx.get("wardrobe_items") or [])})
+        if name == "helpmepack" and isinstance(call.data, dict):
+            update["packing_session_id"] = call.data.get("session_id") or ""
+            update["packing_pending"] = call.data.get("status") == "needs_clarification"
+        return update
 
     def respond(state: OrchestratorState) -> dict:
         result = state.get("result") or {}

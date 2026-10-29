@@ -8,7 +8,8 @@ Version 1 · 29/10/2026 · pour les modules appelés par l'orchestrateur (`orche
 2. Il lit **sa** garde-robe par BO1 `GET /api/items`, avec son jeton.
 3. Il envoie cette garde-robe au module dans le champ **`wardrobe_items`** de la requête.
 
-Le module **ne lit ni Supabase ni BO1** et n'a pas besoin du jeton de l'utilisateur (sauf Avatar, voir plus bas).
+Les modules reçoivent généralement la garde-robe sans jeton. HelpMePack fait exception : il reçoit le jeton,
+vérifie l'identité et relit BO1 lui-même afin de ne jamais faire confiance aux vêtements fournis par un client.
 Il ne garde pas sa propre copie des vêtements : la garde-robe reçue fait foi pour la requête.
 
 ## Format de `wardrobe_items`
@@ -108,12 +109,11 @@ dans `DressMeInferenceEngine.wardrobe` à la place du CSV, puis appelle la méth
 | Réponse | le dictionnaire renvoyé aujourd'hui par `evaluate()` : `status`, `user_query`, `candidate_item` {`image_source`, `detected_category`, `detected_color`, `inferred_occasion`, `inferred_style`, `price`, `budget`}, `tool_evidence` {`redundancy_score`, `closest_wardrobe_match`, `compatible_outfits_count`, `matching_wardrobe_item_ids`, `matching_outfits`, `wardrobe_gap_score`, `xgboost_prediction`, `xgboost_confidence`, `deterministic_score`, `budget_penalty`}, `agent_verdict` {`decision`, `score`, `matching_item_ids`, `reasons`, `uncertainties`} ; `matching_*_ids` = `id` BO1 |
 | Conversion | `category` BO1 → leur `item_type` (mots-clés de `subcategory`), `style` → liste (`smart_casual` → `["smart_casual", "formal"]`, comme `load_wardrobe_from_csv`), `seasons` vides → les 4 saisons, `formality`, `warmth` repris |
 
-### HelpMePack (`backend/main.py` + `packing_backend/`, Mariam Ben Abdallah) : à étendre
+### HelpMePack (`backend/main.py` + `packing_backend/`) : intégré
 
-Aujourd'hui : `POST /api/trips` existe ; la garde-robe vient du CSV synthétique (`SyntheticWardrobeProvider`).
-`TripAgent(wardrobe_provider=…)` accepte déjà un autre fournisseur : il suffit d'en construire un depuis
-`wardrobe_items` (conversion vers `REQUIRED_WARDROBE_COLUMNS` de `trip_agent/wardrobe.py` et matrice de
-compatibilité générée, car l'optimiseur ignore les paires absentes).
+`POST /api/trips` vérifie le jeton via BO1 et récupère les vêtements de l'utilisateur depuis BO1. Les champs
+`wardrobe_items` et `user_id` reçus sont acceptés pour compatibilité mais ne sont pas considérés comme fiables.
+Le fournisseur BO1 les convertit pour l'optimiseur et produit une compatibilité estimée.
 
 | | |
 |---|---|
@@ -183,5 +183,5 @@ Ce qui limite encore le score, **côté Purchase Redundancy** (code non modifié
 
 Chaque module a une entrée dans la section `modules` de `orchestrator/services.yaml` (URL, santé, route, modèle de
 requête avec `$wardrobe_items`, mots-clés, champs à afficher). Les entrées `smart_purchasing`, `helpmepack` et `bo3`
-sont livrées **désactivées** : l'orchestrateur répond « pas encore branché » sans rien appeler. Quand l'endpoint du
+autres que HelpMePack sont livrées **désactivées** : l'orchestrateur répond « pas encore branché » sans rien appeler. Quand l'endpoint du
 module existe, passer `enabled: true` ; s'il ne répond pas, l'orchestrateur le dit sans appeler le module.

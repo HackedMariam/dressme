@@ -1,0 +1,51 @@
+item_id,name,category,item_type,color,style,season,warmth_level,water_resistance,weight_g,versatility,formality_level,clean_items_available,image_url,description
+ITEM001,Blue jacket 001,outerwear,jacket,blue,smart-casual,summer,2,5,389,0.37,2,True,,Synthetic smart-casual jacket in blue
+ITEM002,Cream shirt 002,top,shirt,cream,minimalist,winter,2,3,421,0.62,2,True,,Synthetic minimalist shirt in cream
+ITEM003,Beige t shirt 003,top,t-shirt,beige,formal,all-season,2,0,355,0.54,4,True,,Synthetic formal t shirt in beige
+ITEM004,Blue shirt 004,top,shirt,blue,casual,summer,1,3,262,0.58,2,True,,Synthetic casual shirt in blue
+ITEM005,Grey shirt 005,top,shirt,grey,sporty,winter,3,5,405,0.88,1,True,,Synthetic sporty shirt in grey
+ITEM006,Navy belt 006,accessory,belt,navy,sporty,winter,4,1,325,0.52,2,True,,Synthetic sporty belt in navy
+ITEM007,Burgundy hat 007,accessory,hat,burgundy,sporty,spring,1,0,355,0.39,3,True,,Synthetic sporty hat in burgundy
+ITEM008,Cream scarf 008,accessory,scarf,cream,casual,all-season,4,5,282,0.35,2,True,,Synthetic casual scarf in cream
+ITEM009,Cream belt 009,accessory,belt,cream,minimalist,all-season,2,1,50,0.74,3,True,,Synthetic minimalist belt in cream
+ITEM010,Pink shirt 010,top,shirt,pink,casual,spring,4,0,392,0.46,2,True,,Synthetic casual shirt in pink
+ITEM011,Green skirt 011,bottom,skirt,green,minimalist,winter,1,1,282,0.5,4,True,,Synthetic minimalist skirt in green
+ITEM012,Black t shirt 012,top,t-shirt,black,formal,spring,1,2,368,0.66,4,True,,Synthetic formal t shirt in black
+ITEM013,Brown raincoat 013,outerwear,raincoat,brown,sporty,winter,1,5,712,0.91,3,True,,Synthetic sporty raincoat in brown
+ITEM014,Blue shirt 014,top,shirt,blue,sporty,summer,1,3,401,0.36,2,True,,Synthetic sporty shirt in blue
+ITEM015,Black formal dress 015,dress,formal-dress,black,smart-casual,winter,1,1,466,0.82,2,True,,Synthetic smart-casual formal dress in black
+ITEM016,Beige jacket 016,outerwear,jacket,beige,casual,spring,4,4,820,0.47,1,True,,Synthetic casual jacket in beige
+ITEM017,Pink hat 017,accessory,hat,pink,minimalist,spring,1,3,154,0.79,2,True,,Synthetic minimalist hat in pink
+ITEM018,Green raincoat 018,outerwear,raincoat,green,formal,spring,1,5,850,0.52,4,True,,Synthetic formal raincoat in green
+ITEM019,Blue hoodie 019,top,hoodie,blue,minimalist,all-season,3,5,403,0.43,3,True,,Synthetic minimalist hoodie in blue
+ITEM020,Navy raincoat 020,outerwear,raincoat,navy,formal,all-season,4,3,583,0.57,5,True,,Synthetic formal raincoat in navy
+ITEM021,Burgundy shorts 021,bottom,shorts,burgundy,casual,spring,1,5,529,0.45,1,True,,Synthetic casual shorts in burgundy
+ITEM022,Cream hat 022,accessory,hat,cream,smart-casual,spring,3,4,459,0.88,2,True,,Synthetic smart-casual hat in cream
+ITEM023,Cream sandals 023,shoes,sandals,cream,smart-casual,autumn,1,0,677,0.88,3,True,,Synthetic smart-casual sandals in cream
+ITEM024,Brown shirt 024,top,shirt,brown,formal,autumn,1,2,299,0.96,4,True,,Synthetic formal shirt in brown
+ITEM025,Brown hoodie 025,top,hoodie,brown,formal,autumn,4,4,381,0.38,4,True,,Synthetic formal hoodie in brown
+ITEM026,Pink blouse 026,top,blouse,pink,formal,spring,3,4,278,0.54,5,True,,Synthetic formal blouse in pink
+ITEM027,Pink coat 027,outerwear,coat,pink,minimalist,autumn,4,4,515,0.73,4,True,,Synthetic minimalist coat in pink
+ITEM028,Grey sweater 028,top,sweater,grey,casual,autumn,5,5,444,0.55,1,True,,Synthetic casual sweater in grey
+ITEM029,Green scarf 029,accessory,scarf,green,sporty,all-season,3,5,385,0.8,1,True,,Synthetic sporty scarf in green
+ITEM030,Burgundy casual dress 030,dress,casual-dress,burgundy,smart-casual,spring,4,1,521,0.97,4,True,,Synthetic smart-casual casual dress in burgundy
+ITEM031,Green bag 031,accessory,bag,green,formal,summer,3,4,89,0.81,5,True,,Synthetic formal bag in green
+ITEM032,Navy shirt 032,top,shirt,navy,sporty,summer,2,0,332,0.39,3,True,,Synthetic sporty shirt in navy
+ITEM033,Blue skirt 033,bottom,skirt,blue,sporty,winter,2,3,389,0.57,2,True,,Synthetic sporty skirt in blue
+ITEM034,Brown scarf 034,accessory,scarf,brown,minimalist,all-season,5,0,143,0.38,3,True,,Synthetic minimalist scarf in brown
+ITEM035,Blue shorts 035,bottom,shorts,blue,sporty,autumn,1,3,633,0.77,1,True,,Synthetic sporty shorts in blue
+ITEM036,Grey coat 036,outerwear,coat,grey,sporty,spring,5,1,1085,0.74,1,True,,Synthetic sporty coat in grey
+ITEM037,Pink blouse 037,top,blouse,pink,sporty,winter,2,0,423,0.85,2,True,,Synthetic sporty blouse in pink
+ITEM038,White skirt 038,bottom,skirt,white,minimalist,autumn,1,3,304,0.65,4,True,,Synthetic minimalist skirt in white
+ITEM039,Pink belt 039,accessory,belt,pink,minimalist,winter,4,3,192,0.92,2,True,,Synthetic minimalist belt in pink
+ITEM040,Grey formal dress 040,dress,formal-dress,grey,sporty,summer,3,1,555,0.36,3,True,,Synthetic sporty formal dress in grey
+ITEM041,Green casual dress 041,dress,casual-dress,green,sporty,winter,1,0,457,0.78,2,True,,Synthetic sporty casual dress in green
+ITEM042,Green formal dress 042,dress,formal-dress,green,formal,autumn,3,0,311,0.8,5,True,,Synthetic formal formal dress in green
+ITEM043,White raincoat 043,outerwear,raincoat,white,smart-casual,autumn,2,3,429,0.98,4,True,,Synthetic smart-casual raincoat in white
+ITEM044,Pink t shirt 044,top,t-shirt,pink,formal,winter,2,3,294,0.88,4,True,,Synthetic formal t shirt in pink
+ITEM045,Grey coat 045,outerwear,coat,grey,minimalist,autumn,3,1,920,0.75,4,True,,Synthetic minimalist coat in grey
+ITEM046,Pink belt 046,accessory,belt,pink,minimalist,spring,1,1,130,0.51,3,True,,Synthetic minimalist belt in pink
+ITEM047,Blue cardigan 047,outerwear,cardigan,blue,casual,summer,3,5,372,0.86,1,True,,Synthetic casual cardigan in blue
+ITEM048,Grey raincoat 048,outerwear,raincoat,grey,casual,spring,2,5,427,0.55,2,True,,Synthetic casual raincoat in grey
+ITEM049,Beige cardigan 049,outerwear,cardigan,beige,minimalist,autumn,1,0,901,0.79,3,True,,Synthetic minimalist cardigan in beige
+ITEM050,Blue formal dress 050,dress,formal-dress,blue,smart-casual,all-season,4,1,428,0.79,3,True,,Synthetic smart-casual formal dress in blue

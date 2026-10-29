@@ -1,0 +1,14 @@
+{
+  "name": "dressme",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev:all": "node scripts/dev-all.mjs",
+    "dev:backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8020 --reload",
+    "dev:frontend": "pnpm --dir \"DressMe UI Blueprint\" dev",
+    "build:frontend": "pnpm --dir \"DressMe UI Blueprint\" build",
+    "typecheck:frontend": "pnpm --dir \"DressMe UI Blueprint\" exec tsc --noEmit",
+    "test:backend": "python -m pytest backend packing_backend/trip_agent/tests -q"
+  }
+}

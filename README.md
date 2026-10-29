@@ -80,6 +80,30 @@ The legacy `frontend/` app is kept only as a migration reference until the canon
 reaches parity. See [`docs/frontend-consolidation.md`](docs/frontend-consolidation.md) for the
 status matrix.
 
+## Help Me Pack (BO7)
+
+The Help Me Pack screen and orchestrator use the packing API in `backend/main.py`
+on port **8020**. It verifies the caller through BO1 on port **8000**, loads that
+user's wardrobe, and runs the packing workflow through LangGraph and the CP-SAT
+optimizer. The service refreshes the wardrobe before trip continuations and edits;
+sessions and checklists are in memory and are lost on restart. BO1 must enable
+Supabase authentication for signed-in users; its local mode is single-user only.
+
+Garment weights and compatibility are explicitly labelled estimates; BO1 does not
+currently store weights, water resistance or pairwise compatibility. Live packing
+requires an Open-Meteo forecast for every trip day and reports an error if unavailable.
+The Gap Agent is unavailable unless a real integration is configured.
+If the wardrobe cannot meet the trip requirements, Help Me Pack suggests missing
+items and can retry after wardrobe updates. When repeating a complete outfit can
+resolve the trip, it offers that as an explicit user choice.
+
+Install `python -m pip install -r requirements.txt` at the root and the BO1 and
+frontend dependencies. Start BO1 and then run `npm run dev:all`, or use
+`start_all.ps1` to start the services. Configure `BO1_URL` if BO1 is not at
+`http://127.0.0.1:8000`, and `VITE_TRIP_API_URL` if the packing API is not at
+`http://localhost:8020`. Configure Supabase in the frontend and BO1. Packing tests:
+`python -m pytest backend/test_api.py backend/test_packing_integration.py packing_backend/trip_agent/tests -q`.
+
 ## API (all `/api/items*` and `/api/stats*` routes require `Authorization: Bearer <Supabase JWT>` in production)
 
 | Method | Route | Purpose |
@@ -119,6 +143,7 @@ Tout DressMe en local, depuis la racine du dépôt (Windows PowerShell) :
 | Service | Port | Lancement par le script |
 |---|---|---|
 | BO1 Wardrobe (`backend/`) | 8000 | `uvicorn app.main:app` |
+| HelpMePack (`packing_backend/`) | 8020 | `uvicorn backend.main:app --port 8020` |
 | Purchase Redundancy (`purchase-redundancy-ai/backend/`) | 8040 | `API_PORT=8040 python main.py` (son port par défaut, 8000, est celui de BO1) |
 | Ollama `qwen2.5:3b` | 11434 | `ollama serve` avec `OLLAMA_KEEP_ALIVE=30m` |
 | BO4 Stylist (`bo4/backend/`) | 8061 | `stylist_web.py --require-auth --bo1-url http://localhost:8000` |

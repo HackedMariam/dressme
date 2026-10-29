@@ -1,0 +1,40 @@
+%% DressMe Trip Agent - editable pipeline source
+%% Render with: npx @mermaid-js/mermaid-cli -i docs/agent-pipeline.mmd -o docs/agent-pipeline.png
+flowchart TD
+    U["1. User input<br/>manual form or free-text trip request"]
+    UI["React HelpMePack page"]
+    API["2. FastAPI backend<br/>POST /api/trips · SessionStore · Pydantic"]
+    AG["3. TripAgent<br/>system prompt + state summary<br/>last 16 messages + 10 tool schemas"]
+    LLM["4. GPT-4o<br/>temperature 0 · native function calling"]
+    TOOLS["5. Tool execution loop<br/>Pydantic validation · dependencies enforced<br/>max 12 iterations"]
+    STATE["6. AgentState → AgentResponse<br/>trip · weather · requirements · capsule · checklist"]
+    OUT["7. UI render<br/>weather cards · daily outfits · checklist"]
+    FOLLOW["8. Follow-up actions<br/>PATCH checklist · PATCH trip / reoptimize"]
+
+    U --> UI --> API --> AG --> LLM --> TOOLS
+    TOOLS --> STATE --> OUT --> FOLLOW
+
+    subgraph TOOLSET["Tool registry"]
+        T1["get_trip_details"]
+        T2["get_weather"]
+        T3["get_wardrobe"]
+        T4["get_activity_requirements"]
+        T5["optimize_trip"]
+        T6["generate_checklist"]
+        T7["suggest_alternatives"]
+        T8["update_trip"]
+        T9["update_checklist"]
+        T10["check_gaps (optional)"]
+    end
+    TOOLS --- TOOLSET
+
+    T1 -->|missing fields| CLARIFY["Ask one concise question<br/>status = needs_clarification"]
+    CLARIFY -->|user reply| API
+    LLM -.->|LLM unavailable| FALLBACK["Deterministic regex parser<br/>+ dependency-completion loop"]
+    FALLBACK --> TOOLS
+    T2 -.->|forecast unavailable| SYNTH["Labeled synthetic weather<br/>never presented as real"]
+    T5 -->|INFEASIBLE| ALT["suggest_alternatives<br/>no silent constraint relaxation"]
+    ALT --> STATE
+
+    S1["collecting_details"] --> S2["needs_clarification"] --> S3["ready"] --> S4["optimizing"] --> S5["optimized / infeasible"]
+    STATE --- S1

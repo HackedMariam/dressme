@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+ortools
+pandas
+openai
+pydantic
+requests
+pytest
+httpx
+langgraph>=1.0,<2
