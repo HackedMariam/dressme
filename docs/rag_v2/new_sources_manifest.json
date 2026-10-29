@@ -1,9 +1,9 @@
 {
-  "prepared_at": "2026-10-29T18:09:07+00:00",
+  "prepared_at": "2026-10-29T18:51:56+00:00",
   "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
   "embedding_version": "sentence-transformers/all-MiniLM-L6-v2-v1",
   "max_seq_length": 256,
-  "target_tokens": 450,
+  "target_tokens": 256,
   "documents": [
     {
       "title": "Packing list",
@@ -13,10 +13,10 @@
       "license": "CC BY-SA 4.0",
       "category": "travel",
       "sections": 44,
-      "chunks": 50,
-      "tokens_max": 448,
-      "tokens_median": 194,
-      "chunks_over_256_tokens": 16
+      "chunks": 69,
+      "tokens_max": 253,
+      "tokens_median": 149,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Wool",
@@ -26,10 +26,10 @@
       "license": "CC BY-SA 4.0",
       "category": "fabrics",
       "sections": 26,
-      "chunks": 31,
-      "tokens_max": 439,
-      "tokens_median": 216,
-      "chunks_over_256_tokens": 15
+      "chunks": 45,
+      "tokens_max": 256,
+      "tokens_median": 167,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Linen",
@@ -39,10 +39,10 @@
       "license": "CC BY-SA 4.0",
       "category": "fabrics",
       "sections": 12,
-      "chunks": 16,
-      "tokens_max": 449,
-      "tokens_median": 181,
-      "chunks_over_256_tokens": 7
+      "chunks": 23,
+      "tokens_max": 250,
+      "tokens_median": 175,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Cotton",
@@ -52,10 +52,10 @@
       "license": "CC BY-SA 4.0",
       "category": "fabrics",
       "sections": 42,
-      "chunks": 49,
-      "tokens_max": 457,
-      "tokens_median": 199,
-      "chunks_over_256_tokens": 20
+      "chunks": 68,
+      "tokens_max": 256,
+      "tokens_median": 176,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Laundry symbol",
@@ -65,10 +65,10 @@
       "license": "CC BY-SA 4.0",
       "category": "care",
       "sections": 10,
-      "chunks": 10,
-      "tokens_max": 425,
-      "tokens_median": 67,
-      "chunks_over_256_tokens": 1
+      "chunks": 12,
+      "tokens_max": 248,
+      "tokens_median": 83,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Western dress codes",
@@ -78,10 +78,10 @@
       "license": "CC BY-SA 4.0",
       "category": "occasions",
       "sections": 10,
-      "chunks": 10,
-      "tokens_max": 383,
-      "tokens_median": 77,
-      "chunks_over_256_tokens": 1
+      "chunks": 11,
+      "tokens_max": 249,
+      "tokens_median": 79,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Business casual",
@@ -91,10 +91,10 @@
       "license": "CC BY-SA 4.0",
       "category": "occasions",
       "sections": 2,
-      "chunks": 2,
-      "tokens_max": 369,
-      "tokens_median": 369,
-      "chunks_over_256_tokens": 1
+      "chunks": 3,
+      "tokens_max": 233,
+      "tokens_median": 219,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Suit",
@@ -104,10 +104,10 @@
       "license": "CC BY-SA 4.0",
       "category": "occasions",
       "sections": 24,
-      "chunks": 32,
-      "tokens_max": 456,
-      "tokens_median": 275,
-      "chunks_over_256_tokens": 18
+      "chunks": 51,
+      "tokens_max": 256,
+      "tokens_median": 179,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Color scheme",
@@ -117,10 +117,10 @@
       "license": "CC BY-SA 4.0",
       "category": "color",
       "sections": 14,
-      "chunks": 15,
-      "tokens_max": 456,
-      "tokens_median": 142,
-      "chunks_over_256_tokens": 4
+      "chunks": 19,
+      "tokens_max": 253,
+      "tokens_median": 133,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Complementary colors",
@@ -130,10 +130,10 @@
       "license": "CC BY-SA 4.0",
       "category": "color",
       "sections": 8,
-      "chunks": 11,
-      "tokens_max": 439,
-      "tokens_median": 319,
-      "chunks_over_256_tokens": 7
+      "chunks": 18,
+      "tokens_max": 248,
+      "tokens_median": 202,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Capsule wardrobe",
@@ -143,10 +143,10 @@
       "license": "CC BY-SA 4.0",
       "category": "wardrobe",
       "sections": 3,
-      "chunks": 3,
-      "tokens_max": 438,
-      "tokens_median": 214,
-      "chunks_over_256_tokens": 1
+      "chunks": 4,
+      "tokens_max": 256,
+      "tokens_median": 216,
+      "chunks_over_256_tokens": 0
     },
     {
       "title": "Female body shape",
@@ -156,11 +156,11 @@
       "license": "CC BY-SA 4.0",
       "category": "body",
       "sections": 20,
-      "chunks": 26,
-      "tokens_max": 448,
-      "tokens_median": 255,
-      "chunks_over_256_tokens": 12
+      "chunks": 38,
+      "tokens_max": 250,
+      "tokens_median": 198,
+      "chunks_over_256_tokens": 0
     }
   ],
-  "total_chunks": 255
+  "total_chunks": 361
 }

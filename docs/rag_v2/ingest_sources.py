@@ -2,7 +2,8 @@
 
 Deux commandes, à lancer depuis rag_backend avec le venv de BO5 (HF_HUB_OFFLINE=1) :
   prepare : vérifie la licence affichée sur chaque page, récupère le texte propre par l'API officielle,
-            découpe (section d'abord, ~450 tokens, préfixe « Document: … / Section: … »), calcule les
+            découpe (section d'abord, 256 tokens au plus préfixe « Document: … / Section: … » compris,
+            donc rien n'est tronqué par MiniLM), calcule les
             embeddings (même modèle et même embedding_version que la v1) et écrit les passages dans
             rag_backend/data/rag_v2_sources/ (ignoré par git) + un manifeste SANS texte dans docs/rag_v2/.
   upload  : insère ces passages dans knowledge_chunks_v2 (upsert sur chunk_id) avec la clé service du .env
@@ -30,7 +31,8 @@ OUT_DIR = RAG_BACKEND / "data" / "rag_v2_sources"
 CHUNKS = OUT_DIR / "chunks.jsonl"
 MANIFEST = HERE / "new_sources_manifest.json"
 TABLE = "knowledge_chunks_v2"
-TARGET_TOKENS = 450
+TARGET_TOKENS = 256      # max_seq_length de MiniLM : au-delà, l'embedding ignore la fin du passage
+SPECIAL_TOKENS = 2       # [CLS] et [SEP] ajoutés par le modèle
 UA = "DressMeRAGv2/0.1 (university project; https://github.com/HackedMariam/dressme) python-urllib"
 
 WP, WV = "https://en.wikipedia.org", "https://en.wikivoyage.org"
@@ -185,22 +187,37 @@ def ftc_page() -> dict | None:
 
 
 # ------------------------------------------------------------------ découpage
+def prefix(title: str, section: str) -> str:
+    return f"Document: {title}\nSection: {section}\n\n"
+
+
 def chunk_sections(doc: dict, tokenizer) -> list[tuple[str, str]]:
-    """Section d'abord ; dans une section, paragraphes (puis phrases) regroupés jusqu'à ~TARGET_TOKENS."""
+    """Section d'abord ; dans une section, paragraphes, puis phrases, puis mots, regroupés pour que le passage
+    complet (préfixe Document/Section + [CLS]/[SEP] compris) tienne dans TARGET_TOKENS : rien n'est tronqué."""
     def tokens(text: str) -> int:
         return len(tokenizer.tokenize(text))
 
+    def split(text: str, budget: int) -> list[str]:
+        if tokens(text) <= budget:
+            return [text]
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+        if len(sentences) > 1:
+            return [part for s in sentences for part in split(s, budget)]
+        words, parts, current = text.split(), [], []
+        for word in words:                                # phrase trop longue : coupure entre deux mots
+            if current and tokens(" ".join(current + [word])) > budget:
+                parts.append(" ".join(current))
+                current = []
+            current.append(word)
+        return parts + [" ".join(current)] if current else parts
+
     out = []
     for section, text in doc["sections"]:
-        pieces = []
-        for paragraph in [p.strip() for p in re.split(r"\n\s*\n|\n", text) if p.strip()]:
-            if tokens(paragraph) <= TARGET_TOKENS:
-                pieces.append(paragraph)
-            else:
-                pieces.extend(s.strip() for s in re.split(r"(?<=[.!?])\s+", paragraph) if s.strip())
+        budget = TARGET_TOKENS - SPECIAL_TOKENS - tokens(prefix(doc["title"], section))
+        pieces = [part for p in re.split(r"\n\s*\n|\n", text) if p.strip() for part in split(p.strip(), budget)]
         current: list[str] = []
         for piece in pieces:
-            if current and tokens(" ".join(current + [piece])) > TARGET_TOKENS:
+            if current and tokens(" ".join(current + [piece])) > budget:
                 out.append((section, " ".join(current)))
                 current = []
             current.append(piece)
@@ -228,7 +245,7 @@ def prepare() -> None:
         document_id = hashlib.sha256(f"{doc['url']}#{doc['revision']}".encode("utf-8")).hexdigest()
         chunks = chunk_sections(doc, model.tokenizer)
         for index, (section, body) in enumerate(chunks):
-            content = f"Document: {doc['title']}\nSection: {section}\n\n{body}"
+            content = prefix(doc["title"], section) + body
             _, found = classify_topics(f"{section}\n{body}")
             topics = list(dict.fromkeys(doc["topics"] + found))[:5] + [f"license:{doc['license']}"]
             records.append({
@@ -237,14 +254,17 @@ def prepare() -> None:
                 "section": section, "category": doc["category"], "topics": topics, "chunk_index": index,
                 "content_hash": text_sha256(content), "embedding_model": settings.embedding_model,
                 "embedding_version": settings.embedding_version, "ocr": False, "text": content})
-        sizes = [len(model.tokenizer.tokenize(r["text"])) for r in records[-len(chunks):]]
+        # taille vue par le modèle : tokens spéciaux compris, sans troncature
+        sizes = [len(model.tokenizer(r["text"], truncation=False)["input_ids"]) for r in records[-len(chunks):]]
         manifest.append({"title": doc["title"], "url": doc["url"], "revision": doc["revision"],
                          "author": doc["author"], "license": doc["license"], "category": doc["category"],
                          "sections": len({s for s, _ in chunks}), "chunks": len(chunks),
                          "tokens_max": max(sizes), "tokens_median": sorted(sizes)[len(sizes) // 2],
-                         "chunks_over_256_tokens": sum(s > 256 for s in sizes)})
+                         "chunks_over_256_tokens": sum(s > model.max_seq_length for s in sizes)})
         print(f"{doc['title']:58} {doc['license']:14} {len(chunks):3d} passages", flush=True)
 
+    if any(d["chunks_over_256_tokens"] for d in manifest):
+        raise SystemExit("Passage plus long que max_seq_length : il serait tronqué par MiniLM")
     embeddings = model.encode([r["text"] for r in records], batch_size=32, normalize_embeddings=True,
                               convert_to_numpy=True, show_progress_bar=False)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
