@@ -254,7 +254,8 @@ def test_wardrobe_without_filter_gives_breakdown(fake):
 def test_purchase_sends_the_bo1_wardrobe(fake):
     state = run(make(fake), "Est-ce que je devrais acheter une veste en cuir noire à 80 € ?", token=TOKEN)
     body = fake.to("purchase")[0]["body"]
-    assert body["new_item"] == {"name": "veste noire", "category": "outerwear", "color": "black", "price": 80.0}
+    assert body["new_item"] == {"name": "black leather jacket", "category": "outerwear", "color": "black",
+                                "material": "leather", "price": 80.0, "style": None}
     assert body["language"] == "French" and body["use_llm"] is False
     assert {i["category"] for i in body["wardrobe_items"]} <= {"shirts", "pants", "dresses", "shoes", "outerwear",
                                                               "accessories"}

@@ -154,6 +154,31 @@ devra donc avoir `forward_token: true`.
 | Réponse | `GenerateResponse` : `jobId`, `url`, `params`, `details`, `outfit`, `bytes`, `elapsedSeconds`, `metrics`, `items`, `saved`, `savedAt`, `saveError` |
 | Remarque | pas d'entrée dans `services.yaml` pour l'instant : le résultat (modèle 3D) s'affiche dans la page d'essayage, pas dans une conversation |
 
+### Purchase Redundancy (`purchase-redundancy-ai/`, zied-coder) : branché, score à fiabiliser
+
+`POST /analyze` (port **8040**, `API_PORT=8040`) accepte déjà `wardrobe_items` et compare l'article à ces pièces,
+pas à sa propre base. L'orchestrateur envoie (fonction `purchase_request` de `graph.py`) :
+
+| Champ | Valeur |
+|---|---|
+| `new_item` | article de la question **en anglais** : `name` (« black leather jacket »), `category` parmi `shirts`, `pants`, `dresses`, `shoes`, `outerwear`, `accessories`, `color`, `material` et `price` s'ils sont dans la question, `style: null` |
+| `wardrobe_items` | pièces BO1 converties (`id`, `name`, `category`, `color`, `material`, `season`, `description`), `style: null` ; `material` retiré si l'article n'en a pas |
+| `language` | `French` ou `English` selon la question (langue de l'explication) ; `use_llm` selon le réglage |
+
+Ce qui limite encore le score, **côté Purchase Redundancy** (code non modifié par l'orchestrateur) :
+
+1. **Style absent remplacé par « casual »** (`ClothingItemRequest.style = "casual"`). Une question d'achat n'a
+   presque jamais de style ; comparer ce « casual » inventé au style BO1 (« minimalist ») retire les 13 points du
+   style et ajoute un mot faux au texte comparé. À changer : traiter un style absent comme neutre, comme
+   `color_known` et `material_known` dans `feature_2_similarity_score`. L'orchestrateur envoie `style: null` des
+   deux côtés en attendant.
+2. **Embeddings « simulated » sans CLIP** (`CLIP_ENABLED=False`, ou torch absent) : la similarité de texte n'est que
+   le recouvrement de mots. « black turtleneck » face à « Black Ribbed Turtleneck » donne une paire à 51 % pour un
+   seuil de 50 % : un mot de plus dans le nom BO1 (« Black Ribbed Turtleneck Sweater ») suffit à l'écarter. Avec
+   CLIP, le seuil `text_floor = 0.6` s'applique et ces deux textes sont proches.
+3. **Seuil de pièce proche fixe** (`similarity >= 0.5` en même catégorie) : en mode simulé, un seuil plus bas ou
+   une comparaison du type de pièce (turtleneck, blazer, jacket) éviterait ces écarts au mot près.
+
 ## Côté orchestrateur
 
 Chaque module a une entrée dans la section `modules` de `orchestrator/services.yaml` (URL, santé, route, modèle de

@@ -139,6 +139,14 @@ GLOSSARY = (
     (r"pantalons?", "trousers"), (r"vestes?", "jacket"), (r"blousons?", "jacket"), (r"manteaux?", "coat"),
     (r"pulls?", "sweater"), (r"chemises?", "shirt"), (r"robes?", "dress"), (r"chaussures?", "shoes"),
     (r"[ée]cossaise?s?", "plaid"),
+    # pièces et matières de l'avis d'achat (Purchase Redundancy compare des textes en anglais)
+    (r"chemisiers?", "blouse"), (r"hauts?", "top"), (r"gilets?", "cardigan"), (r"bermudas?", "shorts"),
+    (r"baskets?", "sneakers"), (r"bottines?", "ankle boots"), (r"bottes?", "boots"), (r"escarpins?", "pumps"),
+    (r"sacs?", "bag"), (r"ceintures?", "belt"), (r"montres?", "watch"), (r"lunettes?", "glasses"),
+    (r"collants?", "tights"), (r"[ée]charpes?", "scarf"), (r"foulards?", "scarf"), (r"chapeaux?", "hat"),
+    (r"bonnets?", "beanie"), (r"casquettes?", "cap"),
+    (r"cuir", "leather"), (r"laine", "wool"), (r"coton", "cotton"), (r"lin", "linen"), (r"soie", "silk"),
+    (r"daim", "suede"), (r"cachemire", "cashmere"), (r"velours", "velvet"),
 )
 
 
@@ -297,32 +305,56 @@ def purchase_category(bo1_category: Any) -> str:
     return PURCHASE_CATEGORY.get(str(bo1_category or "").lower(), "accessories")
 
 
+MATERIAL_WORDS = {
+    "leather": r"\b(cuir|leather)\b", "wool": r"\b(laine|wool)\b", "cotton": r"\b(coton|cotton)\b",
+    "linen": r"\b(lin|linen)\b", "silk": r"\b(soie|silk)\b", "suede": r"\b(daim|suede)\b",
+    "cashmere": r"\b(cachemire|cashmere)\b", "velvet": r"\b(velours|velvet)\b", "denim": r"\b(denim)\b",
+}
+
+
 def bo1_to_purchase(item: dict) -> dict:
+    """Pièce BO1 -> ClothingItemRequest. style vaut toujours null : l'article demandé n'a pas de style connu, et
+    Purchase Redundancy remplace un style absent par « casual » ; comparer « minimalist » à ce « casual » inventé
+    écarte à tort la pièce possédée. null (et non absent) neutralise le style des deux côtés."""
     seasons = item.get("seasons") or []
     out = {"id": str(item.get("id"))[:64], "name": str(item.get("name") or item.get("category") or "item")[:160],
            "category": purchase_category(item.get("category")),
            "color": str(item.get("color_name") or "")[:60] or None,
-           "style": str(item.get("style") or "casual")[:60],
            "material": str(item.get("material") or "")[:60] or None,
            "season": str(seasons[0])[:60] if seasons else None,
            "description": str(item.get("description") or "")[:500] or None}
-    return {k: v for k, v in out.items() if v is not None}
+    return {k: v for k, v in out.items() if v is not None} | {"style": None}
 
 
 def new_item_from_message(message: str) -> Optional[dict]:
+    """Article à acheter, en anglais comme les pièces BO1 : « veste en cuir noire à 80 € » ->
+    {name: "black leather jacket", category: "outerwear", color: "black", material: "leather", price: 80.0}."""
     categories = find_categories(message)
     if not categories:
         return None
     category, colors = categories[0], find_colors(message)
     text = re.sub(r"garde-robes?", " ", plain(message))
-    garment = re.search(GARMENT_WORDS[category], text).group(0)
-    tint = re.search(COLOR_WORDS[colors[0]], text).group(0) if colors else None
-    item = {"name": " ".join(filter(None, [garment, tint])), "category": purchase_category(category)}
+    garment = apply_glossary(re.search(GARMENT_WORDS[category], text).group(0))
+    material = next((m for m, pattern in MATERIAL_WORDS.items() if re.search(pattern, text)), None)
+    item = {"name": " ".join(filter(None, [colors[0] if colors else None, material, garment])),
+            "category": purchase_category(category), "style": None}
     if colors:
         item["color"] = colors[0]
+    if material:
+        item["material"] = material
     if price := re.search(r"(\d+(?:[.,]\d+)?)\s*(€|eur|euros?|\$|dollars?|dt|dinars?)", text):
         item["price"] = float(price.group(1).replace(",", "."))
     return item
+
+
+def purchase_request(new_item: dict, bo1_items: list, language: str, use_llm: bool) -> dict:
+    """Corps de POST /analyze. Purchase Redundancy compare les textes « couleur matière style nom » : une matière
+    absente de l'article demandé est aussi retirée des pièces BO1, sinon ses mots (« wool knit ») diluent à eux
+    seuls la similarité. Elle reste comptée comme inconnue (neutre) dans son score d'attributs."""
+    wardrobe_items = [bo1_to_purchase(i) for i in bo1_items][:PURCHASE_MAX_ITEMS]
+    if "material" not in new_item:
+        wardrobe_items = [{k: v for k, v in i.items() if k != "material"} for i in wardrobe_items]
+    return {"new_item": new_item, "wardrobe_items": wardrobe_items, "use_llm": use_llm, "language": language}
 
 
 # --------------------------------------------------------------------------------------
@@ -641,9 +673,9 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
             result = {"service": "purchase", "label": label, "ok": False, "text": text,
                       "details": {"login_required": _needs_login(wardrobe_call, bool(token))}}
             return {"result": result, "last_route": "purchase", "trace": trace}
-        wardrobe_items = [bo1_to_purchase(i) for i in wardrobe_call.data][:PURCHASE_MAX_ITEMS]
-        body = {"new_item": new_item, "wardrobe_items": wardrobe_items, "use_llm": use_llm_for_purchase,
-                "language": "French" if is_french(message) else "English"}
+        body = purchase_request(new_item, wardrobe_call.data, "French" if is_french(message) else "English",
+                                use_llm_for_purchase)
+        wardrobe_items = body["wardrobe_items"]
         call = gateway.call("purchase", "POST", "/analyze", body)
         trace.append(f"purchase -> {call.trace()}")
         if not call.ok or not isinstance(call.data, dict):
