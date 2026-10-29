@@ -235,3 +235,12 @@ def test_shipped_services_yaml_matches_main():
     services = load_services()
     assert services["bo5"].extra.get("enabled") is False                # rag_backend absent de main
     assert all(services[name].extra.get("enabled", True) for name in ("bo1", "stylist", "purchase"))
+
+
+def test_services_yaml_ports_do_not_collide():
+    """Chaque service et module de services.yaml a son propre port, distinct de celui de l'orchestrateur (8070)."""
+    from urllib.parse import urlparse
+    from services import load_services
+    urls = [s.url for s in load_services().values()] + [m.url for m in load_modules().values()]
+    ports = [urlparse(url).port for url in urls]
+    assert None not in ports and len(set(ports)) == len(ports) and 8070 not in ports
