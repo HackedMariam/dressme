@@ -60,7 +60,9 @@ class FakeServices:
                        "similar_items": [{"name": "Black Leather Jacket", "similarity": 0.91}]}
             return 200, json.dumps(payload).encode()
         if host == "bo5":
-            payload = {"answer": "Pair it with a structured blazer [S1].", "grounded": True,
+            payload = {"answer": "From [S1], pair it with a **structured blazer** [S1].\n"
+                                 "- A parka (Figure 69 from [S5]) for cooler days [S2, S3].\n"
+                                 "- See FIGURE 12 for details.", "grounded": True,
                        "citations": [{"marker": "S1", "title": "Work clothes", "page": 95},
                                      {"marker": "S2", "title": "Slide 1", "page": 3},
                                      {"marker": "S3", "title": "Textilepedia (z-library.sk, 1lib.sk)", "page": 9},
@@ -273,12 +275,59 @@ def test_knowledge_translates_and_masks_titles(fake):
             else None
     state = run(make(fake, llm=llm), "Comment porter un col roulé noir avec un pantalon large ?")
     assert fake.to("bo5")[0]["body"]["question"] == "How do I wear a black turtleneck with wide trousers?"
-    text = state["response"]
-    assert "Pair it with a structured blazer [S1]." in text                 # réponse affichée telle quelle
-    assert "Sources citées : Work clothes (p. 95)." in text                 # citées, sans doublon
-    assert "2 source(s) citée(s) au titre peu fiable masquée(s)" in text
-    for hidden in ("Slide 1", "z-library", ".indb", "36916"):
+    text, details = state["response"], state["result"]["details"]
+    assert details["answer"] == "Pair it with a **structured blazer**.\n- A parka for cooler days."
+    assert details["language"] == "en" and details["sources"] == ["Work clothes (p. 95)"]   # citées, sans doublon
+    assert "**Sources citées**\n- Work clothes (p. 95)" in text
+    assert "2 autre(s) source(s) citée(s) au titre peu fiable masquée(s)" in text
+    for hidden in ("Slide 1", "z-library", ".indb", "36916", "[S", "Figure", "FIGURE"):
         assert hidden not in text
+
+
+@pytest.mark.parametrize("raw, clean", [
+    ("Pair it with a blazer [S1]. Add boots [S2, S3][S4].", "Pair it with a blazer. Add boots."),
+    ("From [S1], we learn about capsules.", "We learn about capsules."),
+    ("Based on [S2] and [S4], navy works well.", "Navy works well."),
+    ("- A parka (Figure 69 from [S5]) for cooler nights.", "- A parka for cooler nights."),
+    ("Layer it over a black top, as shown in Figure 50.", "Layer it over a black top."),
+    ("A dress (FIGURE 58 from [S3]) with heels. See FIGURE 12 for details.", "A dress with heels."),
+    ("The **LBD** is versatile [S1].", "The **LBD** is versatile."),
+    ("No marker here.", "No marker here."),
+])
+def test_clean_bo5_answer(raw, clean):
+    assert og.clean_bo5_answer(raw) == clean
+
+
+def test_bo5_without_citation_says_so(fake):
+    original = fake.__call__
+
+    def no_citation(request, timeout):
+        status, raw = original(request, timeout)
+        if "bo5.test" in request.full_url:
+            data = json.loads(raw)
+            data["citations"] = []
+            raw = json.dumps(data).encode()
+        return status, raw
+    graph = og.build_graph(gateway=Gateway(SERVICES, transport=no_citation), llm=None)
+    state = run(graph, "How do I wear a plaid mini skirt in autumn?")
+    assert state["result"]["details"]["sources"] == []
+    assert "Aucune source citée" in state["response"]
+
+
+def test_bo5_with_only_masked_sources_says_so(fake):
+    original = fake.__call__
+
+    def only_masked(request, timeout):
+        status, raw = original(request, timeout)
+        if "bo5.test" in request.full_url:
+            data = json.loads(raw)
+            data["citations"] = [c for c in data["citations"] if c["title"] != "Work clothes"]
+            raw = json.dumps(data).encode()
+        return status, raw
+    graph = og.build_graph(gateway=Gateway(SERVICES, transport=only_masked), llm=None)
+    state = run(graph, "How do I wear a plaid mini skirt in autumn?")
+    assert "2 source(s) citée(s), toutes au titre peu fiable (masquées)" in state["response"]
+    assert "Aucune source citée" not in state["response"]
 
 
 def test_french_garment_words_left_by_the_translation_are_fixed(fake):

@@ -326,6 +326,35 @@ def cited_sources(payload: dict) -> tuple[list[str], int]:
     return shown, masked
 
 
+# Marqueurs de citation de BO5 ([S1], [S2, S3], [S1][S4]) et renvois aux figures des livres sources : utiles au
+# contrôle mais illisibles pour l'utilisateur. La réponse reste en anglais ; les sources sont listées à part.
+_MARKER = r"\[\s*S\s*\d+(?:\s*[,;&]\s*S?\s*\d+)*\s*\]"
+_FIGURE = r"(?:figures?|fig\.)\s*\d+[a-z]?"
+BO5_CLEANUP = (
+    (rf"\s*\([^()]*\b{_FIGURE}[^()]*\)", ""),                                        # (Figure 69 from [S5])
+    (rf",?\s*(?:as\s+)?(?:shown|seen|illustrated|depicted|pictured)\s+in\s+{_FIGURE}", ""),
+    (rf"\s*\b(?:see|refer to|check)\s+{_FIGURE}(?:\s+for\s+(?:details|more(?:\s+\w+)?))?\s*[.!]?", ""),  # See FIGURE 12…
+    (rf"\b{_FIGURE}(?:\s+(?:from|in|of)\s+{_MARKER})?", ""),                        # FIGURE 12 from [S2]
+    (rf"\b(?:from|in|according to|see|per|as (?:mentioned|suggested|noted|shown) in|based on)\s+"
+     rf"{_MARKER}(?:\s*(?:and|,)\s*{_MARKER})*\s*,?\s*", ""),                         # From [S1], we learn
+    (rf"\s*{_MARKER}", ""),
+    (r"\(\s*\)", ""),
+    (r"[ \t]{2,}", " "),
+    (r"[ \t]+([,.;:!?])", r"\1"),
+    (r",\s*\.", "."),
+    (r"[ \t]+$", ""),
+    (r"^[ \t]*(?:[-*•]|\d+[.)])[ \t]*(?:\n|\Z)", ""),                            # puce vidée par le nettoyage
+)
+
+
+def clean_bo5_answer(text: str) -> str:
+    for pattern, repl in BO5_CLEANUP:
+        text = re.sub(pattern, repl, text, flags=re.IGNORECASE | re.MULTILINE)
+    # Majuscule en début de phrase ou de ligne quand le renvoi supprimé la portait (« From [S1], we… »).
+    text = re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text, flags=re.MULTILINE)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 # --------------------------------------------------------------------------------------
 # État du graphe
 # --------------------------------------------------------------------------------------
@@ -501,15 +530,18 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False) -
             result = {"service": "knowledge", "label": label, "ok": False, "text": _failure(label, call), "details": {}}
             return {"result": result, "last_route": "knowledge", "trace": trace}
         sources, masked = cited_sources(call.data)
-        lines = [str(call.data.get("answer") or "").strip()]
+        answer = clean_bo5_answer(str(call.data.get("answer") or ""))
+        lines = [answer, ""]
         if sources:
-            lines.append("Sources citées : " + " ; ".join(sources) + ".")
+            lines += ["**Sources citées**"] + [f"- {source}" for source in sources]
+            if masked:
+                lines += ["", f"{masked} autre(s) source(s) citée(s) au titre peu fiable masquée(s)."]
+        elif masked:
+            lines.append(f"*{masked} source(s) citée(s), toutes au titre peu fiable (masquées) : conseil à vérifier.*")
         else:
-            lines.append("Aucune source citée : conseil à prendre avec prudence.")
-        if masked:
-            lines.append(f"{masked} source(s) citée(s) au titre peu fiable masquée(s).")
+            lines.append("*Aucune source citée : conseil à prendre avec prudence.*")
         details = {"question_sent": question, "translated": translated, "grounded": bool(call.data.get("grounded")),
-                   "sources": sources, "masked_sources": masked}
+                   "answer": answer, "language": "en", "sources": sources, "masked_sources": masked}
         result = {"service": "knowledge", "label": label, "ok": True, "text": "\n".join(lines), "details": details}
         return {"result": result, "last_route": "knowledge", "trace": trace}
 

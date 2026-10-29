@@ -46,7 +46,21 @@ python -m venv .venv
 .\.venv\Scripts\python.exe app.py --services autre.yaml
 ```
 
-Puis ouvrir http://127.0.0.1:8070. Services attendus (`services.yaml`, plan des ports d'`INTEGRATION.md`) :
+Puis ouvrir http://127.0.0.1:8070.
+
+**Connexion** : copier `.env.example` en `.env` (ignoré par git) et y mettre `SUPABASE_URL` et la clé **anon**
+(publique, prévue pour le navigateur ; jamais la clé service_role). La page affiche alors « Se connecter » :
+e-mail et mot de passe via supabase-js 2.45.4 (jsDelivr, version figée). Le jeton de session reste en mémoire
+de la page (stockage supabase-js en mémoire, `persistSession: false`), est envoyé en `Authorization: Bearer`, et
+« Se déconnecter » l'efface. Sans `.env` ou sans connexion : **mode démo** (« Mode démo : garde-robe d'exemple »),
+sans jeton.
+
+**Rendu** : les réponses sont affichées en markdown (gras, listes, paragraphes) par `static/markdown.js`, qui
+construit le DOM avec `textContent` uniquement : aucun HTML venant d'un service n'est interprété. Pour BO5 RAG,
+la réponse reste en anglais (étiquette « Réponse en anglais (base de connaissances anglophone) ») ; les marqueurs
+`[S1]`…`[Sn]` et les renvois « FIGURE nn » sont retirés, et les sources citées sont listées sous la réponse.
+
+Services attendus (`services.yaml`, plan des ports d'`INTEGRATION.md`) :
 
 | Service | URL | Lancement |
 |---|---|---|
@@ -63,7 +77,7 @@ Tests (services simulés, aucun réseau) :
 
 ```powershell
 cd orchestrator
-.\.venv\Scripts\python.exe -m pytest tests -q        # 57 tests
+.\.venv\Scripts\python.exe -m pytest tests -q        # 79 tests (Node.js requis pour 8 d'entre eux)
 ```
 
 ## Limites
