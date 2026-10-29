@@ -9,7 +9,7 @@ from typing import Any
 
 from config import get_settings
 from rag.llm_client import LLMUnavailable, chat_completion
-from rag.query_rewrite import rewrite_query
+from rag.translate import translate_query
 from rag.retriever import retrieve
 
 logger = logging.getLogger(__name__)
@@ -179,7 +179,7 @@ def answer_question(
 ) -> dict:
     """Generate a grounded answer with inline citations."""
     settings = get_settings()
-    rewritten = rewrite_query(question, history)
+    rewritten = translate_query(question)  # French -> English translation, no free rewrite
     passages = retrieve(
         rewritten,
         top_k=top_k,
@@ -236,7 +236,7 @@ def stream_answer(
 ) -> Iterator[dict[str, Any]]:
     """Yield SSE-friendly events: sources, token, citations, done, error."""
     settings = get_settings()
-    rewritten = rewrite_query(question, history)
+    rewritten = translate_query(question)  # French -> English translation, no free rewrite
     passages = retrieve(
         rewritten,
         top_k=top_k,

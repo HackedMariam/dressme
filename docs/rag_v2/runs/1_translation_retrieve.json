@@ -1,0 +1,2103 @@
+{
+  "mode": "retrieve",
+  "query": "service",
+  "top_k": 5,
+  "gold_status": [
+    "draft"
+  ],
+  "summary": {
+    "tout": {
+      "n": 40,
+      "hit@5": 87.5,
+      "mrr@5": 69.7,
+      "precision@5": 55.5,
+      "titre_signale_dans_sources": 15.0,
+      "latence_mediane_s": 0.63
+    },
+    "fr": {
+      "n": 20,
+      "hit@5": 85.0,
+      "mrr@5": 67.4,
+      "precision@5": 54.0,
+      "titre_signale_dans_sources": 15.0,
+      "latence_mediane_s": 0.91
+    },
+    "en": {
+      "n": 20,
+      "hit@5": 90.0,
+      "mrr@5": 72.1,
+      "precision@5": 57.0,
+      "titre_signale_dans_sources": 15.0,
+      "latence_mediane_s": 0.42
+    },
+    "paires": {
+      "les_deux": 17,
+      "anglais_seulement": 1,
+      "francais_seulement": 0,
+      "aucune": 2
+    },
+    "hit@5_par_theme": {
+      "accessoires": 100,
+      "chaussures": 100,
+      "conseils femmes": 50.0,
+      "conseils hommes": 100,
+      "couleurs": 100,
+      "durabilité": 100,
+      "garde-robe / capsule": 100,
+      "textiles": 0,
+      "théorie / tendances": 100,
+      "travail / dress code": 100,
+      "voyage / valise": 100
+    }
+  },
+  "results": [
+    {
+      "id": "capsule-30-fr",
+      "pair": "capsule-30",
+      "lang": "fr",
+      "theme": "garde-robe / capsule",
+      "question": "Comment construire une garde-robe capsule d'environ 30 pièces ?",
+      "expected": [
+        "capsule wardrobe",
+        "wardrobe capsules",
+        "french minimalist"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 131,
+          "relevant": true,
+          "similarity": 0.805976951300411
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 70,
+          "relevant": true,
+          "similarity": 0.79321386895015
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 33,
+          "relevant": true,
+          "similarity": 0.777001321315765
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 32,
+          "relevant": true,
+          "similarity": 0.772795557975769
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 10,
+          "relevant": true,
+          "similarity": 0.760531215604404
+        }
+      ],
+      "query_sent": "How do I build a capsule wardrobe of about 30 pieces?",
+      "latency_s": 46.77
+    },
+    {
+      "id": "capsule-30-en",
+      "pair": "capsule-30",
+      "lang": "en",
+      "theme": "garde-robe / capsule",
+      "question": "How do I build a capsule wardrobe of about 30 pieces?",
+      "expected": [
+        "capsule wardrobe",
+        "wardrobe capsules",
+        "french minimalist"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 131,
+          "relevant": true,
+          "similarity": 0.805976951300411
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 70,
+          "relevant": true,
+          "similarity": 0.79321386895015
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 33,
+          "relevant": true,
+          "similarity": 0.777001321315765
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 32,
+          "relevant": true,
+          "similarity": 0.772795557975769
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 10,
+          "relevant": true,
+          "similarity": 0.760531215604404
+        }
+      ],
+      "query_sent": "How do I build a capsule wardrobe of about 30 pieces?",
+      "latency_s": 0.52
+    },
+    {
+      "id": "capsule-winter-fr",
+      "pair": "capsule-winter",
+      "lang": "fr",
+      "theme": "garde-robe / capsule",
+      "question": "Que mettre dans une garde-robe capsule d'hiver pour une femme ?",
+      "expected": [
+        "french minimalist",
+        "wardrobe capsules",
+        "capsule wardrobe"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 116,
+          "relevant": true,
+          "similarity": 0.802659940561061
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 33,
+          "relevant": true,
+          "similarity": 0.767141461372375
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 110,
+          "relevant": true,
+          "similarity": 0.798117113225634
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 33,
+          "relevant": true,
+          "similarity": 0.779111934953218
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 60,
+          "relevant": true,
+          "similarity": 0.713727431671178
+        }
+      ],
+      "query_sent": "What pieces should I have in my winter capsule wardrobe?",
+      "latency_s": 3.32
+    },
+    {
+      "id": "capsule-winter-en",
+      "pair": "capsule-winter",
+      "lang": "en",
+      "theme": "garde-robe / capsule",
+      "question": "What should a women's winter capsule wardrobe include?",
+      "expected": [
+        "french minimalist",
+        "wardrobe capsules",
+        "capsule wardrobe"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 116,
+          "relevant": true,
+          "similarity": 0.762297823292148
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 33,
+          "relevant": true,
+          "similarity": 0.760323359947006
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 110,
+          "relevant": true,
+          "similarity": 0.760232105241294
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 5,
+          "relevant": true,
+          "similarity": 0.734011948108673
+        },
+        {
+          "title": "The French Minimalist Capsule Wardrobe - Winter 2018-2019 Collection",
+          "page": 8,
+          "relevant": true,
+          "similarity": 0.725687026977539
+        }
+      ],
+      "query_sent": "What should a women's winter capsule wardrobe include?",
+      "latency_s": 0.42
+    },
+    {
+      "id": "pack-week-fr",
+      "pair": "pack-week",
+      "lang": "fr",
+      "theme": "voyage / valise",
+      "question": "Comment faire une valise légère pour une semaine de voyage ?",
+      "expected": [
+        "how to pack",
+        "how-to-pack",
+        "traveling clothes"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.8,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 89,
+          "relevant": true,
+          "similarity": 0.638434014413715
+        },
+        {
+          "title": "Work clothes",
+          "page": 160,
+          "relevant": false,
+          "similarity": 0.590848827907514
+        },
+        {
+          "title": "How to Pack for Any Trip (Lonely Planet)",
+          "page": 6,
+          "relevant": true,
+          "similarity": 0.573426467972207
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 97,
+          "relevant": true,
+          "similarity": 0.569480351271587
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 34,
+          "relevant": true,
+          "similarity": 0.568957499389947
+        }
+      ],
+      "query_sent": "How do I pack a light suitcase for a week of travel?",
+      "latency_s": 1.03
+    },
+    {
+      "id": "pack-week-en",
+      "pair": "pack-week",
+      "lang": "en",
+      "theme": "voyage / valise",
+      "question": "How do I pack a light suitcase for a one-week trip?",
+      "expected": [
+        "how to pack",
+        "how-to-pack",
+        "traveling clothes"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.8,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 89,
+          "relevant": true,
+          "similarity": 0.648153960704803
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 34,
+          "relevant": true,
+          "similarity": 0.591910565381613
+        },
+        {
+          "title": "Work clothes",
+          "page": 160,
+          "relevant": false,
+          "similarity": 0.589955806732178
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 16,
+          "relevant": true,
+          "similarity": 0.58732016644836
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 97,
+          "relevant": true,
+          "similarity": 0.581748033657788
+        }
+      ],
+      "query_sent": "How do I pack a light suitcase for a one-week trip?",
+      "latency_s": 0.42
+    },
+    {
+      "id": "pack-business-trip-fr",
+      "pair": "pack-business-trip",
+      "lang": "fr",
+      "theme": "voyage / valise",
+      "question": "Quels vêtements emporter pour un voyage d'affaires de trois jours ?",
+      "expected": [
+        "traveling clothes",
+        "how to pack",
+        "how-to-pack",
+        "work clothes"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Work clothes",
+          "page": 160,
+          "relevant": true,
+          "similarity": 0.7217916416054
+        },
+        {
+          "title": "Work clothes",
+          "page": 119,
+          "relevant": true,
+          "similarity": 0.713969026330825
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 19,
+          "relevant": true,
+          "similarity": 0.700112259374588
+        },
+        {
+          "title": "Work clothes",
+          "page": 160,
+          "relevant": true,
+          "similarity": 0.670514126389378
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 87,
+          "relevant": true,
+          "similarity": 0.664661606272364
+        }
+      ],
+      "query_sent": "What clothes should I pack for a three day business trip?",
+      "latency_s": 0.98
+    },
+    {
+      "id": "pack-business-trip-en",
+      "pair": "pack-business-trip",
+      "lang": "en",
+      "theme": "voyage / valise",
+      "question": "Which clothes should I take on a three-day business trip?",
+      "expected": [
+        "traveling clothes",
+        "how to pack",
+        "how-to-pack",
+        "work clothes"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Work clothes",
+          "page": 160,
+          "relevant": true,
+          "similarity": 0.706728893117376
+        },
+        {
+          "title": "Work clothes",
+          "page": 119,
+          "relevant": true,
+          "similarity": 0.691963351730901
+        },
+        {
+          "title": "Work clothes",
+          "page": 160,
+          "relevant": true,
+          "similarity": 0.675629098675902
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 19,
+          "relevant": true,
+          "similarity": 0.675110378848269
+        },
+        {
+          "title": "How to Pack: Travel Smart for Any Trip",
+          "page": 87,
+          "relevant": true,
+          "similarity": 0.671289642376326
+        }
+      ],
+      "query_sent": "Which clothes should I take on a three-day business trip?",
+      "latency_s": 0.55
+    },
+    {
+      "id": "interview-women-fr",
+      "pair": "interview-women",
+      "lang": "fr",
+      "theme": "travail / dress code",
+      "question": "Comment s'habiller pour un entretien d'embauche quand on est une femme ?",
+      "expected": [
+        "career closet",
+        "dressing for success",
+        "dress to impress",
+        "work clothes",
+        "well-dressed lady"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.8,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Work clothes",
+          "page": 161,
+          "relevant": true,
+          "similarity": 0.729319604716348
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 106,
+          "relevant": true,
+          "similarity": 0.651248654648743
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 201,
+          "relevant": false,
+          "similarity": 0.646456143471234
+        },
+        {
+          "title": "Career Closet.pdf",
+          "page": 27,
+          "relevant": true,
+          "similarity": 0.644539377418795
+        },
+        {
+          "title": "Career Closet.pdf",
+          "page": 12,
+          "relevant": true,
+          "similarity": 0.617957078340229
+        }
+      ],
+      "query_sent": "What should I wear for a job interview as a woman?",
+      "latency_s": 0.93
+    },
+    {
+      "id": "interview-women-en",
+      "pair": "interview-women",
+      "lang": "en",
+      "theme": "travail / dress code",
+      "question": "How should a woman dress for a job interview?",
+      "expected": [
+        "career closet",
+        "dressing for success",
+        "dress to impress",
+        "work clothes",
+        "well-dressed lady"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Work clothes",
+          "page": 161,
+          "relevant": true,
+          "similarity": 0.76538774187711
+        },
+        {
+          "title": "Career Closet.pdf",
+          "page": 27,
+          "relevant": true,
+          "similarity": 0.648268184169044
+        },
+        {
+          "title": "Work clothes",
+          "page": 161,
+          "relevant": true,
+          "similarity": 0.646399620819161
+        },
+        {
+          "title": "Microsoft PowerPoint - Dressing for Success [Compatibility Mode]",
+          "page": 9,
+          "relevant": true,
+          "similarity": 0.622564695920665
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 106,
+          "relevant": true,
+          "similarity": 0.621349655309341
+        }
+      ],
+      "query_sent": "How should a woman dress for a job interview?",
+      "latency_s": 0.49
+    },
+    {
+      "id": "business-casual-fr",
+      "pair": "business-casual",
+      "lang": "fr",
+      "theme": "travail / dress code",
+      "question": "Que signifie le dress code business casual ?",
+      "expected": [
+        "dress_code",
+        "dress code",
+        "work clothes",
+        "dressing for success",
+        "career closet"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.3333,
+      "precision": 0.2,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Communicating Fashion",
+          "page": 75,
+          "relevant": false,
+          "similarity": 0.749818697582562
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 116,
+          "relevant": false,
+          "similarity": 0.308242946863174
+        },
+        {
+          "title": "Career Closet.pdf",
+          "page": 2,
+          "relevant": true,
+          "similarity": 0.680806059789298
+        },
+        {
+          "title": "Communicating Fashion",
+          "page": 252,
+          "relevant": false,
+          "similarity": 0.296740591526031
+        },
+        {
+          "title": "Communicating Fashion",
+          "page": 75,
+          "relevant": false,
+          "similarity": 0.628341179241505
+        }
+      ],
+      "query_sent": "What does business casual mean?",
+      "latency_s": 0.86
+    },
+    {
+      "id": "business-casual-en",
+      "pair": "business-casual",
+      "lang": "en",
+      "theme": "travail / dress code",
+      "question": "What does a business casual dress code mean?",
+      "expected": [
+        "dress_code",
+        "dress code",
+        "work clothes",
+        "dressing for success",
+        "career closet"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.25,
+      "precision": 0.2,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Communicating Fashion",
+          "page": 76,
+          "relevant": false,
+          "similarity": 0.606787865747113
+        },
+        {
+          "title": "Communicating Fashion",
+          "page": 75,
+          "relevant": false,
+          "similarity": 0.773896267363771
+        },
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 64,
+          "relevant": false,
+          "similarity": 0.749477073643732
+        },
+        {
+          "title": "PDF-Anatomy_of_The_Dress_Code_Breakdown_&_Dress_Code_Verbiage",
+          "page": 2,
+          "relevant": true,
+          "similarity": 0.739646942657602
+        },
+        {
+          "title": "Communicating Fashion",
+          "page": 75,
+          "relevant": false,
+          "similarity": 0.727804574036058
+        }
+      ],
+      "query_sent": "What does a business casual dress code mean?",
+      "latency_s": 0.4
+    },
+    {
+      "id": "black-tie-fr",
+      "pair": "black-tie",
+      "lang": "fr",
+      "theme": "travail / dress code",
+      "question": "Que porter pour une soirée avec un dress code black tie ?",
+      "expected": [
+        "dress_code",
+        "dress code",
+        "old money",
+        "well-dressed lady",
+        "men's wardrobe",
+        "mens wardrobe"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.6,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 184,
+          "relevant": true,
+          "similarity": 0.750669598579407
+        },
+        {
+          "title": "Career Closet.pdf",
+          "page": 15,
+          "relevant": false,
+          "similarity": 0.727902352809906
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 29,
+          "relevant": true,
+          "similarity": 0.685013473033905
+        },
+        {
+          "title": "Work clothes",
+          "page": 88,
+          "relevant": false,
+          "similarity": 0.671849012374878
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 135,
+          "relevant": true,
+          "similarity": 0.669501940578339
+        }
+      ],
+      "query_sent": "What to wear for a black tie soirée?",
+      "latency_s": 0.71
+    },
+    {
+      "id": "black-tie-en",
+      "pair": "black-tie",
+      "lang": "en",
+      "theme": "travail / dress code",
+      "question": "What should I wear to a black tie event?",
+      "expected": [
+        "dress_code",
+        "dress code",
+        "old money",
+        "well-dressed lady",
+        "men's wardrobe",
+        "mens wardrobe"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 184,
+          "relevant": true,
+          "similarity": 0.746216893196106
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 201,
+          "relevant": true,
+          "similarity": 0.677026410280085
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 80,
+          "relevant": true,
+          "similarity": 0.633569180965424
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 101,
+          "relevant": true,
+          "similarity": 0.632948279380798
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 181,
+          "relevant": true,
+          "similarity": 0.619994062781157
+        }
+      ],
+      "query_sent": "What should I wear to a black tie event?",
+      "latency_s": 0.43
+    },
+    {
+      "id": "navy-colors-fr",
+      "pair": "navy-colors",
+      "lang": "fr",
+      "theme": "couleurs",
+      "question": "Quelles couleurs associer au bleu marine dans une tenue ?",
+      "expected": [
+        "slide 1",
+        "color harmony"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.2,
+      "precision": 0.2,
+      "flagged_title": true,
+      "retrieved": [
+        {
+          "title": "Textilepedia (Fashionary International Limited) (z-library.sk, 1lib.sk, z-lib.sk)",
+          "page": 238,
+          "relevant": false,
+          "similarity": 0.682124953396617
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 50,
+          "relevant": false,
+          "similarity": 0.640140571602618
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 72,
+          "relevant": false,
+          "similarity": 0.630687073551068
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 29,
+          "relevant": false,
+          "similarity": 0.622558832168584
+        },
+        {
+          "title": "Slide 1",
+          "page": 71,
+          "relevant": true,
+          "similarity": 0.611860311738272
+        }
+      ],
+      "query_sent": "What colors would look good with blue marine in a outfit?",
+      "latency_s": 0.93
+    },
+    {
+      "id": "navy-colors-en",
+      "pair": "navy-colors",
+      "lang": "en",
+      "theme": "couleurs",
+      "question": "Which colours go well with navy blue in an outfit?",
+      "expected": [
+        "slide 1",
+        "color harmony"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.5,
+      "precision": 0.2,
+      "flagged_title": true,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 29,
+          "relevant": false,
+          "similarity": 0.70527265009014
+        },
+        {
+          "title": "Slide 1",
+          "page": 68,
+          "relevant": true,
+          "similarity": 0.690976418140361
+        },
+        {
+          "title": "Textilepedia (Fashionary International Limited) (z-library.sk, 1lib.sk, z-lib.sk)",
+          "page": 238,
+          "relevant": false,
+          "similarity": 0.689924675826749
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 72,
+          "relevant": false,
+          "similarity": 0.6788222193718
+        },
+        {
+          "title": "The Ultimate Guide To Dress Shoes",
+          "page": 73,
+          "relevant": false,
+          "similarity": 0.678321776690167
+        }
+      ],
+      "query_sent": "Which colours go well with navy blue in an outfit?",
+      "latency_s": 0.41
+    },
+    {
+      "id": "analogous-fr",
+      "pair": "analogous",
+      "lang": "fr",
+      "theme": "couleurs",
+      "question": "Qu'est-ce qu'une harmonie de couleurs analogues et comment l'utiliser dans une tenue ?",
+      "expected": [
+        "slide 1",
+        "color harmony"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.5,
+      "precision": 0.2,
+      "flagged_title": true,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 72,
+          "relevant": false,
+          "similarity": 0.663160562515263
+        },
+        {
+          "title": "Slide 1",
+          "page": 4,
+          "relevant": true,
+          "similarity": 0.650238436432071
+        },
+        {
+          "title": "Clothing for Women; Selection, Design, Construction",
+          "page": 106,
+          "relevant": false,
+          "similarity": 0.627819999716282
+        },
+        {
+          "title": "The Art of fashion accessories By Abigail Aiseh Ayuba",
+          "page": 4,
+          "relevant": false,
+          "similarity": 0.618182466246788
+        },
+        {
+          "title": "Clothing for Women; Selection, Design, Construction",
+          "page": 87,
+          "relevant": false,
+          "similarity": 0.612279039255412
+        }
+      ],
+      "query_sent": "What is an analogous color harmony and how can it be used in a outfit?",
+      "latency_s": 1.05
+    },
+    {
+      "id": "analogous-en",
+      "pair": "analogous",
+      "lang": "en",
+      "theme": "couleurs",
+      "question": "What is an analogous colour scheme and how do I use it in an outfit?",
+      "expected": [
+        "slide 1",
+        "color harmony"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.5,
+      "precision": 0.2,
+      "flagged_title": true,
+      "retrieved": [
+        {
+          "title": "The Art of fashion accessories By Abigail Aiseh Ayuba",
+          "page": 4,
+          "relevant": false,
+          "similarity": 0.703186371827535
+        },
+        {
+          "title": "Slide 1",
+          "page": 92,
+          "relevant": true,
+          "similarity": 0.652787347220998
+        },
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 70,
+          "relevant": false,
+          "similarity": 0.641161997352898
+        },
+        {
+          "title": "Clothing for Women; Selection, Design, Construction",
+          "page": 111,
+          "relevant": false,
+          "similarity": 0.640406231868084
+        },
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 21,
+          "relevant": false,
+          "similarity": 0.638782162630027
+        }
+      ],
+      "query_sent": "What is an analogous colour scheme and how do I use it in an outfit?",
+      "latency_s": 0.49
+    },
+    {
+      "id": "wool-care-fr",
+      "pair": "wool-care",
+      "lang": "fr",
+      "theme": "textiles",
+      "question": "Comment laver et entretenir un pull en laine ?",
+      "expected": [
+        "fabric science",
+        "textilepedia"
+      ],
+      "status": "draft",
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 191,
+          "relevant": false,
+          "similarity": 0.715779423713684
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 94,
+          "relevant": false,
+          "similarity": 0.34963858127594
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 191,
+          "relevant": false,
+          "similarity": 0.695291775745645
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 90,
+          "relevant": false,
+          "similarity": 0.15008744597435
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 190,
+          "relevant": false,
+          "similarity": 0.69381445646286
+        }
+      ],
+      "query_sent": "How do I wash and care for a wool sweater?",
+      "latency_s": 0.95
+    },
+    {
+      "id": "wool-care-en",
+      "pair": "wool-care",
+      "lang": "en",
+      "theme": "textiles",
+      "question": "How do I wash and care for a wool sweater?",
+      "expected": [
+        "fabric science",
+        "textilepedia"
+      ],
+      "status": "draft",
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 191,
+          "relevant": false,
+          "similarity": 0.715779423713684
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 94,
+          "relevant": false,
+          "similarity": 0.34963858127594
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 191,
+          "relevant": false,
+          "similarity": 0.695291775745645
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 90,
+          "relevant": false,
+          "similarity": 0.15008744597435
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 190,
+          "relevant": false,
+          "similarity": 0.69381445646286
+        }
+      ],
+      "query_sent": "How do I wash and care for a wool sweater?",
+      "latency_s": 0.41
+    },
+    {
+      "id": "linen-cotton-fr",
+      "pair": "linen-cotton",
+      "lang": "fr",
+      "theme": "textiles",
+      "question": "Quelle différence entre le lin et le coton pour l'été ?",
+      "expected": [
+        "fabric science",
+        "textilepedia"
+      ],
+      "status": "draft",
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 124,
+          "relevant": false,
+          "similarity": 0.682944931632884
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 142,
+          "relevant": false,
+          "similarity": 0.643819828147294
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 50,
+          "relevant": false,
+          "similarity": 0.641427497821229
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 99,
+          "relevant": false,
+          "similarity": 0.623644255182491
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 100,
+          "relevant": false,
+          "similarity": 0.615928434376215
+        }
+      ],
+      "query_sent": "What's the difference between linen and cotton for summer?",
+      "latency_s": 0.92
+    },
+    {
+      "id": "linen-cotton-en",
+      "pair": "linen-cotton",
+      "lang": "en",
+      "theme": "textiles",
+      "question": "What is the difference between linen and cotton for summer clothes?",
+      "expected": [
+        "fabric science",
+        "textilepedia"
+      ],
+      "status": "draft",
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 124,
+          "relevant": false,
+          "similarity": 0.69619082876608
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 50,
+          "relevant": false,
+          "similarity": 0.65148419277512
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 142,
+          "relevant": false,
+          "similarity": 0.62405071782916
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 99,
+          "relevant": false,
+          "similarity": 0.62028758284002
+        },
+        {
+          "title": "Clothing for Women; Selection, Design, Construction",
+          "page": 47,
+          "relevant": false,
+          "similarity": 0.617428229161716
+        }
+      ],
+      "query_sent": "What is the difference between linen and cotton for summer clothes?",
+      "latency_s": 0.38
+    },
+    {
+      "id": "heels-fit-fr",
+      "pair": "heels-fit",
+      "lang": "fr",
+      "theme": "chaussures",
+      "question": "Comment choisir des talons confortables qui tiennent bien le pied ?",
+      "expected": [
+        "science of footwear",
+        "woman shoes",
+        "shoes (klaus"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.8,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "The Science of Footwear",
+          "page": 77,
+          "relevant": true,
+          "similarity": 0.631627145562136
+        },
+        {
+          "title": "Career Closet.pdf",
+          "page": 24,
+          "relevant": false,
+          "similarity": 0.619342666287941
+        },
+        {
+          "title": "The Science of Footwear",
+          "page": 128,
+          "relevant": true,
+          "similarity": 0.606844681705376
+        },
+        {
+          "title": "The Science of Footwear",
+          "page": 373,
+          "relevant": true,
+          "similarity": 0.599185067390951
+        },
+        {
+          "title": "The Science of Footwear",
+          "page": 75,
+          "relevant": true,
+          "similarity": 0.595686239132698
+        }
+      ],
+      "query_sent": "How do I choose comfortable shoes with good arch support?",
+      "latency_s": 1.04
+    },
+    {
+      "id": "heels-fit-en",
+      "pair": "heels-fit",
+      "lang": "en",
+      "theme": "chaussures",
+      "question": "How do I choose comfortable high heels that fit well?",
+      "expected": [
+        "science of footwear",
+        "woman shoes",
+        "shoes (klaus"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.3333,
+      "precision": 0.4,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Career Closet.pdf",
+          "page": 24,
+          "relevant": false,
+          "similarity": 0.662923376211718
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 189,
+          "relevant": false,
+          "similarity": 0.62769722938538
+        },
+        {
+          "title": "The Science of Footwear",
+          "page": 128,
+          "relevant": true,
+          "similarity": 0.620570920671767
+        },
+        {
+          "title": "woman shoes",
+          "page": 1,
+          "relevant": true,
+          "similarity": 0.613163219313238
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 63,
+          "relevant": false,
+          "similarity": 0.612249952189628
+        }
+      ],
+      "query_sent": "How do I choose comfortable high heels that fit well?",
+      "latency_s": 0.57
+    },
+    {
+      "id": "leather-shoes-fr",
+      "pair": "leather-shoes",
+      "lang": "fr",
+      "theme": "chaussures",
+      "question": "Comment entretenir des chaussures en cuir ?",
+      "expected": [
+        "dress shoes",
+        "shoes (klaus",
+        "science of footwear"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.25,
+      "precision": 0.2,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 199,
+          "relevant": false,
+          "similarity": 0.768408385704948
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 21,
+          "relevant": false,
+          "similarity": 0.640310845356534
+        },
+        {
+          "title": "Work clothes",
+          "page": 167,
+          "relevant": false,
+          "similarity": 0.759314358234411
+        },
+        {
+          "title": "The Ultimate Guide To Dress Shoes",
+          "page": 36,
+          "relevant": true,
+          "similarity": 0.424348384141922
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 18,
+          "relevant": false,
+          "similarity": 0.72126223318206
+        }
+      ],
+      "query_sent": "How do you maintain leather shoes?",
+      "latency_s": 0.82
+    },
+    {
+      "id": "leather-shoes-en",
+      "pair": "leather-shoes",
+      "lang": "en",
+      "theme": "chaussures",
+      "question": "How do I take care of leather shoes?",
+      "expected": [
+        "dress shoes",
+        "shoes (klaus",
+        "science of footwear"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.3333,
+      "precision": 0.2,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 99,
+          "relevant": false,
+          "similarity": 0.66617439192014
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 177,
+          "relevant": false,
+          "similarity": 0.643745801225556
+        },
+        {
+          "title": "The Ultimate Guide To Dress Shoes",
+          "page": 59,
+          "relevant": true,
+          "similarity": 0.647480389626004
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 177,
+          "relevant": false,
+          "similarity": 0.704294562339783
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 199,
+          "relevant": false,
+          "similarity": 0.771073726287636
+        }
+      ],
+      "query_sent": "How do I take care of leather shoes?",
+      "latency_s": 0.31
+    },
+    {
+      "id": "scarf-fr",
+      "pair": "scarf",
+      "lang": "fr",
+      "theme": "accessoires",
+      "question": "Comment nouer et porter un foulard ?",
+      "expected": [
+        "scarves",
+        "art of fashion accessories",
+        "accessories"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.4,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Scarves",
+          "page": 39,
+          "relevant": true,
+          "similarity": 0.670551200476218
+        },
+        {
+          "title": "Scarves",
+          "page": 11,
+          "relevant": true,
+          "similarity": 0.62294299192256
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 160,
+          "relevant": false,
+          "similarity": 0.633973203064609
+        },
+        {
+          "title": "Work clothes",
+          "page": 140,
+          "relevant": false,
+          "similarity": 0.622152410617328
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 159,
+          "relevant": false,
+          "similarity": 0.663841207990576
+        }
+      ],
+      "query_sent": "How do you tie and wear a scarf?",
+      "latency_s": 0.69
+    },
+    {
+      "id": "scarf-en",
+      "pair": "scarf",
+      "lang": "en",
+      "theme": "accessoires",
+      "question": "How do I tie and wear a scarf?",
+      "expected": [
+        "scarves",
+        "art of fashion accessories",
+        "accessories"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.4,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Scarves",
+          "page": 39,
+          "relevant": true,
+          "similarity": 0.655424773693085
+        },
+        {
+          "title": "Work clothes",
+          "page": 140,
+          "relevant": false,
+          "similarity": 0.637553691864014
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 160,
+          "relevant": false,
+          "similarity": 0.630308151245117
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 159,
+          "relevant": false,
+          "similarity": 0.67350959777832
+        },
+        {
+          "title": "Scarves",
+          "page": 11,
+          "relevant": true,
+          "similarity": 0.599331784328014
+        }
+      ],
+      "query_sent": "How do I tie and wear a scarf?",
+      "latency_s": 0.44
+    },
+    {
+      "id": "jewelry-neckline-fr",
+      "pair": "jewelry-neckline",
+      "lang": "fr",
+      "theme": "accessoires",
+      "question": "Quels bijoux choisir selon le décolleté ?",
+      "expected": [
+        "jewelry",
+        "art of fashion accessories"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.2,
+      "precision": 0.2,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 121,
+          "relevant": false,
+          "similarity": 0.681542037587587
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 148,
+          "relevant": false,
+          "similarity": 0.611436193158974
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 123,
+          "relevant": false,
+          "similarity": 0.592792310048983
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 175,
+          "relevant": false,
+          "similarity": 0.591773916271462
+        },
+        {
+          "title": "Jewelry-Basics",
+          "page": 68,
+          "relevant": true,
+          "similarity": 0.58456294720615
+        }
+      ],
+      "query_sent": "What jewelry should I choose according to my neckline?",
+      "latency_s": 0.82
+    },
+    {
+      "id": "jewelry-neckline-en",
+      "pair": "jewelry-neckline",
+      "lang": "en",
+      "theme": "accessoires",
+      "question": "Which jewellery should I choose for each neckline?",
+      "expected": [
+        "jewelry",
+        "art of fashion accessories"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.2,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Jewelry-Basics",
+          "page": 32,
+          "relevant": true,
+          "similarity": 0.602753204025235
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 121,
+          "relevant": false,
+          "similarity": 0.595137512394042
+        },
+        {
+          "title": "Work clothes",
+          "page": 82,
+          "relevant": false,
+          "similarity": 0.568048315288077
+        },
+        {
+          "title": "The Capsule Wardrobe",
+          "page": 123,
+          "relevant": false,
+          "similarity": 0.554955552075313
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 82,
+          "relevant": false,
+          "similarity": 0.550205783552104
+        }
+      ],
+      "query_sent": "Which jewellery should I choose for each neckline?",
+      "latency_s": 0.36
+    },
+    {
+      "id": "body-shape-fr",
+      "pair": "body-shape",
+      "lang": "fr",
+      "theme": "conseils femmes",
+      "question": "Comment choisir des vêtements selon sa silhouette ?",
+      "expected": [
+        "clothing for women",
+        "well-dressed lady",
+        "design your own clothes"
+      ],
+      "status": "draft",
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 27,
+          "relevant": false,
+          "similarity": 0.654789289546652
+        },
+        {
+          "title": "Career Closet.pdf",
+          "page": 34,
+          "relevant": false,
+          "similarity": 0.635315041681678
+        },
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 42,
+          "relevant": false,
+          "similarity": 0.604422712062437
+        },
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 88,
+          "relevant": false,
+          "similarity": 0.599701130407982
+        },
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 31,
+          "relevant": false,
+          "similarity": 0.599040436859079
+        }
+      ],
+      "query_sent": "How do I choose clothes according to my body shape?",
+      "latency_s": 0.9
+    },
+    {
+      "id": "body-shape-en",
+      "pair": "body-shape",
+      "lang": "en",
+      "theme": "conseils femmes",
+      "question": "How do I choose clothes for my body shape?",
+      "expected": [
+        "clothing for women",
+        "well-dressed lady",
+        "design your own clothes"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 0.5,
+      "precision": 0.4,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Career Closet.pdf",
+          "page": 34,
+          "relevant": false,
+          "similarity": 0.954232573509216
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 18,
+          "relevant": true,
+          "similarity": 0.623856984147014
+        },
+        {
+          "title": "A well-dressed lady's pocket guide",
+          "page": 14,
+          "relevant": true,
+          "similarity": 0.581975484968694
+        },
+        {
+          "title": "Career Closet.pdf",
+          "page": 34,
+          "relevant": false,
+          "similarity": 0.589682757854462
+        },
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 27,
+          "relevant": false,
+          "similarity": 0.661863446235657
+        }
+      ],
+      "query_sent": "How do I choose clothes for my body shape?",
+      "latency_s": 0.45
+    },
+    {
+      "id": "sustainable-fr",
+      "pair": "sustainable",
+      "lang": "fr",
+      "theme": "durabilité",
+      "question": "Comment rendre sa garde-robe plus durable et circulaire ?",
+      "expected": [
+        "sustainable-fashion",
+        "sustainable fashion"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.8,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+          "page": 17,
+          "relevant": true,
+          "similarity": 0.722413182258606
+        },
+        {
+          "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+          "page": 98,
+          "relevant": true,
+          "similarity": 0.671649535200029
+        },
+        {
+          "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+          "page": 2,
+          "relevant": true,
+          "similarity": 0.670124471187592
+        },
+        {
+          "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+          "page": 8,
+          "relevant": true,
+          "similarity": 0.661067247390747
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 9,
+          "relevant": false,
+          "similarity": 0.658150037637352
+        }
+      ],
+      "query_sent": "How can I make my wardrobe more sustainable and circular?",
+      "latency_s": 0.79
+    },
+    {
+      "id": "sustainable-en",
+      "pair": "sustainable",
+      "lang": "en",
+      "theme": "durabilité",
+      "question": "How can I make my wardrobe more sustainable and circular?",
+      "expected": [
+        "sustainable-fashion",
+        "sustainable fashion"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.8,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+          "page": 17,
+          "relevant": true,
+          "similarity": 0.722413182258606
+        },
+        {
+          "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+          "page": 98,
+          "relevant": true,
+          "similarity": 0.671649535200029
+        },
+        {
+          "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+          "page": 2,
+          "relevant": true,
+          "similarity": 0.670124471187592
+        },
+        {
+          "title": "05.-Sustainable-Fashion-in-a-Circular-Economy-author-Kirsi-Niinim-ki",
+          "page": 8,
+          "relevant": true,
+          "similarity": 0.661067247390747
+        },
+        {
+          "title": "Ten Garments Every Man Should Own",
+          "page": 9,
+          "relevant": false,
+          "similarity": 0.658150037637352
+        }
+      ],
+      "query_sent": "How can I make my wardrobe more sustainable and circular?",
+      "latency_s": 0.36
+    },
+    {
+      "id": "men-essentials-fr",
+      "pair": "men-essentials",
+      "lang": "fr",
+      "theme": "conseils hommes",
+      "question": "Quels sont les vêtements essentiels de la garde-robe masculine ?",
+      "expected": [
+        "ten garments",
+        "men's wardrobe",
+        "mens wardrobe",
+        "old money"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 35,
+          "relevant": true,
+          "similarity": 0.656880319993475
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 96,
+          "relevant": true,
+          "similarity": 0.215770572423935
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 62,
+          "relevant": true,
+          "similarity": 0.652364452253713
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 65,
+          "relevant": true,
+          "similarity": 0.180606484413147
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 34,
+          "relevant": true,
+          "similarity": 0.651998201131713
+        }
+      ],
+      "query_sent": "What are the essential garments in a man's wardrobe?",
+      "latency_s": 0.8
+    },
+    {
+      "id": "men-essentials-en",
+      "pair": "men-essentials",
+      "lang": "en",
+      "theme": "conseils hommes",
+      "question": "What are the essential garments in a man's wardrobe?",
+      "expected": [
+        "ten garments",
+        "men's wardrobe",
+        "mens wardrobe",
+        "old money"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Men's wardrobe",
+          "page": 35,
+          "relevant": true,
+          "similarity": 0.656880319993475
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 96,
+          "relevant": true,
+          "similarity": 0.215770572423935
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 62,
+          "relevant": true,
+          "similarity": 0.652364452253713
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 65,
+          "relevant": true,
+          "similarity": 0.180606484413147
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 34,
+          "relevant": true,
+          "similarity": 0.651998201131713
+        }
+      ],
+      "query_sent": "What are the essential garments in a man's wardrobe?",
+      "latency_s": 0.35
+    },
+    {
+      "id": "budget-fr",
+      "pair": "budget",
+      "lang": "fr",
+      "theme": "garde-robe / capsule",
+      "question": "Comment bien s'habiller avec un petit budget ?",
+      "expected": [
+        "old money",
+        "capsule wardrobe",
+        "wardrobe capsules"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.6,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 69,
+          "relevant": true,
+          "similarity": 0.678648867768189
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 13,
+          "relevant": true,
+          "similarity": 0.671383440072832
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 203,
+          "relevant": false,
+          "similarity": 0.664679269232842
+        },
+        {
+          "title": "Clothing for Women; Selection, Design, Construction",
+          "page": 26,
+          "relevant": false,
+          "similarity": 0.664116899476426
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 103,
+          "relevant": true,
+          "similarity": 0.658798854494236
+        }
+      ],
+      "query_sent": "How do I well dress with a small budget?",
+      "latency_s": 0.83
+    },
+    {
+      "id": "budget-en",
+      "pair": "budget",
+      "lang": "en",
+      "theme": "garde-robe / capsule",
+      "question": "How can I dress well on a small budget?",
+      "expected": [
+        "old money",
+        "capsule wardrobe",
+        "wardrobe capsules"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.6,
+      "flagged_title": false,
+      "retrieved": [
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 13,
+          "relevant": true,
+          "similarity": 0.671692112931847
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 203,
+          "relevant": false,
+          "similarity": 0.668158074131128
+        },
+        {
+          "title": "Your Ultimate Guide to Creating Wardrobe Capsules",
+          "page": 69,
+          "relevant": true,
+          "similarity": 0.66712077455993
+        },
+        {
+          "title": "Old Money Style: Secrets to Dressing Well for Less (The Gentleman's Edition)",
+          "page": 103,
+          "relevant": true,
+          "similarity": 0.666625459991369
+        },
+        {
+          "title": "Men's wardrobe",
+          "page": 27,
+          "relevant": false,
+          "similarity": 0.656928261701569
+        }
+      ],
+      "query_sent": "How can I dress well on a small budget?",
+      "latency_s": 0.38
+    },
+    {
+      "id": "trends-fr",
+      "pair": "trends",
+      "lang": "fr",
+      "theme": "théorie / tendances",
+      "question": "Comment les tendances de mode sont-elles prévues ?",
+      "expected": [
+        "36916",
+        "fashion trends",
+        "fashion media",
+        "communicating fashion"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": true,
+      "retrieved": [
+        {
+          "title": "36916.indb",
+          "page": 116,
+          "relevant": true,
+          "similarity": 0.678794224334109
+        },
+        {
+          "title": "36916.indb",
+          "page": 86,
+          "relevant": true,
+          "similarity": 0.674001455307007
+        },
+        {
+          "title": "36916.indb",
+          "page": 10,
+          "relevant": true,
+          "similarity": 0.781356692314148
+        },
+        {
+          "title": "36916.indb",
+          "page": 28,
+          "relevant": true,
+          "similarity": 0.764776541902034
+        },
+        {
+          "title": "36916.indb",
+          "page": 103,
+          "relevant": true,
+          "similarity": 0.320595026016235
+        }
+      ],
+      "query_sent": "What are the fashion trends expected for?",
+      "latency_s": 0.88
+    },
+    {
+      "id": "trends-en",
+      "pair": "trends",
+      "lang": "en",
+      "theme": "théorie / tendances",
+      "question": "How are fashion trends forecast?",
+      "expected": [
+        "36916",
+        "fashion trends",
+        "fashion media",
+        "communicating fashion"
+      ],
+      "status": "draft",
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "flagged_title": true,
+      "retrieved": [
+        {
+          "title": "36916.indb",
+          "page": 62,
+          "relevant": true,
+          "similarity": 0.950128972530365
+        },
+        {
+          "title": "36916.indb",
+          "page": 32,
+          "relevant": true,
+          "similarity": 0.826229354592639
+        },
+        {
+          "title": "36916.indb",
+          "page": 11,
+          "relevant": true,
+          "similarity": 0.829492837877364
+        },
+        {
+          "title": "36916.indb",
+          "page": 111,
+          "relevant": true,
+          "similarity": 0.813361786203171
+        },
+        {
+          "title": "36916.indb",
+          "page": 79,
+          "relevant": true,
+          "similarity": 0.806176137556069
+        }
+      ],
+      "query_sent": "How are fashion trends forecast?",
+      "latency_s": 0.54
+    }
+  ]
+}
