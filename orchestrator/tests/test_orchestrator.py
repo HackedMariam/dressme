@@ -36,6 +36,7 @@ class FakeServices:
     def __init__(self):
         self.calls = []
         self.down = set()
+        self.purchase_reply = None      # réponse de /analyze à la place de celle par défaut
 
     def __call__(self, request, timeout):
         host = request.full_url.split("//", 1)[1].split(".test", 1)[0]
@@ -56,8 +57,9 @@ class FakeServices:
                        "outfits": [{"rank": 1, "score": 96.3, "items": [{"name": "Black Ribbed Turtleneck"}]}]}
             return 200, json.dumps(payload).encode()
         if host == "purchase":
-            payload = {"redundancy_score": 72, "recommendation": "skip", "explanation": "Very close to what you own.",
-                       "similar_items": [{"name": "Black Leather Jacket", "similarity": 0.91}]}
+            payload = self.purchase_reply or {
+                "redundancy_score": 72, "recommendation": "skip", "explanation": "Very close to what you own.",
+                "similar_items": [{"name": "Black Leather Jacket", "similarity": 0.91}]}
             return 200, json.dumps(payload).encode()
         if host == "bo5":
             payload = {"answer": "From [S1], pair it with a **structured blazer** [S1].\n"
@@ -261,7 +263,28 @@ def test_purchase_sends_the_bo1_wardrobe(fake):
                                                               "accessories"}
     assert [i["category"] for i in body["wardrobe_items"]] == ["shirts", "pants", "pants", "outerwear", "accessories"]
     assert fake.to("purchase")[0]["auth"] is None                      # authentification propre : jeton non transmis
-    assert "72/100" in state["response"] and "Black Leather Jacket (91 %)" in state["response"]
+    # une phrase d'introduction (article tel qu'écrit, tutoiement), puis l'avis de Purchase tel quel, sans synthèse
+    # qui le répète
+    assert state["response"].splitlines() == [
+        "Avis de Purchase Redundancy sur « veste en cuir noire », comparé aux 5 pièces de ta garde-robe :",
+        "Very close to what you own."]
+
+
+def test_purchase_without_explanation_falls_back_to_a_short_summary(fake):
+    fake.purchase_reply = {"redundancy_score": 72, "recommendation": "skip",
+                           "similar_items": [{"name": "Black Leather Jacket", "similarity": 0.91}]}
+    state = run(make(fake), "Est-ce que je devrais acheter un col roulé noir ?", token=TOKEN)
+    assert fake.to("purchase")[0]["body"]["new_item"]["name"] == "black turtleneck"   # anglais pour /analyze
+    assert state["response"].splitlines() == [
+        "Avis de Purchase Redundancy sur « col roulé noir », comparé aux 5 pièces de ta garde-robe :",
+        "Redondance : 72/100 → inutile, tu as déjà l'équivalent. Pièces proches : Black Leather Jacket (91 %)."]
+
+
+def test_purchase_in_english_keeps_the_english_article(fake):
+    state = run(make(fake), "Should I buy a black leather jacket for 80 euros?", token=TOKEN)
+    assert state["response"].splitlines()[0] == ("Purchase Redundancy's opinion on \"black leather jacket\", "
+                                                 "compared with the 5 items in your wardrobe:")
+    assert fake.to("purchase")[0]["body"]["language"] == "English"
 
 
 def test_purchase_without_item_asks_what(fake):

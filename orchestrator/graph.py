@@ -347,6 +347,25 @@ def new_item_from_message(message: str) -> Optional[dict]:
     return item
 
 
+def purchase_label(message: str, new_item: dict) -> str:
+    """Article tel que l'utilisateur l'a écrit, pour l'affichage : « col roulé noir », « veste en cuir noire » ;
+    question en anglais (ou mots introuvables) : le nom anglais envoyé à /analyze."""
+    original = unicodedata.normalize("NFC", message).lower().replace("’", "'")
+    text = re.sub(r"garde-robes?", lambda m: " " * len(m.group(0)), plain(message))
+    categories = find_categories(message)
+    if not is_french(message) or not categories or len(text) != len(original):
+        return new_item["name"]
+
+    def written(pattern: str) -> Optional[str]:     # mêmes positions : plain() ne fait que retirer les accents
+        found = re.search(pattern, text)
+        return original[found.start():found.end()] if found else None
+
+    material = next((written(p) for m, p in MATERIAL_WORDS.items() if m == new_item.get("material")), None)
+    color = written(COLOR_WORDS[new_item["color"]]) if new_item.get("color") in COLOR_WORDS else None
+    return " ".join(filter(None, [written(GARMENT_WORDS[categories[0]]), f"en {material}" if material else None,
+                                  color]))
+
+
 def purchase_request(new_item: dict, bo1_items: list, language: str, use_llm: bool) -> dict:
     """Corps de POST /analyze. Purchase Redundancy compare les textes « couleur matière style nom » : une matière
     absente de l'article demandé est aussi retirée des pièces BO1, sinon ses mots (« wool knit ») diluent à eux
@@ -682,17 +701,26 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
             result = {"service": "purchase", "label": label, "ok": False, "text": _failure(label, call), "details": {}}
             return {"result": result, "last_route": "purchase", "trace": trace}
         data = call.data
-        verdict = {"buy": "tu peux l'acheter", "consider": "à réfléchir", "skip": "inutile, tu as déjà l'équivalent"}
-        lines = [f"Article analysé : {new_item['name']} ({new_item['category']}).",
-                 f"Redondance avec ta garde-robe : {data.get('redundancy_score')}/100 → "
-                 f"{verdict.get(data.get('recommendation'), data.get('recommendation'))}."]
         similar = [f"{s.get('name')} ({round(100 * float(s.get('similarity') or 0))} %)"
                    for s in (data.get("similar_items") or [])[:3]]
-        if similar:
-            lines.append("Pièces proches : " + ", ".join(similar) + ".")
+        item_label = purchase_label(message, new_item)
+        # une phrase d'introduction, puis l'avis de Purchase tel quel (verdict, pièces proches, score) : pas de
+        # synthèse qui le répète ; sans explication, la synthèse courte le remplace
+        if is_french(message):
+            lines = [f"Avis de Purchase Redundancy sur « {item_label} », comparé aux {len(wardrobe_items)} pièces "
+                     f"de ta garde-robe :"]
+        else:
+            lines = [f"Purchase Redundancy's opinion on \"{item_label}\", compared with the {len(wardrobe_items)} "
+                     f"items in your wardrobe:"]
         if data.get("explanation"):
             lines.append(str(data["explanation"]))
-        details = {"new_item": new_item, "redundancy_score": data.get("redundancy_score"),
+        else:
+            verdict = {"buy": "tu peux l'acheter", "consider": "à réfléchir",
+                       "skip": "inutile, tu as déjà l'équivalent"}
+            lines.append(f"Redondance : {data.get('redundancy_score')}/100 → "
+                         f"{verdict.get(data.get('recommendation'), data.get('recommendation'))}."
+                         + (" Pièces proches : " + ", ".join(similar) + "." if similar else ""))
+        details = {"new_item": new_item, "item_label": item_label, "redundancy_score": data.get("redundancy_score"),
                    "recommendation": data.get("recommendation"), "similar_items": similar,
                    "wardrobe_sent": len(wardrobe_items)}
         result = {"service": "purchase", "label": label, "ok": True, "text": "\n".join(lines), "details": details}
