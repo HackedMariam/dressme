@@ -70,11 +70,11 @@ def authenticate(authorization: Optional[str]) -> tuple[str, Optional[str]]:
 # Schéma du graphe en SVG (même rendu que le Stylist : nodes visités en olive)
 # --------------------------------------------------------------------------------------
 OLIVE, BORDER, INK, MUTED = "#556B2F", "#E2E0D8", "#1C1C1C", "#8C8A82"
-SVG_W, SVG_H, BOX_H = 520, 330, 44
+SVG_W, SVG_H, BOX_H = 580, 330, 44
 ROW = {"top": 56, "mid": 150, "bottom": 244}
-BRANCH_W, BRANCH_GAP = 92, 9
-BRANCHES = (("stylist", "Stylist :8061"), ("wardrobe", "BO1 :8000"), ("purchase", "Zied :8040"),
-            ("knowledge", "BO5 :8010"), ("clarify", "question"))
+BRANCH_W, BRANCH_GAP = 108, 6
+BRANCHES = (("stylist", "BO4 Stylist"), ("wardrobe", "BO1 Wardrobe"), ("purchase", "Purchase Redundancy"),
+            ("knowledge", "BO5 RAG"), ("clarify", "question"))
 WIDE_W, CX = 200, SVG_W // 2
 
 
@@ -83,7 +83,7 @@ def _box(name: str, sub: str, x: float, y: int, w: float, on: bool) -> str:
             f'fill="{OLIVE if on else "none"}" stroke="{OLIVE if on else BORDER}" stroke-width="1.5"/>'
             f'<text class="name" x="{x + w / 2:g}" y="{y + 19}" font-size="12" font-weight="600" text-anchor="middle" '
             f'fill="{"#FFFFFF" if on else INK}">{escape(name)}</text>'
-            f'<text class="sub" x="{x + w / 2:g}" y="{y + 35}" font-size="10.5" text-anchor="middle" '
+            f'<text class="sub" x="{x + w / 2:g}" y="{y + 35}" font-size="10" text-anchor="middle" '
             f'fill="{"#FFFFFF" if on else MUTED}">{escape(sub)}</text></g>')
 
 
@@ -217,7 +217,7 @@ PAGE = r"""<!doctype html>
   <section class="main">
     <header>
       <div class="logo"><i>Dress</i><b>Me</b> · orchestrateur</div>
-      <p>Une seule conversation : tenues (Stylist), garde-robe (BO1), achats (Purchase Redundancy) et conseils (BO5).</p>
+      <p>Une seule conversation : tenues (BO4 Stylist), garde-robe (BO1 Wardrobe), achats (Purchase Redundancy) et conseils (BO5 RAG).</p>
       <div class="chips">
         <button class="chip" type="button">J'ai un entretien demain, que porter ?</button>
         <button class="chip" type="button">Est-ce que j'ai une jupe noire ?</button>
@@ -245,7 +245,7 @@ PAGE = r"""<!doctype html>
   const send = document.getElementById("send");
   let threadId = null;
   try { threadId = sessionStorage.getItem("dressme.orch.thread"); } catch (e) {}
-  const LABELS = { stylist: "Stylist", wardrobe: "Garde-robe BO1", purchase: "Achat (Zied)", knowledge: "Conseil BO5",
+  const LABELS = { stylist: "BO4 Stylist", wardrobe: "BO1 Wardrobe", purchase: "Purchase Redundancy", knowledge: "BO5 RAG",
                    clarify: "Clarification" };
   function add(cls, text, tag, why) {
     const div = document.createElement("div");
@@ -267,7 +267,7 @@ PAGE = r"""<!doctype html>
       threadId = data.thread_id;
       try { sessionStorage.setItem("dressme.orch.thread", threadId); } catch (e) {}
       const res = data.result || {};
-      add("card" + (res.ok === false ? " err" : ""), data.response, (LABELS[data.route] || data.route) + (res.label ? " · " + res.label : ""),
+      add("card" + (res.ok === false ? " err" : ""), data.response, LABELS[data.route] || res.label || data.route,
           "Routage : " + data.route_source + (data.candidates.length ? " (indices : " + data.candidates.join(", ") + ")" : ""));
       document.getElementById("graph").innerHTML = data.svg;
       document.getElementById("trace").textContent = data.trace.join("\n");

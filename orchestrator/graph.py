@@ -8,7 +8,7 @@
 - stylist   : BO4 Stylist POST /api/chat (même jeton, même thread_id).
 - wardrobe  : BO1 GET /api/items, réponse par des faits (comptes, filtres catégorie / couleur). /api/agent/search
   n'est pas utilisé : il exige une OPENAI_API_KEY côté BO1.
-- purchase  : Purchase Redundancy (Zied) POST /analyze, avec la garde-robe BO1 de l'utilisateur.
+- purchase  : Purchase Redundancy POST /analyze, avec la garde-robe BO1 de l'utilisateur.
 - knowledge : BO5 POST /ask avec la question traduite en anglais par qwen ; seules les sources citées sont
   affichées, et les titres « z-library », « .indb », « Slide 1 » sont masqués.
 
@@ -264,7 +264,7 @@ def is_french(message: str) -> bool:
 
 
 # --------------------------------------------------------------------------------------
-# Purchase Redundancy : conversion BO1 -> modèle ClothingItemRequest de Zied
+# Purchase Redundancy : conversion BO1 -> modèle ClothingItemRequest de Purchase Redundancy
 # --------------------------------------------------------------------------------------
 PURCHASE_CATEGORY = {"top": "shirts", "sweater": "shirts", "vest": "shirts", "pants": "pants", "shorts": "pants",
                      "skirt": "pants", "dress": "dresses", "jacket": "outerwear", "shoe": "shoes"}
@@ -515,7 +515,7 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False) -
 
     def clarify(state: OrchestratorState) -> dict:
         text = ("Je n'ai pas bien compris ta demande. Tu veux :\n"
-                "1. une tenue pour une occasion (Stylist) ;\n"
+                "1. une tenue pour une occasion (BO4 Stylist) ;\n"
                 "2. savoir ce que tu as dans ta garde-robe ;\n"
                 "3. un avis avant d'acheter un vêtement ;\n"
                 "4. un conseil de style général ?\n"

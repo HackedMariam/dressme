@@ -22,10 +22,10 @@ WARDROBE = [
     {"id": "5", "name": "Brown Leather Strap Watch", "category": "watch", "color_name": "brown", "needs_review": True},
 ]
 SERVICES = {
-    "bo1": Service("bo1", "BO1 Garde-robe (Arij)", "http://bo1.test", 5),
-    "stylist": Service("stylist", "BO4 Stylist (Nourhene)", "http://stylist.test", 5),
-    "purchase": Service("purchase", "Purchase Redundancy (Zied)", "http://purchase.test", 5),
-    "bo5": Service("bo5", "BO5 RAG (Mariam)", "http://bo5.test", 5),
+    "bo1": Service("bo1", "BO1 Wardrobe", "http://bo1.test", 5),
+    "stylist": Service("stylist", "BO4 Stylist", "http://stylist.test", 5),
+    "purchase": Service("purchase", "Purchase Redundancy", "http://purchase.test", 5),
+    "bo5": Service("bo5", "BO5 RAG", "http://bo5.test", 5),
     "ollama": Service("ollama", "Ollama qwen2.5:3b", "http://ollama.test", 5, extra={"model": "qwen2.5:3b"}),
 }
 
@@ -200,7 +200,7 @@ def test_stopped_service_gives_a_clear_message(fake, host, message):
     assert any("injoignable" in line for line in state["trace"])
 
 
-def test_purchase_without_bo1_does_not_call_zied(fake):
+def test_purchase_without_bo1_does_not_call_purchase(fake):
     fake.down.add("bo1")
     state = run(make(fake), "Should I buy a black leather jacket?")
     assert "Sans ta garde-robe" in state["response"] and not fake.to("purchase")
@@ -248,7 +248,7 @@ def test_wardrobe_without_filter_gives_breakdown(fake):
     assert "Répartition : 2 jupes" in state["response"]
 
 
-# ------------------------------------------------------------------ achat : garde-robe BO1 envoyée à Zied
+# ------------------------------------------------------------------ achat : garde-robe BO1 envoyée à Purchase Redundancy
 def test_purchase_sends_the_bo1_wardrobe(fake):
     state = run(make(fake), "Est-ce que je devrais acheter une veste en cuir noire à 80 € ?", token=TOKEN)
     body = fake.to("purchase")[0]["body"]
@@ -257,7 +257,7 @@ def test_purchase_sends_the_bo1_wardrobe(fake):
     assert {i["category"] for i in body["wardrobe_items"]} <= {"shirts", "pants", "dresses", "shoes", "outerwear",
                                                               "accessories"}
     assert [i["category"] for i in body["wardrobe_items"]] == ["shirts", "pants", "pants", "outerwear", "accessories"]
-    assert fake.to("purchase")[0]["auth"] is None                      # Zied a sa propre auth : jeton non transmis
+    assert fake.to("purchase")[0]["auth"] is None                      # authentification propre : jeton non transmis
     assert "72/100" in state["response"] and "Black Leather Jacket (91 %)" in state["response"]
 
 

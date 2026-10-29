@@ -3,19 +3,19 @@
 # d'environnement (api_key_env), lue au moment de l'appel et jamais affichée.
 services:
   bo1:
-    label: "BO1 Garde-robe (Arij)"
+    label: "BO1 Wardrobe"
     url: "http://localhost:8000"
     timeout: 10
   stylist:
-    label: "BO4 Stylist (Nourhene)"
+    label: "BO4 Stylist"
     url: "http://127.0.0.1:8061"
     timeout: 120          # premier tour : chargement d'Ollama par le Stylist
   purchase:
-    label: "Purchase Redundancy (Zied)"
+    label: "Purchase Redundancy"
     url: "http://127.0.0.1:8040"
     timeout: 30
   bo5:
-    label: "BO5 RAG (Mariam)"
+    label: "BO5 RAG"
     url: "http://127.0.0.1:8010"
     timeout: 120
     api_key_env: "BO5_API_KEY"   # facultatif : en-tête X-API-Key si BO5 a un RAG_API_KEY
