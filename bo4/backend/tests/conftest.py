@@ -4,9 +4,20 @@ Les données sont écrites en dur : aucun accès au CSV, à la base ou aux image
 pour que les tests unitaires restent rapides et hermétiques.
 """
 
+from pathlib import Path
+
 import pytest
 
 from bo4_fixtures import REFERENCE_WARDROBE
+
+# Dataset H&M (bo4/data/, ignoré par git, non fourni : voir bo4/README.md). Les tests marqués « hm_images »
+# vérifient les empreintes SHA-256 des vraies images E1/E2 : aucun jeu de remplacement ne peut les satisfaire.
+HM_IMAGES_DIR = Path(__file__).resolve().parents[2] / "data" / "hm" / "images"
+
+
+def pytest_runtest_setup(item):
+    if item.get_closest_marker("hm_images") and not any(HM_IMAGES_DIR.glob("*/*.jpg")):
+        pytest.skip(f"images H&M absentes ({HM_IMAGES_DIR} ; dataset non fourni, voir bo4/README.md)")
 
 
 @pytest.fixture

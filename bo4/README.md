@@ -115,7 +115,9 @@ bo4/data/hm/articles.csv
 bo4/data/hm/images/<3 premiers chiffres>/<article_id>.jpg
 ```
 
-(`bo4/data/` est ignoré par git.) **18 tests** en ont besoin et échouent sans lui ; tous les autres passent :
+(`bo4/data/` est ignoré par git.) **18 tests** en ont besoin : marqués `hm_images`, ils sont **ignorés** (skip
+avec la raison) sans les images, et aucun ne peut utiliser un jeu de remplacement, car ils vérifient les empreintes
+SHA-256 des vraies images E1/E2 ou `main.py`, lui-même protégé par les empreintes E1. Tous les autres passent :
 
 | Fichier de test | Tests | Pourquoi |
 |---|---|---|
