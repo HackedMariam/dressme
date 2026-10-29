@@ -36,6 +36,7 @@ ENV/
 htmlcov/
 
 # Generated data / caches
+backend/local_data/
 rag_backend/data/extraction_cache/
 rag_backend/data/chunks.jsonl
 rag_backend/data/embedded_chunks.jsonl

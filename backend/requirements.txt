@@ -1,0 +1,13 @@
+ultralytics>=8.3.0
+torch
+torchvision
+fastapi>=0.110
+uvicorn[standard]
+python-multipart
+pillow
+pillow-heif
+numpy
+scikit-learn
+openai>=1.60
+supabase>=2.4
+python-dotenv

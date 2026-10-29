@@ -1,0 +1,42 @@
+{
+  "cold": {
+    "wall_s": 37.802691299999424,
+    "load_duration": 10315271200,
+    "error": null,
+    "gpu_share": 0.7358684985093105
+  },
+  "warm": {
+    "calls": 8,
+    "errors": {},
+    "json_parsed_rate": 1.0,
+    "schema_valid_rate": 1.0,
+    "done_stop_rate": 1.0,
+    "thinking_present_calls": 8,
+    "latency_p50_s": 34.34461889999875,
+    "latency_p95_s": 68.7444070250014,
+    "latency_max_s": 84.22134560000268,
+    "eval_tokens_per_s_median": 25.222100114588628,
+    "vram_peak_mib": 2977,
+    "ram_min_available_mib": 168.38671875,
+    "gpu_share_min": 0.7358684985093105,
+    "stability": {
+      "items_compared": 0,
+      "mean_field_agreement": null,
+      "items_fully_identical": 0
+    },
+    "stopped_low_ram": true,
+    "stopped_low_gpu_share": false
+  },
+  "acceptance": {
+    "checks": {
+      "schema_valid": true,
+      "done_stop": true,
+      "latency_p50": false,
+      "latency_p95": false,
+      "ram": false,
+      "vram": true,
+      "stability": false
+    },
+    "go_for_e2b": false
+  }
+}
