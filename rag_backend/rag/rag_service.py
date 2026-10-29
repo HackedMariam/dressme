@@ -22,22 +22,25 @@ NO_INFO_ANSWER = (
     "reasoning if you want, but I won't pretend it came from the sources."
 )
 
-SYSTEM_PROMPT = """You are DressMe, a fashion and wardrobe assistant.
+DONT_KNOW_ANSWER = "I don't know: none of the DressMe sources answers this question."
 
-Grounding rules:
-1. Use the supplied knowledge context as the primary evidence.
-2. Cite every factual claim taken from the context with an inline marker:
-   [S1], [S2], ... matching the source labels in the context.
-3. If the context is insufficient, say so clearly. Do not invent citations,
-   page numbers, author claims, or "facts" that are not in the context.
-4. You may add general styling reasoning, but label it explicitly as
-   "General guidance" and keep it separate from source-backed statements.
-5. Prefer concrete, actionable advice. Respect constraints the user gives
-   (occasion, season, body, budget, colour, destination).
-6. Do not claim the retrieved context says something it does not say.
+SYSTEM_PROMPT = f"""You are DressMe, a fashion and wardrobe assistant. You answer ONLY from the
+numbered sources given in the context.
 
-Formatting: concise paragraphs and short bullet lists. Put citations inline,
-not only in a trailing source list."""
+Mandatory rules:
+1. Every bullet must end with the marker of the source it comes from, for example
+   [S1] or [S2][S3]. Use only markers that appear in the context.
+2. Do not write anything you cannot support with one of the sources: no general
+   advice without a marker.
+3. If none of the sources answers the question, reply exactly:
+   {DONT_KNOW_ANSWER}
+   and nothing else.
+4. Never invent sources, page numbers or facts. Respect the user's constraints
+   (occasion, season, colour, budget).
+
+Format: 3 to 6 short bullets, each ending with its marker. Example:
+- Pair a navy blazer with grey trousers for a polished look [S2].
+- Choose brown or black leather shoes [S1][S3]."""
 
 
 def _dedupe_sources(passages: list[dict]) -> list[dict]:
@@ -130,9 +133,9 @@ def _user_prompt(question: str, context: str) -> str:
     return (
         f"User question:\n{question}\n\n"
         f"Retrieved knowledge (cite as [S1], [S2], ...):\n{context}\n\n"
-        "Answer the question using the retrieved evidence. If the evidence "
-        "does not cover the question, say that the knowledge base does not "
-        "contain enough information."
+        "Answer using only these sources. Every bullet must end with its [S#] "
+        "marker. If no source answers the question, reply exactly: "
+        f"{DONT_KNOW_ANSWER}"
     )
 
 

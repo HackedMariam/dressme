@@ -96,3 +96,10 @@ def test_rag_service_uses_translation_not_rewrite():
     from pathlib import Path
     source = (Path(translate.__file__).with_name("rag_service.py")).read_text(encoding="utf-8")
     assert "translate_query(question)" in source and "rewrite_query(" not in source
+
+
+def test_generation_prompt_requires_citations_and_dont_know():
+    from pathlib import Path
+    source = (Path(translate.__file__).with_name("rag_service.py")).read_text(encoding="utf-8")
+    assert 'DONT_KNOW_ANSWER = "I don\'t know: none of the DressMe sources answers this question."' in source
+    assert "Every bullet must end with" in source and "General guidance" not in source
