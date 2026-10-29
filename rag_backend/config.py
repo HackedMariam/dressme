@@ -8,6 +8,7 @@ an IDE without silently reading/writing a stray ``data/`` folder.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -132,6 +133,17 @@ class Settings:
     environment: str = "development"
     log_level: str = "INFO"
     skip_startup_validation: bool = False
+    # Knowledge table used for retrieval; its RPCs are match_<table> and search_<table>
+    # (knowledge_chunks -> match_knowledge_chunks, knowledge_chunks_v2 -> match_knowledge_chunks_v2).
+    rag_table: str = "knowledge_chunks"
+
+    @property
+    def match_rpc(self) -> str:
+        return f"match_{self.rag_table}"
+
+    @property
+    def search_rpc(self) -> str:
+        return f"search_{self.rag_table}"
 
     def validate(self, *, strict: bool = True) -> list[str]:
         errors: list[str] = []
@@ -162,6 +174,11 @@ class Settings:
         if "*" in self.cors_origins:
             errors.append(
                 "CORS_ORIGINS may not contain '*' when credentials are enabled"
+            )
+
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,55}", self.rag_table or ""):
+            errors.append(
+                "RAG_TABLE must be a lowercase table name (letters, digits, _)"
             )
 
         if strict and errors:
@@ -241,6 +258,7 @@ def get_settings() -> Settings:
         skip_startup_validation=_env_bool(
             "RAG_SKIP_STARTUP_VALIDATION", False
         ),
+        rag_table=_env("RAG_TABLE", "knowledge_chunks") or "knowledge_chunks",
     )
 
 

@@ -199,7 +199,7 @@ def _check_supabase() -> dict:
     try:
         response = execute_with_retries(
             lambda: get_supabase()
-            .table("knowledge_chunks")
+            .table(get_settings().rag_table)
             .select("chunk_id", count="exact")
             .limit(1),
             attempts=1,

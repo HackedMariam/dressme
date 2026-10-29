@@ -99,7 +99,7 @@ def _vector_search(
     if _VECTOR_RPC_HAS_THRESHOLD is not False:
         try:
             response = execute_with_retries(
-                lambda: supabase.rpc("match_knowledge_chunks", params)
+                lambda: supabase.rpc(get_settings().match_rpc, params)
             )
             _VECTOR_RPC_HAS_THRESHOLD = True
         except Exception as error:
@@ -115,7 +115,7 @@ def _vector_search(
         try:
             response = execute_with_retries(
                 lambda: supabase.rpc(
-                    "match_knowledge_chunks",
+                    get_settings().match_rpc,
                     {
                         "query_embedding": query_vector,
                         "match_count": match_count,
@@ -149,7 +149,7 @@ def _keyword_search(query: str, *, match_count: int) -> list[dict]:
     try:
         response = execute_with_retries(
             lambda: supabase.rpc(
-                "search_knowledge_chunks",
+                get_settings().search_rpc,
                 {
                     "query_text": query,
                     "match_count": match_count,
@@ -288,7 +288,7 @@ def get_index_embedding_versions() -> set[str]:
     try:
         response = execute_with_retries(
             lambda: get_supabase()
-            .table("knowledge_chunks")
+            .table(get_settings().rag_table)
             .select("embedding_version")
             .limit(1000)
         )
