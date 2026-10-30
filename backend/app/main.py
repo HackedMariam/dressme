@@ -437,6 +437,77 @@ def delete_item(item_id: str, user: User = Depends(current_user)) -> dict:
     return {"deleted": item_id}
 
 
+# ---------------------------------------------------------------------------
+# Shopping Assistant — wraps smart_purchasing.inference.DressMeInferenceEngine
+# ---------------------------------------------------------------------------
+@app.post("/api/shopping-assistant/evaluate")
+async def shopping_assistant_evaluate(
+    image_file: UploadFile | None = File(default=None),
+    image_url: str = "",
+    prompt: str = "Should I buy this?",
+    price: float = 0.0,
+    budget: float = 0.0,
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Run the full DressMe purchase-evaluation pipeline on a candidate item."""
+    import sys
+    import tempfile
+    import urllib.request
+    from pathlib import Path as _Path
+
+    _sm_dir = _Path(__file__).resolve().parents[2] / "smart_purchasing"
+    if str(_sm_dir) not in sys.path:
+        sys.path.insert(0, str(_sm_dir))
+
+    try:
+        from inference import DressMeInferenceEngine  # type: ignore
+    except Exception as exc:
+        log.exception("Could not import smart_purchasing inference engine")
+        raise HTTPException(503, f"Shopping assistant engine unavailable: {exc}") from exc
+
+    tmp_path: str | None = None
+    try:
+        if image_file and image_file.filename:
+            data = await image_file.read()
+            suffix = _Path(image_file.filename).suffix or ".jpg"
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            tmp.write(data); tmp.close()
+            tmp_path = tmp.name
+        elif image_url.strip():
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+            tmp.close()
+            tmp_path = tmp.name
+            req = urllib.request.Request(image_url.strip(), headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp, open(tmp_path, "wb") as f:
+                f.write(resp.read())
+        else:
+            raise HTTPException(422, "Provide either image_file or image_url.")
+
+        def _run():
+            engine = DressMeInferenceEngine(skip_llm=False)
+            return engine.evaluate(
+                image_path=tmp_path,
+                price=float(price or 0),
+                budget=float(budget or 0),
+                user_prompt=prompt or "Should I buy this?",
+            )
+
+        result = await run_in_threadpool(_run)
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Shopping assistant evaluation failed")
+        raise HTTPException(500, f"Evaluation failed: {type(exc).__name__}: {exc}") from exc
+    finally:
+        if tmp_path:
+            try:
+                import os as _os
+                _os.unlink(tmp_path)
+            except Exception:
+                pass
+
 @app.get("/api/stats/accuracy")
 def accuracy(user: User = Depends(current_user)) -> list[dict]:
     """Real accuracy per field, over the items this user has reviewed."""

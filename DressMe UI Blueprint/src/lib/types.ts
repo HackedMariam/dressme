@@ -87,3 +87,47 @@ export interface OutfitScore {
   explanations?: string[]
   suggested_item_ids: string[]
 }
+
+export interface PurchaseEvaluationResult {
+  status: string
+  user_query?: string
+  candidate_item?: {
+    image_source?: string
+    detected_category?: string
+    detected_color?: string
+    inferred_occasion?: string
+    inferred_style?: string[]
+    price?: number
+    budget?: number
+  }
+  tool_evidence?: {
+    redundancy_score?: number
+    closest_wardrobe_match?: string | null
+    compatible_outfits_count?: number
+    matching_wardrobe_item_ids?: string[]
+    matching_outfits?: Array<{
+      outfit_id?: string
+      description?: string
+      compatibility_score?: number
+      paired_items?: Array<{
+        item_id: string
+        name: string
+        category: string
+        color: string
+      }>
+    }>
+    wardrobe_gap_score?: number
+    xgboost_prediction?: string
+    xgboost_confidence?: number
+    deterministic_score?: number
+    budget_penalty?: number
+  }
+  agent_verdict?: {
+    decision?: string
+    score?: number
+    matching_item_ids?: string[]
+    reasons?: string[]
+    uncertainties?: string[]
+  }
+  stylist_interpretation?: string
+}

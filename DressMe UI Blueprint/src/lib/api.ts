@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, supabase } from "./supabase"
+﻿import { isSupabaseConfigured, supabase } from "./supabase"
 import type {
   AccuracyRow,
   AgentReply,
@@ -9,6 +9,7 @@ import type {
   PhotoMatch,
   QuickDetection,
   WardrobeItem,
+  PurchaseEvaluationResult,
 } from "./types"
 
 const configuredBase = import.meta.env.VITE_API_URL?.trim() || ""
@@ -145,6 +146,29 @@ export const api = {
     }),
 
   remove: (id: string) => request<{ deleted: string }>(`/api/items/${id}`, { method: "DELETE" }),
+
+  evaluatePurchase: (options: {
+    file?: File | Blob | null
+    imageUrl?: string
+    prompt?: string
+    price?: number
+    budget?: number
+  }) => {
+    const form = new FormData()
+    if (options.file) {
+      form.append("image_file", options.file, options.file instanceof File ? options.file.name : "candidate.jpg")
+    }
+    if (options.imageUrl) {
+      form.append("image_url", options.imageUrl)
+    }
+    form.append("prompt", options.prompt || "Should I buy this?")
+    form.append("price", String(options.price || 0))
+    form.append("budget", String(options.budget || 0))
+    return request<PurchaseEvaluationResult>("/api/shopping-assistant/evaluate", {
+      method: "POST",
+      body: form,
+    })
+  },
 
   accuracy: () => request<AccuracyRow[]>("/api/stats/accuracy"),
 }
