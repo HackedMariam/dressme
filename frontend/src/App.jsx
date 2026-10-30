@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar'
 import WardrobeView from './components/WardrobeView'
 import ItemPanel from './components/ItemPanel'
 import Dashboard from './components/Dashboard'
+import ShoppingAssistant from './components/ShoppingAssistant'
 
 const Wardrobe3D = lazy(() => import('./components/Wardrobe3D')) // three.js only loads when needed
 
@@ -77,8 +78,11 @@ export default function App() {
     setSelectedId(null)
   }
 
+  // Shopping view hides the item panel
+  const isShopping = view === 'shopping'
+
   return (
-    <div className={`app ${selected ? 'with-panel' : ''}`}>
+    <div className={`app ${selected && !isShopping ? 'with-panel' : ''}`}>
       <Sidebar view={view} setView={setView} user={session?.user} />
       <main className="main">
         {error ? (
@@ -92,7 +96,7 @@ export default function App() {
           <div className="center muted">Loading your wardrobe…</div>
         ) : (
           <>
-            {health && !health.model_loaded && (
+            {health && !health.model_loaded && !isShopping && (
               <div className="banner">The detection model isn't loaded on the server, so new photos can't be analysed right now.</div>
             )}
             {view === 'wardrobe' && (
@@ -105,10 +109,11 @@ export default function App() {
               </Suspense>
             )}
             {view === 'dashboard' && <Dashboard items={items} health={health} />}
+            {view === 'shopping'  && <ShoppingAssistant />}
           </>
         )}
       </main>
-      {selected && (
+      {selected && !isShopping && (
         <ItemPanel key={selected.id + JSON.stringify(selected.predicted || {})} item={selected} health={health}
           onClose={() => setSelectedId(null)} onSave={onSave} onReclassify={onReclassify} onDelete={onDelete} />
       )}

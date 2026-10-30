@@ -235,7 +235,7 @@ def list_items(user: User = Depends(current_user)) -> list[dict]:
 async def quick_detect(file: UploadFile = File(...), user: User = Depends(current_user)) -> dict[str, Any]:
     """Cheap preview detection for the live camera scan: YOLO only, no save, no GPT-4.
     Called repeatedly (every few hundred ms) while the camera is pointed at something,
-    so it never raises — an unreadable frame or an empty view just means no detection.
+    so it never raises â€” an unreadable frame or an empty view just means no detection.
     """
     data = await _read_upload(file)
     return await run_in_threadpool(_quick_detect_sync, data)
@@ -393,7 +393,7 @@ def update_item(item_id: str, body: ItemPatch, user: User = Depends(current_user
     item = _get_or_404(user, item_id)
     patch = _validate_patch(body.fields)
 
-    # log what the model/LLM got wrong — this is how accuracy is measured
+    # log what the model/LLM got wrong â€” this is how accuracy is measured
     predicted = item.get("predicted") or {}
     corrections = [
         {"item_id": item_id, "field": k, "predicted": predicted[k], "corrected": v,
@@ -437,6 +437,77 @@ def delete_item(item_id: str, user: User = Depends(current_user)) -> dict:
     return {"deleted": item_id}
 
 
+# ---------------------------------------------------------------------------
+# Shopping Assistant — wraps smart_purchasing.inference.DressMeInferenceEngine
+# ---------------------------------------------------------------------------
+@app.post("/api/shopping-assistant/evaluate")
+async def shopping_assistant_evaluate(
+    image_file: UploadFile | None = File(default=None),
+    image_url: str = "",
+    prompt: str = "Should I buy this?",
+    price: float = 0.0,
+    budget: float = 0.0,
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Run the full DressMe purchase-evaluation pipeline on a candidate item."""
+    import sys
+    import tempfile
+    import urllib.request
+    from pathlib import Path as _Path
+
+    _sm_dir = _Path(__file__).resolve().parents[2] / "smart_purchasing"
+    if str(_sm_dir) not in sys.path:
+        sys.path.insert(0, str(_sm_dir))
+
+    try:
+        from inference import DressMeInferenceEngine  # type: ignore
+    except Exception as exc:
+        log.exception("Could not import smart_purchasing inference engine")
+        raise HTTPException(503, f"Shopping assistant engine unavailable: {exc}") from exc
+
+    tmp_path: str | None = None
+    try:
+        if image_file and image_file.filename:
+            data = await image_file.read()
+            suffix = _Path(image_file.filename).suffix or ".jpg"
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            tmp.write(data); tmp.close()
+            tmp_path = tmp.name
+        elif image_url.strip():
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+            tmp.close()
+            tmp_path = tmp.name
+            req = urllib.request.Request(image_url.strip(), headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp, open(tmp_path, "wb") as f:
+                f.write(resp.read())
+        else:
+            raise HTTPException(422, "Provide either image_file or image_url.")
+
+        def _run():
+            engine = DressMeInferenceEngine(skip_llm=False)
+            return engine.evaluate(
+                image_path=tmp_path,
+                price=float(price or 0),
+                budget=float(budget or 0),
+                user_prompt=prompt or "Should I buy this?",
+            )
+
+        result = await run_in_threadpool(_run)
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Shopping assistant evaluation failed")
+        raise HTTPException(500, f"Evaluation failed: {type(exc).__name__}: {exc}") from exc
+    finally:
+        if tmp_path:
+            try:
+                import os as _os
+                _os.unlink(tmp_path)
+            except Exception:
+                pass
+
 @app.get("/api/stats/accuracy")
 def accuracy(user: User = Depends(current_user)) -> list[dict]:
     """Real accuracy per field, over the items this user has reviewed."""
@@ -449,3 +520,4 @@ def accuracy(user: User = Depends(current_user)) -> list[dict]:
         out.append({"field": field, "reviewed": n, "corrected": len(wrong),
                     "accuracy": round(1 - len(wrong) / n, 3) if n else None})
     return out
+
