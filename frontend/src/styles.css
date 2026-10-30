@@ -242,6 +242,125 @@ th { color: var(--muted); font-weight: 500; }
 .auth-links { display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; }
 .auth-links .link { padding: 0; color: var(--olive-2); }
 
+/* ── shopping assistant ──────────────────────────────────────────────── */
+.sa-wrap { padding-bottom: 60px; }
+
+/* Two-column layout: form | result */
+.sa-layout { display: grid; grid-template-columns: 420px 1fr; gap: 36px; align-items: start; margin-top: 8px; }
+
+/* section labels above inputs */
+.sa-section-label { font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+
+/* dropzone overrides */
+.sa-drop { min-height: 130px; display: flex; flex-direction: column; justify-content: center;
+  align-items: center; text-align: center; gap: 6px; }
+
+/* image preview */
+.sa-preview-wrap { position: relative; border-radius: 14px; overflow: hidden;
+  border: 1.5px solid var(--line); background: var(--thumb); }
+.sa-preview-img  { width: 100%; max-height: 300px; object-fit: contain; display: block; }
+.sa-clear-btn { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px;
+  border-radius: 50%; background: rgba(30,31,28,.72); color: #fff; border: 0; font-size: 14px;
+  display: grid; place-items: center; cursor: pointer; }
+.sa-clear-btn:hover { background: rgba(30,31,28,.9); }
+
+/* or divider */
+.sa-or-divider { display: flex; align-items: center; gap: 12px; color: var(--muted);
+  font-size: 13px; margin: 12px 0; }
+.sa-or-divider::before, .sa-or-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* url input */
+.sa-url-input { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; font-size: 15px; outline: none; width: 100%; color: var(--ink); }
+.sa-url-input:focus { border-color: var(--olive); }
+
+/* textarea */
+.sa-textarea { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; font-size: 15px; outline: none; resize: vertical; color: var(--ink);
+  line-height: 1.5; min-height: 90px; }
+.sa-textarea:focus { border-color: var(--olive); }
+
+/* price row */
+.sa-price-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.sa-price-group { display: flex; flex-direction: column; gap: 8px; }
+.sa-price-group span { font-weight: 600; font-size: 14px; color: var(--ink); }
+.sa-price-group input { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; font-size: 15px; outline: none; color: var(--ink); width: 100%; }
+.sa-price-group input:focus { border-color: var(--olive); }
+
+/* submit button */
+.sa-submit { width: 100%; margin-top: 22px; font-size: 17px; padding: 16px; }
+
+/* ── result column ── */
+.sa-result-col { min-height: 420px; }
+
+/* empty state */
+.sa-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 300px; text-align: center; color: var(--muted); gap: 8px; padding: 40px; }
+.sa-empty-icon { font-size: 52px; margin-bottom: 8px; }
+.sa-spinner { width: 38px; height: 38px; border: 3.5px solid var(--line);
+  border-top-color: var(--olive); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* result card */
+.sa-result { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 28px 30px; }
+
+/* verdict pill */
+.sa-verdict { display: flex; align-items: center; gap: 14px; border-radius: 14px; padding: 16px 22px;
+  margin-bottom: 18px; }
+.sa-verdict-label { font-family: var(--serif); font-size: 26px; font-weight: 700; flex: 1; }
+.sa-verdict-score { font-size: 22px; font-weight: 700; }
+.verdict-buy     { background: #e9f0dc; color: var(--olive-2); }
+.verdict-consider{ background: var(--amber-bg); color: #6c4a10; }
+.verdict-skip    { background: #fdeceb; color: #8a2a22; }
+
+/* tags */
+.sa-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.sa-tags .chip { font-size: 13px; padding: 6px 14px; }
+
+/* stylist box */
+.sa-stylist { margin-bottom: 20px; }
+.sa-box-label { font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+.sa-stylist-body { font-size: 15px; line-height: 1.65; color: #3d3b36; white-space: pre-wrap; }
+
+/* metrics */
+.sa-metrics { display: grid; gap: 12px; margin-bottom: 18px; }
+.sa-metric { display: grid; grid-template-columns: 160px 1fr auto; align-items: center; gap: 12px; }
+.sa-metric-label { font-size: 13.5px; color: var(--muted); }
+.sa-meter { height: 8px; background: #ece8df; border-radius: 6px; overflow: hidden; }
+.sa-meter-fill { height: 100%; border-radius: 6px; transition: width .4s ease; }
+.sa-metric-val { font-size: 13px; font-weight: 600; text-align: right; white-space: nowrap; color: var(--ink); }
+
+/* info rows */
+.sa-info-row { display: flex; justify-content: space-between; align-items: baseline;
+  padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; gap: 16px; }
+.sa-info-row:last-of-type { border-bottom: 0; }
+.sa-info-key { color: var(--muted); flex-shrink: 0; }
+.sa-info-val { font-weight: 500; text-align: right; }
+
+/* reasons */
+.sa-reasons { margin-top: 18px; }
+.sa-reasons ul { margin: 0; padding-left: 18px; }
+.sa-reasons li { font-size: 14.5px; color: #4b4740; line-height: 1.6; margin-bottom: 4px; }
+
+/* outfits */
+.sa-outfits { margin-top: 18px; }
+.sa-outfit-card { background: #fdfcf8; border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 10px; }
+.sa-outfit-score { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.sa-outfit-score b { font-size: 13px; color: var(--olive-2); }
+.sa-outfit-card p { margin: 0 0 8px; font-size: 14px; color: #4b4740; line-height: 1.5; }
+.sa-outfit-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.sa-outfit-items .chip { font-size: 12px; padding: 5px 12px; }
+
+@media (max-width: 1000px) {
+  .sa-layout { grid-template-columns: 1fr; }
+}
+
+/* ── end shopping assistant ─────────────────────────────────────────────── */
+
 @media (max-width: 1200px) {
   .app.with-panel { grid-template-columns: 220px 1fr; }
   .panel { position: fixed; right: 0; top: 0; width: min(400px, 100vw); z-index: 20; box-shadow: -10px 0 40px rgba(0,0,0,.12); }
