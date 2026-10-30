@@ -7,6 +7,7 @@ import logging
 import math
 import random
 import re
+import time
 import unicodedata
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
@@ -28,6 +29,8 @@ class DestinationResolutionError(ValueError):
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 FORECAST_HORIZON_DAYS = 15
+ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+ARCHIVE_LAG_DAYS = 7  # the archive trails real time by a few days
 
 
 def _normalize_text(value: object) -> str:
@@ -357,17 +360,37 @@ def _prepare_destination(destination: str) -> _PreparedDestination:
     return _PreparedDestination(query=original)
 
 
+def _get_with_retry(url: str, params: dict, attempts: int = 5) -> requests.Response:
+    """Open-Meteo connections time out intermittently; retry before giving up."""
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return requests.get(url, params=params, timeout=DEFAULT_WEATHER_TIMEOUT)
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            last_error = exc
+            time.sleep(0.8 * (attempt + 1))
+    assert last_error is not None
+    raise last_error
+
+
+_GEOCODE_CACHE: dict[str, list[dict]] = {}
+
+
 def _fetch_geocode_results(query: str) -> list[dict]:
-    response = requests.get(
+    if query in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[query]
+    response = _get_with_retry(
         GEOCODING_URL,
-        params={"name": query, "count": 10, "language": "en", "format": "json"},
-        timeout=DEFAULT_WEATHER_TIMEOUT,
+        {"name": query, "count": 10, "language": "en", "format": "json"},
     )
     response.raise_for_status()
     payload = response.json()
     if payload.get("error"):
         raise ValueError(payload.get("reason", "Open-Meteo geocoding returned an error"))
-    return list(payload.get("results") or [])
+    results = list(payload.get("results") or [])
+    if results:
+        _GEOCODE_CACHE[query] = results
+    return results
 
 
 def _score_geocode_result(
@@ -574,28 +597,60 @@ def _geocode(destination: str) -> tuple[float | None, float | None]:
     return resolution.latitude, resolution.longitude
 
 
+def _shift_year(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:  # 29 February in a non-leap year
+        return value.replace(year=value.year + years, day=28)
+
+
+def _historical(
+    destination: str, latitude: float, longitude: float, start: date, end: date
+) -> WeatherData:
+    """Observed weather for the same dates in a past year, used beyond the forecast horizon."""
+    latest = date.today() - timedelta(days=ARCHIVE_LAG_DAYS)
+    years = 1
+    while _shift_year(end, -years) > latest:
+        years += 1
+    return _forecast(
+        destination,
+        latitude,
+        longitude,
+        _shift_year(start, -years),
+        _shift_year(end, -years),
+        url=ARCHIVE_URL,
+        source="open-meteo-archive",
+        shift_years=years,  # rows come back dated last year; shift them onto the trip dates
+    )
+
+
 def _forecast(
     destination: str,
     latitude: float,
     longitude: float,
     start: date,
     end: date,
+    *,
+    url: str = FORECAST_URL,
+    source: str = "open-meteo",
+    shift_years: int = 0,
 ) -> WeatherData:
-    response = requests.get(
-        FORECAST_URL,
-        params={
+    daily_variables = (
+        "weather_code,temperature_2m_max,temperature_2m_min,"
+        "precipitation_sum,wind_speed_10m_max"
+    )
+    if url == FORECAST_URL:
+        daily_variables += ",precipitation_probability_max,uv_index_max"
+    response = _get_with_retry(
+        url,
+        {
             "latitude": latitude,
             "longitude": longitude,
-            "daily": (
-                "weather_code,temperature_2m_max,temperature_2m_min,"
-                "precipitation_sum,precipitation_probability_max,"
-                "wind_speed_10m_max,uv_index_max"
-            ),
+            "daily": daily_variables,
             "timezone": "auto",
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
         },
-        timeout=DEFAULT_WEATHER_TIMEOUT,
     )
     response.raise_for_status()
     payload = response.json()
@@ -609,7 +664,7 @@ def _forecast(
 
     days: list[WeatherDay] = []
     for index, raw_date in enumerate(times):
-        current = date.fromisoformat(raw_date)
+        current = _shift_year(date.fromisoformat(raw_date), shift_years)
         minimum = daily.get("temperature_2m_min", [None])[index]
         maximum = daily.get("temperature_2m_max", [None])[index]
         if minimum is None or maximum is None:
@@ -642,7 +697,7 @@ def _forecast(
                     if (daily.get("uv_index_max") or [None])[index] is not None
                     else None
                 ),
-                source="open-meteo",
+                source=source,
                 synthetic=False,
             )
         )
@@ -676,12 +731,10 @@ def fetch_weather(
         raise DestinationResolutionError(prepared.invalid_reason)
 
     today = date.today()
-    within_forecast_window = (
-        start >= today - timedelta(days=1)
-        and end <= today + timedelta(days=FORECAST_HORIZON_DAYS)
-    )
+    forecast_start = max(start, today - timedelta(days=1))
+    forecast_end = min(end, today + timedelta(days=FORECAST_HORIZON_DAYS))
 
-    if allow_network and within_forecast_window:
+    if allow_network:
         try:
             resolution = resolve_destination(destination)
             if resolution is None:
@@ -689,20 +742,52 @@ def fetch_weather(
                     f"Could not confidently resolve destination '{destination}' "
                     "to a real city or country"
                 )
-            weather = _forecast(
-                destination,
-                resolution.latitude,
-                resolution.longitude,
-                start,
-                end,
-            )
-            weather = weather.model_copy(
-                update={
-                    "resolved_name": resolution.name,
-                    "resolved_country": resolution.country,
-                    "requested_country": resolution.requested_country,
-                    "geocoding_note": resolution.note,
-                }
+            days: list[WeatherDay] = []
+            if forecast_start <= forecast_end:
+                days += _forecast(
+                    destination, resolution.latitude, resolution.longitude, forecast_start, forecast_end
+                ).days
+                # Trip days before / after the forecast window use last year's observed weather.
+                gaps = [(start, forecast_start - timedelta(days=1)), (forecast_end + timedelta(days=1), end)]
+            else:
+                gaps = [(start, end)]
+            historical = False
+            estimated = False
+            for gap_start, gap_end in gaps:
+                if gap_start > gap_end:
+                    continue
+                historical = True
+                try:
+                    days += _historical(
+                        destination, resolution.latitude, resolution.longitude, gap_start, gap_end
+                    ).days
+                except Exception as exc:  # archive unreachable: seasonal estimate, clearly labelled
+                    estimated = True
+                    log_event(logger, "weather_archive_failed", destination=destination,
+                              error=str(exc), level=logging.WARNING)
+                    days += _synthetic_weather(destination, gap_start, gap_end, str(exc)).days
+            warning = None
+            if historical:
+                warning = (
+                    f"Part of this trip is outside the {FORECAST_HORIZON_DAYS}-day forecast window, so those days "
+                    + ("use a typical seasonal estimate for the destination's month (the historical weather "
+                       "service could not be reached)"
+                       if estimated else
+                       "use the observed weather of the same dates in a previous year")
+                    + " - a climate estimate, not a forecast."
+                )
+            days = sorted({d.date: d for d in days}.values(), key=lambda d: d.date)
+            weather = WeatherData(
+                destination=destination,
+                latitude=resolution.latitude,
+                longitude=resolution.longitude,
+                days=days,
+                source="open-meteo" if any(not d.synthetic for d in days) else "synthetic_fallback",
+                warning=warning,
+                resolved_name=resolution.name,
+                resolved_country=resolution.country,
+                requested_country=resolution.requested_country,
+                geocoding_note=resolution.note,
             )
             log_event(
                 logger,
@@ -711,6 +796,7 @@ def fetch_weather(
                 resolved_name=resolution.name,
                 source=weather.source,
                 days=len(weather.days),
+                historical=historical,
             )
             return weather
         except DestinationResolutionError:
@@ -726,13 +812,6 @@ def fetch_weather(
             )
             return _synthetic_weather(destination, start, end, reason)
 
-    if not within_forecast_window:
-        reason = (
-            "Requested dates are outside the Open-Meteo forecast window "
-            f"({(today - timedelta(days=1)).isoformat()} to "
-            f"{(today + timedelta(days=FORECAST_HORIZON_DAYS)).isoformat()})."
-        )
-    else:
-        reason = "Network weather retrieval was disabled."
+    reason = "Network weather retrieval was disabled."
     log_event(logger, "weather_synthetic_fallback", destination=destination, reason=reason)
     return _synthetic_weather(destination, start, end, reason)

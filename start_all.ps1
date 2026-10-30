@@ -106,6 +106,11 @@ $purchase = Join-Path $Root "purchase-redundancy-ai\backend"
 Start-DressMeService "purchase" $purchase (Find-Python $purchase $env:DRESSME_PY_PURCHASE) @("main.py") 8040 `
     @{ API_PORT = "8040"; API_HOST = "127.0.0.1" }      # son port par défaut (8000) est celui de BO1
 
+$smart = Join-Path $Root "smart_purchasing"      # « Should I buy? » : prix, budget, interprétation GPT (venv BO3 : ultralytics, xgboost)
+$smartPython = Join-Path $Root "DressMe UI Blueprint\backend\.venv\Scripts\python.exe"
+Start-DressMeService "smartbuy" $smart $(if (Test-Path $smartPython) { $smartPython } else { Find-Python $smart $env:DRESSME_PY_SMARTBUY }) `
+    @("-m", "uvicorn", "api:app", "--host", "127.0.0.1", "--port", "8050") 8050
+
 $stylist = Join-Path $Root "bo4\backend"
 Start-DressMeService "stylist" $stylist (Find-Python $stylist $env:DRESSME_PY_STYLIST) `
     @("-X", "utf8", "stylist_web.py", "--port", "8061", "--require-auth", "--bo1-url", "http://localhost:8000") 8061
@@ -120,6 +125,7 @@ $checks = [ordered]@{
     "bo1"          = "http://127.0.0.1:8000/api/health"
     "helpmepack"   = "http://127.0.0.1:8020/api/health"
     "purchase"     = "http://127.0.0.1:8040/health"
+    "smartbuy"     = "http://127.0.0.1:8050/api/smart-purchasing/health"
     "stylist"      = "http://127.0.0.1:8061/api/graph"
     "orchestrator" = "http://127.0.0.1:8070/api/config"
 }

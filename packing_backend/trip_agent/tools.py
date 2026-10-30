@@ -6,7 +6,7 @@ import json
 import logging
 import math
 import random
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, Callable
 
 import pandas as pd
@@ -685,10 +685,14 @@ class TripTools:
             }
 
         expected_dates = {details.start_date + timedelta(days=i) for i in range((end - details.start_date).days + 1)}
-        available_dates = {day.date for day in weather.days if not day.synthetic and day.source == "open-meteo"}
-        if self.wardrobe_provider.name == "bo1" and (
-            weather.source != "open-meteo" or not expected_dates.issubset(available_dates)
-        ):
+        available_dates = {
+            day.date for day in weather.days
+            if not day.synthetic and day.source in {"open-meteo", "open-meteo-archive"}
+        }
+        # Real data is required inside the forecast window; beyond it only a labelled estimate can exist.
+        today = date.today()
+        window_dates = {d for d in expected_dates if today - timedelta(days=1) <= d <= today + timedelta(days=15)}
+        if self.wardrobe_provider.name == "bo1" and not window_dates.issubset(available_dates):
             message = ("A real weather forecast is unavailable for these dates or destination. "
                        "Try again when the trip is within the forecast window.")
             self.state.status = "failed"
