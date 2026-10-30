@@ -34,6 +34,10 @@ IMG_SIZE = int(os.getenv("IMG_SIZE", 640))
 # --- LLM (OpenAI GPT-4) -----------------------------------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 LLM_SEND_IMAGE = _bool("LLM_SEND_IMAGE", True)
 LLM_IMAGE_DETAIL = os.getenv("LLM_IMAGE_DETAIL", "low")  # low | high | auto
 LLM_TIMEOUT = _float("LLM_TIMEOUT", 45)

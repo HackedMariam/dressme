@@ -90,8 +90,8 @@ SYSTEM = (
 
 def enrich(detection: dict, cutout_png: bytes | None) -> dict:
     """Return classified fields. Falls back to rules if no API key or on error."""
-    if not config.OPENAI_API_KEY:
-        return _fallback(detection, reason="no OPENAI_API_KEY set")
+    if not config.OPENAI_API_KEY and not config.GROQ_API_KEY:
+        return _fallback(detection, reason="no LLM API key set")
     try:
         raw = _call_openai(detection, cutout_png)
         out = sanitize(raw, detection)
@@ -103,9 +103,6 @@ def enrich(detection: dict, cutout_png: bytes | None) -> dict:
 
 
 def _call_openai(detection: dict, cutout_png: bytes | None) -> dict:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=config.LLM_TIMEOUT, max_retries=2)
     facts = {
         "detected_category": detection["category"],
         "detector_confidence": detection["confidence"],
@@ -120,14 +117,26 @@ def _call_openai(detection: dict, cutout_png: bytes | None) -> dict:
             "url": "data:image/png;base64," + base64.b64encode(cutout_png).decode(),
             "detail": config.LLM_IMAGE_DETAIL}})
 
-    resp = client.chat.completions.create(
-        model=config.LLM_MODEL,
-        temperature=0.2,
-        max_completion_tokens=1200,
-        messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}],
-        response_format={"type": "json_schema", "json_schema": {
-            "name": "wardrobe_item", "strict": True, "schema": ITEM_SCHEMA}},
-    )
+    from .llm import call_with_fallback
+
+    def request(client, provider: str, model: str):
+        response_model = config.GROQ_VISION_MODEL if provider == "groq" and cutout_png else model
+        response_format = (
+            {"type": "json_object"}
+            if provider == "groq"
+            else {"type": "json_schema", "json_schema": {
+                "name": "wardrobe_item", "strict": True, "schema": ITEM_SCHEMA}}
+        )
+        request = {
+            "model": response_model,
+            "temperature": 0.2,
+            "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}],
+            "response_format": response_format,
+        }
+        request["max_tokens" if provider == "groq" else "max_completion_tokens"] = 1200
+        return client.chat.completions.create(**request)
+
+    resp = call_with_fallback(request)
     choice = resp.choices[0]
     if getattr(choice.message, "refusal", None):
         raise RuntimeError(f"model refused: {choice.message.refusal}")

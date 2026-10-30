@@ -51,6 +51,19 @@ def get_api_key() -> str | None:
     return os.environ.get("OPENAI_API_KEY") or None
 
 
+def get_llm_providers() -> list[tuple[str, str, str]]:
+    providers = []
+    if os.environ.get("OPENAI_API_KEY"):
+        providers.append(("openai", os.environ["OPENAI_API_KEY"], get_model()))
+    if os.environ.get("GROQ_API_KEY"):
+        providers.append((
+            "groq",
+            os.environ["GROQ_API_KEY"],
+            os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        ))
+    return providers
+
+
 def get_model() -> str:
     return os.environ.get("LLM_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
 

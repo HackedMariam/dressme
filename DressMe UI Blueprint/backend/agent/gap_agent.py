@@ -13,6 +13,7 @@ from .prompts import SYSTEM_PROMPT
 from .tools import TOOL_SCHEMAS, GapAgentTools
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 # Any OpenAI-compatible endpoint works: OpenAI by default, or Groq/Gemini via LLM_BASE_URL.
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -35,12 +36,27 @@ def llm_settings() -> tuple[str | None, str, str]:
     )
 
 
+def llm_clients() -> list[tuple[str, str, OpenAI]]:
+    api_key, base_url, model = llm_settings()
+    configured = []
+    if api_key:
+        configured.append(("primary", api_key, base_url, model))
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        configured.append(("groq", groq_key, "https://api.groq.com/openai/v1",
+                           os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")))
+    return [(name, selected_model, OpenAI(api_key=key, base_url=url))
+            for name, key, url, selected_model in configured]
+
+
 class GapAgent:
     def __init__(self, tools: GapAgentTools) -> None:
-        api_key, base_url, self.model = llm_settings()
-        if not api_key:
-            raise RuntimeError("Set LLM_API_KEY in backend/.env (see backend/.env.example).")
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        providers = llm_clients()
+        if not providers:
+            raise RuntimeError("Set LLM_API_KEY or GROQ_API_KEY in backend/.env (see backend/.env.example).")
+        self.providers = providers
+        self.client = providers[0][2]
+        self.model = providers[0][1]
         self.tools = tools
 
     def run(self, user_message: str, history: list[dict[str, str]]) -> AgentResult:
@@ -54,13 +70,20 @@ class GapAgent:
         trace: list[dict[str, Any]] = []
         self.tools.last_ranking = None
         for step in range(1, MAX_STEPS + 1):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                tool_choice="auto",
-                temperature=0.2,
-            )
+            response = None
+            last_error = None
+            for provider, model, client in self.providers:
+                try:
+                    response = client.chat.completions.create(
+                        model=model, messages=messages, tools=TOOL_SCHEMAS,
+                        tool_choice="auto", temperature=0.2)
+                    break
+                except Exception as error:
+                    last_error = error
+                    if provider != self.providers[-1][0]:
+                        continue
+            if response is None:
+                raise RuntimeError("All configured LLM providers failed.") from last_error
             message = response.choices[0].message
             if not message.tool_calls:
                 return AgentResult(message.content or "", trace, self.tools.last_ranking)
@@ -88,4 +111,3 @@ class GapAgent:
             trace,
             self.tools.last_ranking,
         )
-

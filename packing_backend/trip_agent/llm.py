@@ -9,7 +9,7 @@ from typing import Any
 
 from .config import (
     DEFAULT_LLM_TIMEOUT_SECONDS,
-    get_api_key,
+    get_llm_providers,
     get_model,
     llm_enabled,
 )
@@ -48,29 +48,34 @@ class LLMClient:
         enabled: bool | None = None,
     ) -> None:
         self.model = model or get_model()
-        self.api_key = api_key or get_api_key()
+        self.api_key = api_key
         self.timeout = timeout
         self.enabled = llm_enabled() if enabled is None else enabled
-        self._client = None
+        self._clients: list[tuple[str, str, Any]] = []
 
     @property
     def available(self) -> bool:
-        return bool(self.enabled and self.api_key)
+        return bool(self.enabled and (self.api_key or get_llm_providers()))
 
-    def _get_client(self):
-        if self._client is None:
-            if not self.api_key:
-                raise LLMError("OPENAI_API_KEY is not configured")
+    def _get_clients(self):
+        if not self._clients:
             try:
                 from openai import OpenAI
             except ImportError as exc:  # pragma: no cover - environment dependent
                 raise LLMError("The openai package is not installed") from exc
-            self._client = OpenAI(
-                api_key=self.api_key,
-                timeout=self.timeout,
-                max_retries=1,
-            )
-        return self._client
+            providers = [("openai", self.api_key, self.model)] if self.api_key else get_llm_providers()
+            for name, key, model in providers:
+                self._clients.append((
+                    name,
+                    model,
+                    OpenAI(
+                        api_key=key,
+                        base_url="https://api.groq.com/openai/v1" if name == "groq" else None,
+                        timeout=self.timeout,
+                        max_retries=1,
+                    ),
+                ))
+        return self._clients
 
     def chat(
         self,
@@ -79,7 +84,7 @@ class LLMClient:
         tool_choice: str = "auto",
     ) -> AssistantTurn:
         if not self.available:
-            raise LLMError("LLM is disabled or OPENAI_API_KEY is missing")
+            raise LLMError("LLM is disabled or no LLM API key is configured")
 
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -90,11 +95,17 @@ class LLMClient:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice
 
-        try:
-            response = self._get_client().chat.completions.create(**kwargs)
-        except Exception as exc:  # pragma: no cover - network/provider dependent
-            log_event(logger, "llm_request_failed", error=str(exc))
-            raise LLMError(f"LLM request failed: {exc}") from exc
+        last_error = None
+        response = None
+        for provider, model, client in self._get_clients():
+            try:
+                response = client.chat.completions.create(**{**kwargs, "model": model})
+                break
+            except Exception as exc:  # pragma: no cover - network/provider dependent
+                last_error = exc
+                log_event(logger, "llm_request_failed", provider=provider, error=str(exc))
+        if response is None:
+            raise LLMError(f"LLM request failed: {last_error}") from last_error
 
         message = response.choices[0].message
         calls: list[ToolCall] = []
@@ -130,7 +141,7 @@ class LLMClient:
     def extract_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         """Ask the LLM for one JSON object (structured extraction)."""
         if not self.available:
-            raise LLMError("LLM is disabled or OPENAI_API_KEY is missing")
+            raise LLMError("LLM is disabled or no LLM API key is configured")
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -143,17 +154,22 @@ class LLMClient:
             "response_format": {"type": "json_object"},
         }
 
-        try:
-            response = self._get_client().chat.completions.create(**request)
-        except Exception as first_error:
-            # Some compatible providers/models reject response_format. Retry
-            # once without it before falling back to the deterministic parser.
-            logger.warning("Structured-output request failed; retrying plain: %s", first_error)
+        response = None
+        last_error = None
+        for provider, model, client in self._get_clients():
             try:
-                request.pop("response_format", None)
-                response = self._get_client().chat.completions.create(**request)
-            except Exception as exc:  # pragma: no cover - network dependent
-                raise LLMError(f"LLM extraction failed: {exc}") from exc
+                response = client.chat.completions.create(**{**request, "model": model})
+                break
+            except Exception as first_error:
+                logger.warning("%s structured-output request failed; retrying plain: %s", provider, first_error)
+                try:
+                    plain_request = {key: value for key, value in request.items() if key != "response_format"}
+                    response = client.chat.completions.create(**{**plain_request, "model": model})
+                    break
+                except Exception as exc:  # pragma: no cover - network dependent
+                    last_error = exc
+        if response is None:
+            raise LLMError(f"LLM extraction failed: {last_error}") from last_error
 
         content = response.choices[0].message.content or ""
         try:

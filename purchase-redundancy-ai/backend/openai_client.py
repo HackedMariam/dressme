@@ -5,6 +5,7 @@ explain(), summarize(), run_agent() (tool-use loop, photo passed to GPT vision),
 
 import json
 import logging
+import os
 import time
 from typing import Dict, List, Optional
 
@@ -16,11 +17,13 @@ logger = logging.getLogger(__name__)
 class OpenAIClient:
     provider = "openai"
 
-    def __init__(self, api_key: str, model: str = "gpt-4.1", enabled: bool = True):
+    def __init__(self, api_key: str, model: str = "gpt-4.1", enabled: bool = True,
+                 base_url: str | None = None):
         self.model = model
         self.client = None
         self.error: Optional[str] = None
         self.paused_until = 0.0
+        self.fallback = None
 
         if not enabled:
             self.error = "LLM disabled by configuration (LLM_ENABLED=False)"
@@ -29,7 +32,7 @@ class OpenAIClient:
         else:
             try:
                 from openai import OpenAI
-                self.client = OpenAI(api_key=api_key, timeout=120.0, max_retries=2)
+                self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=120.0, max_retries=2)
             except ImportError as e:
                 self.error = f"openai SDK not installed: {e}"
 
@@ -70,6 +73,9 @@ class OpenAIClient:
         except openai.APIError as e:
             logger.error(f"OpenAI API error: {e}")
             self.handle_api_error(e)
+            if self.fallback and self.fallback.available:
+                logger.warning("Falling back from %s to %s", self.provider, self.fallback.provider)
+                return self.fallback._chat(messages, **kwargs)
             return None
 
     def explain(self, item_name: str, result: Dict, language: str = "English") -> Optional[str]:
@@ -141,6 +147,10 @@ class OpenAIClient:
                     tool_choice="required" if iteration == 0 else "auto", temperature=0.2, max_tokens=1500)
             except openai.APIError as e:
                 self.handle_api_error(e)
+                if self.fallback and self.fallback.available:
+                    logger.warning("Falling back from %s to %s", self.provider, self.fallback.provider)
+                    return self.fallback.run_agent(
+                        user_message, wardrobe, engine, max_iterations, on_step, image, profile, history, actions)
                 raise
             usage["input_tokens"] += response.usage.prompt_tokens
             usage["output_tokens"] += response.usage.completion_tokens
@@ -177,6 +187,14 @@ def make_llm_client(provider: str, claude_key: str, claude_model: str, openai_ke
     if provider == "auto":
         provider = "openai" if openai_key else "claude"
     if provider == "openai":
-        return OpenAIClient(openai_key, openai_model, enabled=enabled)
+        primary = OpenAIClient(openai_key, openai_model, enabled=enabled)
+        if os.getenv("GROQ_API_KEY"):
+            primary.fallback = OpenAIClient(
+                os.getenv("GROQ_API_KEY", ""),
+                os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                enabled=enabled,
+                base_url=os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
+            )
+        return primary
     return ClaudeClient(claude_key, claude_model, effort=effort, agent_effort=agent_effort,
                         max_tokens=max_tokens, enabled=enabled)

@@ -96,21 +96,19 @@ def chat(items: list[dict], message: str) -> dict:
     message = (message or "").strip()
     if not message:
         return {"reply": "Ask me something like \"a warm jacket for work\".", "items": []}
-    if not config.OPENAI_API_KEY:
-        return {"reply": "The AI stylist needs an OPENAI_API_KEY configured on the server.", "items": []}
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=config.LLM_TIMEOUT, max_retries=2)
+    if not config.OPENAI_API_KEY and not config.GROQ_API_KEY:
+        return {"reply": "The AI stylist needs an LLM API key configured on the server.", "items": []}
     messages: list[dict] = [{"role": "system", "content": SYSTEM},
                             {"role": "user", "content": message[:1000]}]
     found: dict[str, dict] = {}
 
     for _ in range(MAX_ROUNDS):
         try:
-            resp = client.chat.completions.create(
-                model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=400,
-                messages=messages, tools=TOOLS)
+            from .llm import call_with_fallback
+            resp = call_with_fallback(
+                lambda client, _provider, model: client.chat.completions.create(
+                    model=model, temperature=0.3, max_completion_tokens=400,
+                    messages=messages, tools=TOOLS))
         except Exception:
             log.exception("agent LLM call failed")
             return {"reply": "The AI stylist is having trouble right now, try again in a moment.",
@@ -156,21 +154,19 @@ def check_duplicate(items: list[dict], candidate: dict) -> dict:
     a fixed rule - it can look, weigh what it finds, and only flag a genuine match.
     """
     empty = {"duplicate": False, "similar_item_id": None, "note": ""}
-    if not config.OPENAI_API_KEY or not items:
+    if not (config.OPENAI_API_KEY or config.GROQ_API_KEY) or not items:
         return empty
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=config.LLM_TIMEOUT, max_retries=2)
     facts = {k: candidate.get(k) for k in ("category", "color_name", "pattern", "material") if candidate.get(k)}
     messages: list[dict] = [{"role": "system", "content": DUPLICATE_SYSTEM},
                             {"role": "user", "content": "Just captured: " + json.dumps(facts)}]
 
     for _ in range(MAX_ROUNDS):
         try:
-            resp = client.chat.completions.create(
-                model=config.LLM_MODEL, temperature=0.1, max_completion_tokens=250,
-                messages=messages, tools=TOOLS, response_format={"type": "json_object"})
+            from .llm import call_with_fallback
+            resp = call_with_fallback(
+                lambda client, _provider, model: client.chat.completions.create(
+                    model=model, temperature=0.1, max_completion_tokens=250,
+                    messages=messages, tools=TOOLS, response_format={"type": "json_object"}))
         except Exception:
             log.exception("duplicate-check LLM call failed")
             return empty

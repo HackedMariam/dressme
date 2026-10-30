@@ -109,10 +109,12 @@ class DressMeInferenceEngine:
     ):
         self.skip_llm = skip_llm
         self.openai_key = openai_key or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+        self.groq_key = os.getenv("GROQ_API_KEY")
         self.model_id = model_id or DEFAULT_LLM_MODEL
         self.user_id = user_id or os.getenv("WARDROBE_USER_ID")
         self.wardrobe: List[Garment] = wardrobe if wardrobe is not None else []
         self.openai_client = None
+        self.groq_client = None
 
         if wardrobe is None:
             self._load_wardrobe()
@@ -132,7 +134,12 @@ class DressMeInferenceEngine:
         try:
             from openai import OpenAI
             self.openai_client = OpenAI(api_key=self.openai_key)
-        except Exception as e:
+            if self.groq_key:
+                self.groq_client = OpenAI(
+                    api_key=self.groq_key,
+                    base_url=os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
+                )
+        except Exception:
             self.openai_client = None
 
     @staticmethod
@@ -173,20 +180,24 @@ class DressMeInferenceEngine:
             f"Remember: Do not include emojis."
         )
 
-        try:
-            response = self.openai_client.chat.completions.create(
-                model=self.model_id,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                temperature=0.7,
-                max_tokens=450,
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"[LLM Warning] OpenAI interpretation failed: {e}")
-            return None
+        clients = [(self.openai_client, self.model_id)]
+        if self.groq_client:
+            clients.append((self.groq_client, os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")))
+        for client, model in clients:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                    temperature=0.7,
+                    max_tokens=450,
+                )
+                return response.choices[0].message.content.strip()
+            except Exception as error:
+                print(f"[LLM Warning] {model} interpretation failed: {error}")
+        return None
 
     def evaluate(
         self,

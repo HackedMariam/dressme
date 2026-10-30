@@ -40,6 +40,9 @@ LLM_ENABLED = os.getenv("LLM_ENABLED", "True").lower() == "true"
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto")   # openai | claude | auto (OpenAI when OPENAI_API_KEY is set)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 CONFIDENCE_THRESHOLD = 0.85
 
 # ============================================================================

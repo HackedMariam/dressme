@@ -15,11 +15,8 @@ def interpret_gaps_with_gpt(gaps_data: dict[str, Any]) -> Optional[str]:
 
     Non-intrusive: If OPENAI_API_KEY is missing or the API call fails, returns None.
     """
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
-    if not api_key:
+    if not (os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("GROQ_API_KEY")):
         return None
-
-    model = os.getenv("LLM_MODEL", "gpt-4o")
 
     # If all requirements are already met:
     if not gaps_data.get("ranked_gaps"):
@@ -61,17 +58,21 @@ def interpret_gaps_with_gpt(gaps_data: dict[str, Any]) -> Optional[str]:
     )
 
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.7,
-            max_tokens=350,
-        )
+        from .gap_agent import llm_clients
+        response = None
+        last_error = None
+        for _, model, client in llm_clients():
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "system", "content": system_prompt},
+                              {"role": "user", "content": user_prompt}],
+                    temperature=0.7, max_tokens=350)
+                break
+            except Exception as error:
+                last_error = error
+        if response is None:
+            raise RuntimeError("All configured LLM providers failed.") from last_error
         return response.choices[0].message.content.strip()
     except Exception as exc:
         logger.warning("[BO3 Interpreter] OpenAI call failed: %s", exc)

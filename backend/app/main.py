@@ -44,7 +44,7 @@ async def lifespan(_: FastAPI):
     except Exception:
         log.exception("Could not load model at %s", config.MODEL_PATH)
     log.info("Storage: %s | auth: %s | LLM: %s", store.kind, config.AUTH_ENABLED,
-             config.LLM_MODEL if config.OPENAI_API_KEY else "off (rules)")
+             config.LLM_MODEL if (config.OPENAI_API_KEY or config.GROQ_API_KEY) else "off (rules)")
     yield
 
 
@@ -89,7 +89,7 @@ def health() -> dict:
         model_ok = False
     return {"ok": model_ok, "model_loaded": model_ok, "model": config.MODEL_PATH.name,
             "store": store.kind, "auth": config.AUTH_ENABLED,
-            "llm": bool(config.OPENAI_API_KEY), "llm_model": config.LLM_MODEL}
+            "llm": bool(config.OPENAI_API_KEY or config.GROQ_API_KEY), "llm_model": config.LLM_MODEL}
 
 
 @app.get("/api/taxonomy")

@@ -76,6 +76,21 @@ pnpm dev           # dev server, proxies /api to http://127.0.0.1:8000
 pnpm build         # production build in "DressMe UI Blueprint/dist"
 ```
 
+### LLM fallback
+
+All OpenAI-compatible LLM integrations try `OPENAI_API_KEY` (or the configured
+primary provider) first and retry the request with Groq when it fails. Configure
+the fallback in the root `.env`:
+
+```powershell
+GROQ_API_KEY=your-groq-key
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+GROQ_MODEL=llama-3.3-70b-versatile
+```
+
+The original deterministic or rules-based fallback is still used when both
+providers are unavailable. Never commit either API key.
+
 The legacy `frontend/` app is kept only as a migration reference until the canonical frontend
 reaches parity. See [`docs/frontend-consolidation.md`](docs/frontend-consolidation.md) for the
 status matrix.
