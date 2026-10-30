@@ -1,17 +1,19 @@
-"""Standalone Universal Inference Pipeline for DressMe Fashion Agent.
+"""DressMe Shopping Assistant — Autonomous Inference Pipeline.
 
-Powered by:
-- YOLO segmentation model ('dressme_best.pt') for garment detection & CIEDE2000 color extraction.
-- Wardrobe combinatorics & XGBoost ML tool ('xgb_purchase_model.json').
-- Hugging Face Serverless Inference API for Qwen reasoning (0 GB downloaded, 0 MB RAM, fast).
-  Reads 'HF_TOKEN' automatically from your .env file.
+Integrates:
+- Supabase Live Wardrobe (with automatic local dataset fallback)
+- YOLO11 Segmentation & CIEDE2000 Dominant Color Vision
+- Teammate Redundancy Engine (purchase-redundancy-ai FeatureSet)
+- Teammate Outfit Recommendation Engine (bo4 outfit_engine)
+- Teammate Wardrobe Gap Analysis (bo3 coverage & XGBoost ranker)
+- XGBoost Decision Classifier
+- OpenAI GPT-4 Stylist Interpretation
 """
 
 import os
 import sys
-import re
-import csv
 import json
+import re
 import time
 import argparse
 import tempfile
@@ -19,47 +21,50 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
-# Add smart_purchasing to sys.path
+# Set UTF-8 encoding for standard output if running in Windows console
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = CURRENT_DIR / "smart_purchasing" if (CURRENT_DIR / "smart_purchasing").exists() else CURRENT_DIR
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+for p in [CURRENT_DIR, PROJECT_DIR, CURRENT_DIR.parent]:
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 
 def load_dotenv(env_path: Optional[Path] = None):
-    """Loads environment variables from .env without requiring external libraries."""
-    if env_path is None:
-        candidates = [
-            Path(".env"),
-            CURRENT_DIR / ".env",
-            PROJECT_DIR / ".env",
-            CURRENT_DIR.parent / ".env",
-        ]
-        for c in candidates:
-            if c.exists():
-                env_path = c
-                break
-
-    if env_path and env_path.exists():
-        try:
-            with open(env_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        k = k.strip()
-                        v = v.strip().strip("'\"")
-                        if k and k not in os.environ and v:
-                            os.environ[k] = v
-        except Exception:
-            pass
+    """Loads environment variables from .env files."""
+    candidates = [
+        Path(".env"),
+        CURRENT_DIR / ".env",
+        PROJECT_DIR / ".env",
+        CURRENT_DIR.parent / ".env",
+    ]
+    for c in candidates:
+        if c.exists():
+            try:
+                with open(c, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip("'\"")
+                            if k and k not in os.environ and v:
+                                os.environ[k] = v
+            except Exception:
+                pass
 
 
-# Automatically load .env on startup
+# Automatically load environment variables
 load_dotenv()
 
-# Domain tools & schemas
+# Domain schemas and tools
 from schemas import CandidateItem, Garment
+from wardrobe_loader import load_user_wardrobe, load_wardrobe_from_csv
 from tools import (
     find_similar_items,
     check_outfit_compatibility,
@@ -69,15 +74,7 @@ from tools import (
 )
 from ml_model import predict_purchase_ml
 
-# Default models on Hugging Face Serverless API
-DEFAULT_HF_MODEL = os.environ.get("HF_MODEL_ID", "Qwen/Qwen2.5-72B-Instruct")
-
-SYSTEM_PROMPT = (
-    "You are DressMe Shopping Assistant, an expert AI fashion and wardrobe consultant. "
-    "Evaluate whether the user should buy the proposed clothing item based on their wardrobe, "
-    "preferences, tool results, and budget. Return ONLY a valid JSON object with fields: "
-    "decision (BUY, DON'T BUY, CONSIDER), score (0-100), reasons (list), and uncertainties (list)."
-)
+DEFAULT_LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 
 OCCASION_KEYWORDS = {
     "work": ("work", ["formal", "smart_casual"]),
@@ -96,124 +93,44 @@ OCCASION_KEYWORDS = {
 }
 
 
-def load_wardrobe_from_csv(file_path: Path) -> List[Garment]:
-    """Loads and adapts wardrobe.csv into typed Garment domain objects without depending on agent.py."""
-    garments: List[Garment] = []
-    with open(file_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            item_id = row.get("item_id", "").strip()
-            name = row.get("name", "").strip()
-            macro_cat = row.get("category", "").strip().lower()
-            item_type = row.get("item_type", "").strip().lower().replace("-", "_")
-            primary_cat = item_type if item_type else macro_cat
-            color = row.get("color", "unknown").strip().lower()
-
-            style_raw = row.get("style", "casual").strip().lower().replace("-", "_")
-            style_list = [style_raw]
-            if style_raw == "smart_casual":
-                style_list = ["smart_casual", "formal"]
-
-            season_raw = row.get("season", "all-season").strip().lower()
-            if season_raw in ["all-season", "all_season"]:
-                seasons = ["spring", "summer", "autumn", "winter"]
-            else:
-                seasons = [season_raw]
-
-            formality = int(row.get("formality_level", 3)) if row.get("formality_level") else 3
-            if formality >= 4 or style_raw == "formal":
-                occasions = ["work", "formal_event", "meeting", "dinner"]
-            elif formality == 3 or style_raw == "smart_casual":
-                occasions = ["work", "dinner", "casual_outing", "meeting"]
-            else:
-                occasions = ["casual_outing", "weekend", "travel"]
-
-            tags = [macro_cat, item_type]
-            desc = row.get("description", "").strip()
-            if desc:
-                tags.extend([w.lower() for w in desc.split() if len(w) > 3])
-
-            versatility_val = None
-            if row.get("versatility"):
-                try:
-                    versatility_val = float(row["versatility"])
-                except ValueError:
-                    pass
-
-            garments.append(Garment(
-                id=item_id,
-                name=name,
-                category=primary_cat,
-                color=color,
-                style=style_list,
-                seasons=seasons,
-                occasions=occasions,
-                tags=tags,
-                item_type=item_type,
-                warmth_level=int(row["warmth_level"]) if row.get("warmth_level") else None,
-                water_resistance=int(row["water_resistance"]) if row.get("water_resistance") else None,
-                weight_g=int(row["weight_g"]) if row.get("weight_g") else None,
-                versatility=versatility_val,
-                formality_level=formality,
-                clean_items_available=row.get("clean_items_available", "True").lower() == "true",
-                description=desc,
-            ))
-    return garments
-
-
 class DressMeInferenceEngine:
-    """Manages model loading and end-to-end evaluation using Hugging Face Inference API."""
+    """Manages model loading, Supabase wardrobe synchronization, and end-to-end evaluation."""
 
-    def __init__(self, skip_llm: bool = False, hf_token: Optional[str] = None, model_id: Optional[str] = None):
+    def __init__(
+        self,
+        skip_llm: bool = False,
+        openai_key: Optional[str] = None,
+        model_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        wardrobe: Optional[List[Garment]] = None,
+    ):
         self.skip_llm = skip_llm
-        self.hf_token = hf_token or os.environ.get("HF_TOKEN")
-        self.model_id = model_id or DEFAULT_HF_MODEL
-        self.wardrobe: List[Garment] = []
-        self.client = None
+        self.openai_key = openai_key or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+        self.model_id = model_id or DEFAULT_LLM_MODEL
+        self.user_id = user_id or os.getenv("WARDROBE_USER_ID")
+        self.wardrobe: List[Garment] = wardrobe if wardrobe is not None else []
+        self.openai_client = None
 
-        self._load_wardrobe()
+        if wardrobe is None:
+            self._load_wardrobe()
         if not self.skip_llm:
-            self._init_hf_client()
+            self._init_llm_client()
 
     def _load_wardrobe(self):
-        """Loads wardrobe from wardrobe.csv."""
-        wardrobe_candidates = [
-            PROJECT_DIR / "wardrobe.csv",
-            CURRENT_DIR / "wardrobe.csv",
-            PROJECT_DIR / "data" / "sample_wardrobe.json",
-        ]
-        chosen = None
-        for p in wardrobe_candidates:
-            if p.exists():
-                chosen = p
-                break
-        if chosen and chosen.suffix.lower() == ".csv":
-            self.wardrobe = load_wardrobe_from_csv(chosen)
-            print(f"[Wardrobe] Loaded {len(self.wardrobe)} garments from {chosen.name}")
-        elif chosen:
-            with open(chosen, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                self.wardrobe = [Garment(**it) for it in data]
-            print(f"[Wardrobe] Loaded {len(self.wardrobe)} garments from {chosen.name}")
-        else:
-            print("[Wardrobe Warning] wardrobe.csv not found; wardrobe list is empty.")
+        """Loads wardrobe from Supabase with graceful fallback."""
+        self.wardrobe = load_user_wardrobe(user_id=self.user_id)
 
-    def _init_hf_client(self):
-        """Initializes Hugging Face InferenceClient using HF_TOKEN from .env."""
-        if not self.hf_token:
-            print("[Model Notice] No HF_TOKEN found in .env or environment.")
-            print("               To enable cloud Qwen reasoning, paste your free token in .env:")
-            print("               HF_TOKEN=hf_your_token_here")
-            print("               Running in deterministic evaluation mode...")
+    def _init_llm_client(self):
+        """Initializes OpenAI client for personal styling and decision explanation."""
+        if not self.openai_key:
+            print("[LLM Notice] No OPENAI_API_KEY found in .env; running in deterministic evaluation mode.")
             return
 
         try:
-            from huggingface_hub import InferenceClient
-            self.client = InferenceClient(token=self.hf_token)
-            print(f"[Model Loader] Connected to Hugging Face Serverless API ({self.model_id})")
+            from openai import OpenAI
+            self.openai_client = OpenAI(api_key=self.openai_key)
         except Exception as e:
-            print(f"[Model Notice] Could not initialize Hugging Face client: {e}")
-            self.client = None
+            self.openai_client = None
 
     @staticmethod
     def infer_occasion_and_style(user_prompt: str, detected_category: str) -> Tuple[str, List[str]]:
@@ -229,14 +146,55 @@ class DressMeInferenceEngine:
             return "dinner", ["formal", "evening"]
         return "casual_outing", ["casual"]
 
+    def _interpret_with_gpt(self, summary_payload: Dict[str, Any]) -> Optional[str]:
+        """Interprets raw agent JSON using GPT-4 into a styled, user-friendly recommendation."""
+        if not self.openai_client:
+            return None
+
+        system_prompt = (
+            "You are DressMe Shopping Assistant, an expert personal stylist and wardrobe consultant. "
+            "Your role is to interpret raw technical decision data (vision analysis, redundancy scores, "
+            "outfit combinations, wardrobe gaps, and budget math) into an elegant, clear, and actionable advice "
+            "for the shopper. Do NOT use emojis. Maintain a chic, professional, and clear tone."
+        )
+
+        user_content = (
+            f"User Question: \"{summary_payload['user_query']}\"\n\n"
+            f"Here is the technical evaluation data from the agent tools:\n"
+            f"{json.dumps(summary_payload, indent=2)}\n\n"
+            f"Please write a structured styling recommendation with:\n"
+            f"1. **The Verdict**: Clear BUY / CONSIDER / DON'T BUY with confidence rating.\n"
+            f"2. **Why It Works (or Doesn't)**: Plain-language summary of redundancy, wardrobe gap, and budget.\n"
+            f"3. **Ready-to-Wear Outfits**: Explicit combinations using existing pieces in their closet.\n"
+            f"4. **Stylist's Final Advice**: Practical tips on wearing and versatility.\n\n"
+            f"Remember: Do not include emojis."
+        )
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.model_id,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.7,
+                max_tokens=450,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"[LLM Warning] OpenAI interpretation failed: {e}")
+            return None
+
     def evaluate(
         self,
         image_path: str,
         price: float,
         budget: float,
-        user_prompt: str = "Should I buy this?"
+        user_prompt: str = "Should I buy this?",
+        wardrobe: Optional[List[Garment]] = None,
     ) -> Dict[str, Any]:
         """Runs end-to-end evaluation pipeline."""
+        active_wardrobe = wardrobe if wardrobe is not None else self.wardrobe
         # 1. Download image if URL
         local_image = str(image_path)
         if local_image.startswith("http://") or local_image.startswith("https://"):
@@ -246,57 +204,49 @@ class DressMeInferenceEngine:
                 f.write(resp.read())
 
         # 2. Computer Vision Analysis (YOLO segmentation + CIEDE2000)
-        cand = CandidateItem(category="unknown", image_path=local_image, price=price, budget=budget)
+        cand = CandidateItem(name=user_prompt, category="unknown", image_path=local_image, price=price, budget=budget)
         vision_data = analyze_item(cand)
-        category = vision_data.get("category", "top")
-        color = vision_data.get("color", "black")
 
-        # 3. Infer occasion & style
+        category = vision_data["category"]
+        color = vision_data["color"]
         occasion, styles = self.infer_occasion_and_style(user_prompt, category)
+
         cand.category = category
         cand.color = color
-        cand.target_occasion = occasion
+        cand.occasions = [occasion]
         cand.style = styles
+        cand.seasons = ["all"] if occasion == "work" else ["autumn"]
 
-        # 4. Execute domain tools
-        sims = find_similar_items(cand, self.wardrobe, top_k=3)
+        # 3. Tool Analysis
+        sims = find_similar_items(cand, active_wardrobe, top_k=3)
         top_sim = sims[0].similarity_score if sims else 0.0
         redundancy_pct = round(top_sim * 100.0, 1)
 
-        outfits = check_outfit_compatibility(cand, self.wardrobe, target_occasion=occasion)
-        comp_count = outfits.get("compatible_count", 0)
-        avg_score = outfits.get("average_score", 70.0)
+        compat_data = check_outfit_compatibility(cand, active_wardrobe, target_occasion=occasion)
+        comp_count = compat_data["compatible_count"]
+        avg_score = compat_data["average_score"]
 
         matching_outfits = []
         paired_item_ids = []
-        outfit_desc_lines = []
-        for combo in outfits.get("combinations", []):
-            combo_items = []
-            item_labels = []
+        for combo in compat_data.get("combinations", [])[:3]:
+            paired_summary = [
+                {"item_id": g.id, "name": g.name, "category": g.category, "color": g.color}
+                for g in combo.paired_garments
+            ]
             for g in combo.paired_garments:
-                combo_items.append({
-                    "item_id": g.id,
-                    "name": g.name,
-                    "category": g.category,
-                    "color": g.color,
-                })
                 if g.id not in paired_item_ids:
                     paired_item_ids.append(g.id)
-                item_labels.append(f"{g.id} ({g.name})")
             matching_outfits.append({
                 "outfit_id": combo.outfit_id,
                 "description": combo.description,
-                "compatibility_score": combo.compatibility_score,
-                "paired_items": combo_items,
+                "compatibility_score": round(combo.compatibility_score, 1),
+                "paired_items": paired_summary,
             })
-            outfit_desc_lines.append(f"{combo.outfit_id}: " + " + ".join(item_labels))
 
-        paired_ids_str = ", ".join(paired_item_ids) if paired_item_ids else "None"
-        outfit_summary = "; ".join(outfit_desc_lines) if outfit_desc_lines else "None"
-
-        gap_res = analyze_wardrobe_gaps(cand, self.wardrobe)
+        gap_res = analyze_wardrobe_gaps(cand, active_wardrobe)
         gap_score = gap_res.gap_fill_score
 
+        # 4. XGBoost Model & Deterministic Evaluation
         penalty = min(25.0, round(((price - budget) / budget) * 20.0, 2)) if budget > 0 and price > budget else 0.0
 
         ml_res = predict_purchase_ml(
@@ -320,71 +270,8 @@ class DressMeInferenceEngine:
             ml_confidence=ml_res["confidence"],
         )
 
-        # 5. Qwen Reasoning via Hugging Face Serverless API
-        agent_output = None
-        if not self.skip_llm and self.client is not None:
-            scenario_prompt = (
-                f"Scenario ID: IMG-{int(time.time())%10000}\n"
-                f"Proposed Item: {color.title()} {category.title()} (Image Analysis), Price: ${price:.0f}, Style: {', '.join(styles)}\n"
-                f"User Budget: ${budget:.0f}, Preferred Style: {', '.join(styles)}\n"
-                f"User Question: \"{user_prompt}\"\n"
-                f"Category Evaluation Focus: autonomous_full_loop\n"
-                f"Wardrobe Context: User has {len(self.wardrobe)} items in wardrobe.\n"
-                f"Tool analysis: Redundancy={redundancy_pct}%, Outfits={comp_count}.\n"
-                f"Matching Outfits in Wardrobe: {outfit_summary}\n"
-                f"Compatible Garment IDs: [{paired_ids_str}]\n"
-                f"GapScore={gap_score:.1f}, CalculatedScore={val_res.overall_score:.1f}, ML_Decision={ml_res['ml_decision']}.\n"
-                f"Instruction: In your reasons, cite the exact item IDs (e.g. {paired_ids_str}) of the clothes that pair into complete outfits."
-            )
-            try:
-                print(f"[API] Querying {self.model_id} on Hugging Face Serverless API...")
-                response = self.client.chat.completions.create(
-                    model=self.model_id,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": scenario_prompt},
-                    ],
-                    max_tokens=220,
-                    temperature=0.1,
-                )
-                raw_response = response.choices[0].message.content.strip()
-
-                cleaned = raw_response
-                if "```" in cleaned:
-                    m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
-                    if m:
-                        cleaned = m.group(1).strip()
-                m = re.search(r"(\{[\s\S]*\})", cleaned)
-                if m:
-                    cleaned = m.group(1).strip()
-
-                try:
-                    agent_output = json.loads(cleaned)
-                except Exception:
-                    agent_output = {
-                        "decision": val_res.decision.value,
-                        "score": val_res.overall_score,
-                        "reasons": [raw_response],
-                        "uncertainties": [],
-                    }
-            except Exception as e:
-                print(f"[API Warning] Hugging Face API query failed: {e}")
-                print("[API Warning] Falling back to deterministic output.")
-                agent_output = None
-
-        if agent_output is None:
-            # Deterministic output
-            agent_output = {
-                "decision": val_res.decision.value,
-                "score": val_res.overall_score,
-                "reasons": [
-                    f"Deterministic evaluation: compatible with {comp_count} outfits in closet.",
-                    f"XGBoost classification: {ml_res['ml_decision']} (confidence {ml_res['confidence']*100:.1f}%).",
-                ],
-                "uncertainties": [],
-            }
-
-        return {
+        # 5. Build structured payload
+        payload = {
             "status": "success",
             "user_query": user_prompt,
             "candidate_item": {
@@ -404,32 +291,46 @@ class DressMeInferenceEngine:
                 "matching_outfits": matching_outfits,
                 "wardrobe_gap_score": gap_score,
                 "xgboost_prediction": ml_res["ml_decision"],
-                "xgboost_confidence": ml_res["confidence"],
-                "deterministic_score": val_res.overall_score,
+                "xgboost_confidence": round(ml_res["confidence"], 3),
+                "deterministic_score": round(val_res.overall_score, 1),
                 "budget_penalty": penalty,
             },
             "agent_verdict": {
-                "decision": agent_output.get("decision", val_res.decision.value),
-                "score": agent_output.get("score", val_res.overall_score),
+                "decision": val_res.decision.value,
+                "score": round(val_res.overall_score, 1),
                 "matching_item_ids": paired_item_ids,
-                "reasons": agent_output.get("reasons", []),
-                "uncertainties": agent_output.get("uncertainties", []),
+                "reasons": [
+                    f"Compatible with {comp_count} outfits in existing wardrobe.",
+                    f"XGBoost classification: {ml_res['ml_decision']} (confidence {ml_res['confidence']*100:.1f}%).",
+                    f"Wardrobe gap score: {gap_score:.1f}/100.",
+                    f"Redundancy risk: {redundancy_pct}%.",
+                ],
+                "uncertainties": [],
             },
         }
 
+        # 6. Generate GPT-4 styling interpretation if enabled
+        if not self.skip_llm and self.openai_client:
+            interpretation = self._interpret_with_gpt(payload)
+            if interpretation:
+                payload["stylist_interpretation"] = interpretation
+
+        return payload
+
 
 def main():
-    parser = argparse.ArgumentParser(description="DressMe Autonomous Inference Pipeline (Hugging Face API)")
-    parser.add_argument("--image", type=str, default=None, help="Path to local image or image URL")
-    parser.add_argument("--price", type=float, default=35.0, help="Item price (default: 35.0)")
-    parser.add_argument("--budget", type=float, default=50.0, help="User budget (default: 50.0)")
-    parser.add_argument("--prompt", type=str, default="Should I buy this black t-shirt for casual weekend wear?", help="User query")
-    parser.add_argument("--hf-token", type=str, default=None, help="Hugging Face API token (or set in .env)")
-    parser.add_argument("--model", type=str, default=None, help="HF model ID (default: Qwen/Qwen2.5-72B-Instruct)")
-    parser.add_argument("--skip-llm", action="store_true", help="Run only vision + deterministic ML tools without querying LLM")
+    parser = argparse.ArgumentParser(description="DressMe Autonomous Shopping Assistant")
+    parser.add_argument("--image", type=str, default=None, help="URL or path to candidate clothing image")
+    parser.add_argument("--price", type=float, default=35.0, help="Item price in USD")
+    parser.add_argument("--budget", type=float, default=50.0, help="User budget in USD")
+    parser.add_argument("--prompt", type=str, default="Should I buy this for casual weekend wear?", help="User's natural language question")
+    parser.add_argument("--user-id", type=str, default=None, help="Supabase user ID")
+    parser.add_argument("--openai-key", type=str, default=None, help="OpenAI API key")
+    parser.add_argument("--model", type=str, default=DEFAULT_LLM_MODEL, help="LLM model ID")
+    parser.add_argument("--skip-llm", action="store_true", help="Skip LLM interpretation and return pure deterministic tool output")
+    parser.add_argument("--json", action="store_true", help="Print raw machine-readable JSON evaluation")
     args = parser.parse_args()
 
-    # Default sample image if none provided
     img = args.image
     if not img:
         sample_local = PROJECT_DIR / "data" / "sample_camel_blazer.jpg"
@@ -438,19 +339,11 @@ def main():
         else:
             img = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQuFucmwpSu49mBKKfTp4NJHMMZsKI9YuuM16xSn2Fmt15lRUCez5qvMy0&s=10"
 
-    print("================================================================")
-    print("      👗 DRESSME SHOPPER AGENT — AUTONOMOUS INFERENCE")
-    print("================================================================")
-    print(f"Image:  {img}")
-    print(f"Price:  ${args.price:.2f}")
-    print(f"Budget: ${args.budget:.2f}")
-    print(f"Prompt: \"{args.prompt}\"")
-    print("----------------------------------------------------------------")
-
     engine = DressMeInferenceEngine(
         skip_llm=args.skip_llm,
-        hf_token=args.hf_token,
+        openai_key=args.openai_key,
         model_id=args.model,
+        user_id=args.user_id,
     )
     result = engine.evaluate(
         image_path=img,
@@ -459,8 +352,22 @@ def main():
         user_prompt=args.prompt,
     )
 
-    print("\n[RESULT JSON]:")
-    print(json.dumps(result, indent=2))
+    if args.json:
+        print(json.dumps(result, indent=2))
+    elif "stylist_interpretation" in result:
+        print("================================================================")
+        print("          PERSONAL STYLIST RECOMMENDATION")
+        print("================================================================")
+        print(result["stylist_interpretation"])
+    else:
+        print("================================================================")
+        print("          EVALUATION SUMMARY")
+        print("================================================================")
+        print(f"Decision: {result['agent_verdict']['decision']} (Score: {result['agent_verdict']['score']}/100)")
+        print(f"XGBoost Prediction: {result['tool_evidence']['xgboost_prediction']} (Confidence: {result['tool_evidence']['xgboost_confidence']*100:.1f}%)")
+        print("Reasons:")
+        for r in result['agent_verdict']['reasons']:
+            print(f"- {r}")
 
 
 if __name__ == "__main__":

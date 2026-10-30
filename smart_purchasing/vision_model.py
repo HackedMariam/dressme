@@ -157,7 +157,6 @@ class DressMeVisionModel:
         try:
             # Load trained YOLO segmentation model
             self.model = YOLO(str(self.model_path))
-            print(f"[VisionModel] Successfully loaded YOLO segmentation model from {self.model_path.name}")
         except Exception as e:
             print(f"[VisionModel Warning] Failed to load YOLO model: {e}")
             self.model = None
@@ -177,6 +176,16 @@ class DressMeVisionModel:
         if not image_path or not os.path.exists(image_path):
             cat = preferred_category or "top"
             col = preferred_color or "neutral"
+            if hint_name:
+                h_low = hint_name.lower()
+                for c in ["black", "white", "navy", "grey", "gray", "camel", "beige", "cream", "brown", "green", "red", "blue", "pink", "taupe"]:
+                    if re.search(r"\b" + c + r"\b", h_low):
+                        col = c
+                        break
+                for k, v in [("t-shirt", "t_shirt"), ("tshirt", "t_shirt"), ("blazer", "blazer"), ("jacket", "jacket"), ("dress", "dress"), ("jeans", "jeans"), ("shirt", "shirt"), ("pants", "trousers"), ("trousers", "trousers"), ("shorts", "shorts"), ("skirt", "skirt")]:
+                    if re.search(r"\b" + k + r"\b", h_low):
+                        cat = v
+                        break
             return {
                 "category": cat.lower(),
                 "color": col.lower(),

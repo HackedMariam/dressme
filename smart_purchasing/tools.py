@@ -9,8 +9,10 @@ Tools:
 """
 
 import os
+import sys
 import re
 import hashlib
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from PIL import Image
 
@@ -39,6 +41,33 @@ try:
     from vision_model import get_vision_model, DressMeVisionModel
 except ImportError:
     from smart_purchasing.vision_model import get_vision_model, DressMeVisionModel
+
+# Teammates' Integration Paths (Redundancy, Recommendation BO4, Gap Analysis BO3)
+ROOT_DIR = Path(__file__).resolve().parent.parent
+for subpath in [
+    ROOT_DIR / "bo4" / "backend",
+    ROOT_DIR / "purchase-redundancy-ai" / "backend",
+    ROOT_DIR / "DressMe UI Blueprint" / "backend",
+]:
+    if subpath.exists() and str(subpath) not in sys.path:
+        sys.path.insert(0, str(subpath))
+
+try:
+    import outfit_engine
+except Exception:
+    outfit_engine = None
+
+try:
+    from features import FeatureSet
+except Exception:
+    FeatureSet = None
+
+try:
+    from agent import coverage
+    import xgboost_ranker
+except Exception:
+    coverage = None
+    xgboost_ranker = None
 
 
 
@@ -180,12 +209,12 @@ def find_similar_items(
 ) -> List[SimilarItemMatch]:
     """Tool 2: Finds visually and functionally similar clothes in owned wardrobe.
     
-    Strictly detects duplicates when category, normalized color, and subtype/style overlap.
+    Integrated with teammate's purchase-redundancy-ai FeatureSet for authoritative
+    redundancy scoring, duplicate detection, and explanations.
     """
     cand_cat = candidate.category.lower().strip().replace("-", "_")
     cand_col_norm = normalize_color(candidate.color)
 
-    # Extract key fashion subtype tokens from candidate
     cand_text = f"{candidate.name or ''} {candidate.category} {' '.join(candidate.style)}".lower()
     fashion_subtypes = [
         "oxford", "cotton", "linen", "flannel", "chinos", "trench", "overcoat", 
@@ -212,36 +241,36 @@ def find_similar_items(
         cand_styles = set(s.lower().replace("-", "_") for s in candidate.style)
         g_styles = set(s.lower().replace("-", "_") for s in g.style)
         style_overlap = len(cand_styles.intersection(g_styles)) / max(1, len(cand_styles)) if cand_styles else 0.5
-
-        # Subtype overlap strength (e.g. both are Oxford shirts, Blazers/Jackets, or Minimalist Sandals!)
         has_strong_subtype_match = bool(shared_subtypes)
 
-        if same_category and (same_color or (col_sim >= 0.85 and has_strong_subtype_match)):
-            # DIRECT DUPLICATE: Same category and same color
-            if same_color and has_strong_subtype_match:
-                score = 0.95 + 0.05 * style_overlap
-            elif same_color:
-                score = 0.88 + 0.12 * style_overlap
-            else:
-                score = 0.80 + 0.15 * col_sim
-        elif same_category:
-            # Same category, different color (functional overlap)
-            score = 0.50 + 0.15 * col_sim + 0.15 * style_overlap
+        # Teammate's purchase-redundancy-ai FeatureSet scoring
+        if FeatureSet is not None:
+            raw_sim = FeatureSet.feature_2_similarity_score(
+                visual_sim=col_sim if same_category else col_sim * 0.4,
+                color_match=same_color,
+                style_match=style_overlap > 0.4 or has_strong_subtype_match,
+                material_match=False,
+                color_known=True,
+                material_known=False
+            )
+            score = raw_sim / 100.0
+            if same_category and same_color and has_strong_subtype_match:
+                score = max(score, 0.95 + 0.05 * style_overlap)
+            elif same_category and same_color:
+                score = max(score, 0.88 + 0.12 * style_overlap)
         else:
-            related_cat = {
-                ("blazer", "outerwear"): 0.45,
-                ("jacket", "outerwear"): 0.45,
-                ("trousers", "jeans"): 0.45,
-                ("trousers", "skirt"): 0.35,
-                ("jeans", "skirt"): 0.35,
-                ("shorts", "skirt"): 0.35,
-                ("shoes", "sneakers"): 0.65,
-                ("shoes", "sandals"): 0.65,
-                ("t-shirt", "shirt"): 0.40,
-                ("knitwear", "outerwear"): 0.35,
-            }
-            base = related_cat.get((cand_cat, g_cat), related_cat.get((g_cat, cand_cat), 0.10))
-            score = base + 0.15 * col_sim
+            if same_category and (same_color or (col_sim >= 0.85 and has_strong_subtype_match)):
+                score = (0.95 + 0.05 * style_overlap) if same_color and has_strong_subtype_match else (0.88 + 0.12 * style_overlap) if same_color else (0.80 + 0.15 * col_sim)
+            elif same_category:
+                score = 0.50 + 0.15 * col_sim + 0.15 * style_overlap
+            else:
+                related_cat = {
+                    ("blazer", "outerwear"): 0.45, ("jacket", "outerwear"): 0.45,
+                    ("trousers", "jeans"): 0.45, ("shoes", "sneakers"): 0.65,
+                    ("shoes", "sandals"): 0.65, ("t-shirt", "shirt"): 0.40,
+                }
+                base = related_cat.get((cand_cat, g_cat), related_cat.get((g_cat, cand_cat), 0.10))
+                score = base + 0.15 * col_sim
 
         if score > 0.4:
             is_redundant = same_category and (same_color or score >= 0.75)
@@ -268,10 +297,47 @@ def find_similar_items(
 # TOOL 3: check_outfit_compatibility (Outfit Compatibility Check)
 # =====================================================================
 
-def evaluate_outfit_compatibility(candidate: CandidateItem, items: List[Garment]) -> float:
-    """Calculates compatibility score (0-100) between candidate and paired items."""
+def _to_bo4_item(g: Any) -> dict:
+    color = (getattr(g, "color", None) or "neutral").lower().replace("-", "_").replace(" ", "_")
+    cat = (getattr(g, "category", None) or "top").lower().replace("-", "_").replace(" ", "_")
+    styles = getattr(g, "style", []) or []
+    style = styles[0] if len(styles) > 0 else "casual"
+    seasons = getattr(g, "seasons", []) or []
+    season = seasons[0] if len(seasons) > 0 else "autumn"
+    warmth_val = getattr(g, "warmth_level", None)
+    warmth = "medium" if warmth_val is None else ("light" if warmth_val <= 2 else "heavy" if warmth_val >= 4 else "medium")
+    return {
+        "id": getattr(g, "id", "item"),
+        "name": getattr(g, "name", "Garment"),
+        "category": cat,
+        "color": color,
+        "style": style,
+        "season": season,
+        "warmth": warmth,
+    }
+
+
+def evaluate_outfit_compatibility(
+    candidate: CandidateItem,
+    items: List[Garment],
+    occasion: str = "work",
+    season: str = "autumn"
+) -> float:
+    """Calculates compatibility score (0-100) using teammate's bo4 recommendation outfit engine."""
     if not items:
         return 50.0
+
+    if outfit_engine is not None:
+        try:
+            cand_dict = _to_bo4_item(candidate)
+            paired_dicts = [_to_bo4_item(it) for it in items]
+            outfit = [cand_dict] + paired_dicts
+            res = outfit_engine.evaluate_outfit(outfit, occasion=occasion, season=season)
+            return round(float(res["score"]), 1)
+        except Exception:
+            pass
+
+    # Fallback heuristic
     score = 75.0
     neutrals = {"black", "white", "navy", "beige", "grey", "charcoal", "camel", "cream", "brown", "ivory", "off_white", "khaki", "taupe"}
     if normalize_color(candidate.color) in neutrals:
@@ -308,15 +374,15 @@ def check_outfit_compatibility(
     if is_top_or_outerwear:
         bottoms = [
             g for g in wardrobe
-            if g.category in ["trousers", "jeans", "skirt", "shorts"] or "bottom" in g.tags
+            if g.category in ["trousers", "jeans", "skirt", "shorts", "bottom", "pants"] or "bottom" in g.tags
         ]
         shoes = [
             g for g in wardrobe
-            if g.category in ["shoes", "sandals", "sneakers", "boots", "loafers"] or "shoes" in g.tags
+            if g.category in ["shoes", "shoe", "sandals", "sneakers", "boots", "loafers"] or "shoes" in g.tags
         ]
         inner_tops = [
             g for g in wardrobe
-            if g.category in ["shirt", "t_shirt", "t-shirt", "blouse", "sweater"] or "top" in g.tags
+            if g.category in ["shirt", "t_shirt", "t-shirt", "blouse", "sweater", "top"] or "top" in g.tags
         ]
 
         for i, b in enumerate(bottoms[:2]):
@@ -339,11 +405,11 @@ def check_outfit_compatibility(
     elif is_bottom:
         tops = [
             g for g in wardrobe
-            if g.category in ["shirt", "t_shirt", "t-shirt", "blouse", "sweater", "jacket", "coat", "blazer"] or "top" in g.tags or "outerwear" in g.tags
+            if g.category in ["top", "shirt", "t_shirt", "t-shirt", "blouse", "sweater", "jacket", "coat", "blazer", "outerwear"] or "top" in g.tags or "outerwear" in g.tags
         ]
         shoes = [
             g for g in wardrobe
-            if g.category in ["shoes", "sandals", "sneakers"] or "shoes" in g.tags
+            if g.category in ["shoes", "shoe", "sandals", "sneakers"] or "shoes" in g.tags
         ]
         for i, t in enumerate(tops[:2]):
             paired = [t]
@@ -444,7 +510,11 @@ def check_outfit_compatibility(
 # =====================================================================
 
 def analyze_wardrobe_gaps(candidate: CandidateItem, wardrobe: List[Garment]) -> GapAnalysisResult:
-    """Tool 4: Identifies whether the item fills an underrepresented wardrobe gap."""
+    """Tool 4: Identifies whether the item fills an underrepresented wardrobe gap.
+    
+    Integrated with teammate's BO3 coverage analyzer and XGBoost ranker to identify
+    genuine wardrobe deficits for work, casual, or formal goals.
+    """
     cat = candidate.category.lower().strip().replace("-", "_")
     cand_norm_color = normalize_color(candidate.color)
 
@@ -454,17 +524,53 @@ def analyze_wardrobe_gaps(candidate: CandidateItem, wardrobe: List[Garment]) -> 
     ]
     owned_norm_colors = {normalize_color(g.color) for g in owned_in_cat}
 
-    if len(owned_in_cat) == 0:
-        gap_score = 90.0
-        reasoning = f"Essential gap: You currently own zero items in the '{cat}' category."
-    elif cand_norm_color in owned_norm_colors:
-        # Same category and same color already owned -> NO gap filled!
-        gap_score = 10.0
-        reasoning = f"No gap filled (Duplicate): You already own {len([g for g in owned_in_cat if normalize_color(g.color) == cand_norm_color])} {cand_norm_color.replace('_', ' ')} {cat}(s)."
-    else:
-        gap_score = 75.0
-        display_owned = list({g.color.replace('_', ' ') for g in owned_in_cat})[:4]
-        reasoning = f"Color gap: Adds a new {candidate.color.replace('_', ' ')} option to your {cat} collection (currently own: {', '.join(display_owned)})."
+    gap_score = 75.0
+    reasoning = None
+
+    # Check teammate's BO3 coverage and XGBoost ranker
+    if coverage is not None:
+        try:
+            bo3_wardrobe = [
+                {
+                    "id": g.id,
+                    "category": "top" if g.category in ["top", "shirt", "blouse", "sweater", "t_shirt", "t-shirt"]
+                               else "bottom" if g.category in ["pants", "trousers", "jeans", "shorts", "skirt"]
+                               else "outerwear" if g.category in ["jacket", "coat", "blazer", "raincoat"]
+                               else "shoes" if g.category in ["shoes", "sneakers", "sandals", "boots"]
+                               else "dress" if g.category == "dress" else "accessory",
+                    "subcategory": g.category,
+                    "colors": [g.color],
+                    "seasons": g.seasons or ["all"],
+                }
+                for g in wardrobe
+            ]
+            goal_id = "winter_work" if "work" in (candidate.occasions or []) else "summer_casual" if "summer" in (candidate.seasons or []) else "formal_event" if "formal" in (candidate.occasions or []) else "winter_work"
+            cov = coverage.compute_coverage(bo3_wardrobe, goal_id)
+            gaps = cov.get("gaps", [])
+            if xgboost_ranker is not None and gaps:
+                try:
+                    ranked = xgboost_ranker.rank_gap_candidates(gaps)
+                    for r in ranked:
+                        if cat in r.get("id", "").lower() or r.get("name", "").lower() in cat or cat in r.get("name", "").lower():
+                            gap_score = 90.0 if r.get("priority") == "high" else 80.0
+                            reasoning = f"Fills high-priority gap ({r['name']}) identified by BO3 XGBoost ranker for {goal_id}."
+                            break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    if reasoning is None:
+        if len(owned_in_cat) == 0:
+            gap_score = 90.0
+            reasoning = f"Essential gap: You currently own zero items in the '{cat}' category."
+        elif cand_norm_color in owned_norm_colors:
+            gap_score = 10.0
+            reasoning = f"No gap filled (Duplicate): You already own {len([g for g in owned_in_cat if normalize_color(g.color) == cand_norm_color])} {cand_norm_color.replace('_', ' ')} {cat}(s)."
+        else:
+            gap_score = 75.0
+            display_owned = list({g.color.replace('_', ' ') for g in owned_in_cat})[:4]
+            reasoning = f"Color gap: Adds a new {candidate.color.replace('_', ' ')} option to your {cat} collection (currently own: {', '.join(display_owned)})."
 
     return GapAnalysisResult(
         category=candidate.category,
