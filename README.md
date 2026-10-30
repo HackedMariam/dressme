@@ -82,6 +82,16 @@ status matrix.
 
 ## Smart Purchasing AI Agent (BO6)
 
+The canonical frontend's **Should I Buy?** page calls BO1's
+`POST /api/shopping-assistant/evaluate`. It accepts an image upload or image URL,
+question, price, and budget as multipart form fields. BO1 loads the authenticated
+user's items and passes them to the Smart Purchasing engine, including an empty
+wardrobe when the user has no items. If the wardrobe service is unavailable, the
+request fails rather than switching to sample data. The BO1 Python environment
+must have the Smart Purchasing runtime dependencies installed. When XGBoost is
+unavailable the result identifies its prediction as rule-based; an OpenAI key is
+optional for the stylist interpretation.
+
 ### Running the Smart Purchasing AI Agent (Inference)
 
 The autonomous shopping assistant evaluates candidate clothes against the user's digital wardrobe using YOLO segmentation (`dressme_best.pt`), XGBoost decision classification, and fine-tuned Qwen reasoning. Runs on **any computer locally (GPU or CPU)** without memory overloads.
@@ -197,7 +207,7 @@ PowerShell alternatives: `.\start_all.ps1` and `.\start_all.ps1 -Stop`. The `-He
 
 Install Node.js, pnpm, Python, and the service dependencies first. For example, create the Python environments and install their requirements, then run `pnpm --dir "DressMe UI Blueprint" install`. BO1 uses `backend/requirements.txt`, Help Me Pack uses root `requirements.txt`, BO3 uses `DressMe UI Blueprint/backend/requirements.txt`, Purchase Redundancy uses `purchase-redundancy-ai/backend/requirements.txt`, and the orchestrator uses `orchestrator/requirements.txt`. See `bo4/README.md` for the BO4 dependencies. The launcher prints the selected interpreter and an install command when BO3 or Purchase Redundancy exits because a module is missing.
 
-The launcher first looks for `.venv` or `venv` in each service directory, then the repository root, then `python` on PATH. Set `DRESSME_PY_BO1`, `DRESSME_PY_BO3`, `DRESSME_PY_PACKING`, `DRESSME_PY_PURCHASE`, `DRESSME_PY_STYLIST`, or `DRESSME_PY_ORCHESTRATOR` to a Python executable to override the choice for that service. If using Ollama, install it and pull `qwen2.5:3b` separately. Smart Purchasing currently provides a CLI rather than an HTTP server; `rag_backend/` has no runnable HTTP entry point in this checkout. Starting the BO3 service does not change its sample/configured wardrobe source or the orchestrator's disabled integrations.
+The launcher first looks for `.venv` or `venv` in each service directory, then the repository root, then `python` on PATH. Set `DRESSME_PY_BO1`, `DRESSME_PY_BO3`, `DRESSME_PY_PACKING`, `DRESSME_PY_PURCHASE`, `DRESSME_PY_STYLIST`, or `DRESSME_PY_ORCHESTRATOR` to a Python executable to override the choice for that service. If using Ollama, install it and pull `qwen2.5:3b` separately. Smart Purchasing currently provides a CLI rather than an HTTP server; `rag_backend/` has no runnable HTTP entry point in this checkout. BO3 uses the signed-in user's BO1 wardrobe; its separate orchestrator integration remains disabled.
 
 Fichiers `.env` (ignorés par git ; ne jamais les commiter). Seuls les **noms** des variables sont donnés ici :
 

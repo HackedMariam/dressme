@@ -16,7 +16,10 @@ from typing import Any, List, Optional
 
 import httpx
 
-from schemas import Garment
+if __package__:
+    from .schemas import Garment
+else:
+    from schemas import Garment
 
 logger = logging.getLogger("smart_purchasing.wardrobe")
 

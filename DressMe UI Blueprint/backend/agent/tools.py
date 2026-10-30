@@ -51,6 +51,9 @@ def _lexical_similarity(a: str, b: str) -> float:
 
 def redundancy_scores(descriptions: list[str], wardrobe: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Closest owned item per candidate. FashionCLIP cosine is rescaled from [0.5, 0.95] to [0, 1]."""
+    if not wardrobe:
+        return [{"redundancy_score": 0.0, "closest_owned_item": "", "raw_similarity": 0.0,
+                 "method": "empty_wardrobe"} for _ in descriptions]
     owned = [item_description(item) for item in wardrobe]
     if fashionclip_available():
         encoder = _encoder()
@@ -118,14 +121,21 @@ def _priority(rank: int, total: int) -> str:
 class GapAgentTools:
     """Binds the tools to one user and conversation."""
 
-    def __init__(self, memory: AgentMemory, user_id: str, conversation_id: str | None = None) -> None:
+    def __init__(self, memory: AgentMemory, user_id: str, conversation_id: str | None = None,
+                 wardrobe: list[dict[str, Any]] | None = None, profile: dict[str, Any] | None = None) -> None:
         self.memory = memory
         self.user_id = user_id
         self.conversation_id = conversation_id
+        self.wardrobe = wardrobe
+        self.profile = profile
         self.last_ranking: dict[str, Any] | None = None
 
+    def _context(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        return (self.wardrobe if self.wardrobe is not None else load_wardrobe(),
+                self.profile if self.profile is not None else load_profile())
+
     def get_wardrobe(self) -> dict[str, Any]:
-        wardrobe, profile = load_wardrobe(), load_profile()
+        wardrobe, profile = self._context()
         return {
             "profile": profile,
             "item_count": len(wardrobe),
@@ -137,23 +147,23 @@ class GapAgentTools:
         }
 
     def compute_coverage(self, goal: str) -> dict[str, Any]:
-        return compute_coverage(load_wardrobe(), goal)
+        return compute_coverage(self._context()[0], goal)
 
     def rank_gaps(self, goal: str) -> dict[str, Any]:
-        wardrobe, profile = load_wardrobe(), load_profile()
+        wardrobe, profile = self._context()
         coverage = compute_coverage(wardrobe, goal)
         if not coverage["candidates"]:
             return {"goal": goal, "ranked_gaps": [], "covered": coverage["covered"],
                     "note": "Every requirement for this goal is covered."}
 
         scored = score_candidates(goal, coverage["candidates"], wardrobe, profile)
-        model_path = active_model_path()
+        model_path = active_model_path(self.user_id)
         ranked = rank_gap_candidates(scored, model_path=model_path)
         for gap in ranked:
             gap["priority"] = _priority(gap["rank"], len(ranked))
             gap["ranking_score"] = round(gap["ranking_score"], 4)
 
-        metadata = model_metadata()
+        metadata = model_metadata(self.user_id)
         result = {
             "goal": goal,
             "goal_label": coverage["goal_label"],

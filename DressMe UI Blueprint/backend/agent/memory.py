@@ -63,6 +63,11 @@ class AgentMemory:
             )
         return conversation_id
 
+    def owns_conversation(self, conversation_id: str, user_id: str) -> bool:
+        return self.connection.execute(
+            "select 1 from conversations where id = ? and user_id = ?", (conversation_id, user_id)
+        ).fetchone() is not None
+
     def add_message(self, conversation_id: str, role: str, content: str) -> None:
         with self.connection:
             self.connection.execute(

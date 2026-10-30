@@ -1,4 +1,5 @@
 // Client for the BO3 gap agent API (backend/api.py), proxied by Vite under /api.
+import { supabase } from "../../lib/supabase";
 
 export type Goal = { id: string; label: string; season: string };
 
@@ -75,7 +76,17 @@ export type ChatResponse = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+  const { data, error } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (error || !token) throw new Error("Please sign in to use Wardrobe Gaps.");
+  const headers = new Headers(init?.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers });
+  } catch {
+    throw new Error("Cannot reach the Wardrobe Gaps service. Make sure it is running.");
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail ?? `Request failed (${response.status})`);

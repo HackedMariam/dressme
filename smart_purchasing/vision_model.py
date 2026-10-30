@@ -28,10 +28,10 @@ try:
 except ImportError:
     YOLO = None
 
-try:
+if __package__:
+    from .color_similarity import ColorSimilarityService, rgb_to_lab, ciede2000
+else:
     from color_similarity import ColorSimilarityService, rgb_to_lab, ciede2000
-except ImportError:
-    from smart_purchasing.color_similarity import ColorSimilarityService, rgb_to_lab, ciede2000
 
 
 YOLO_TO_WARDROBE_CAT = {

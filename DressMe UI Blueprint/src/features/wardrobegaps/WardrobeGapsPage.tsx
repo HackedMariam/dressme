@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "../auth/AuthProvider";
+import { useWardrobe } from "../wardrobe/WardrobeProvider";
 import {
   fetchGaps,
   fetchGoals,
@@ -422,12 +424,19 @@ function AgentDrawer({
 }
 
 export default function WardrobeGapsPage() {
+  const { user } = useAuth();
+  const userId = user?.id ?? "anonymous";
+  return <WardrobeGapsContent key={userId} userId={userId} />;
+}
+
+function WardrobeGapsContent({ userId }: { userId: string }) {
+  const { items } = useWardrobe();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [goal, setGoal] = useState("winter_work");
   const [ranking, setRanking] = useState<GapRanking | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dismissed, toggleDismissed] = usePersistentList(DISMISSED_KEY);
-  const [confirmed, toggleConfirmed] = usePersistentList(CONFIRMED_KEY);
+  const [dismissed, toggleDismissed] = usePersistentList(`${DISMISSED_KEY}:${userId}`);
+  const [confirmed, toggleConfirmed] = usePersistentList(`${CONFIRMED_KEY}:${userId}`);
   const piecesRef = useRef<HTMLElement>(null);
 
   const [learning, setLearning] = useState<LearningStatus | null>(null);
@@ -448,11 +457,13 @@ export default function WardrobeGapsPage() {
   }, []);
 
   useEffect(() => {
+    let active = true;
     setRanking(null);
     setError(null);
     setMovements([]);
-    fetchGaps(goal).then(setRanking).catch((e: Error) => setError(e.message));
-  }, [goal]);
+    fetchGaps(goal).then((value) => { if (active) setRanking(value); }).catch((e: Error) => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, [goal, items]);
 
   // Sends a label to the backend; the local list keeps the buttons in sync across reloads.
   const giveFeedback = (gap: RankedGap, relevance: 0 | 3 | null) => {

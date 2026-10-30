@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import numpy as np
 from xgboost import XGBRanker
 
 FEATURES = (
@@ -59,7 +60,7 @@ def rank_gap_candidates(
         return []
 
     feature_matrix = _feature_matrix(candidates)
-    scores = load_ranker(model_path).predict(feature_matrix).tolist()
+    scores = load_ranker(model_path).predict(np.asarray(feature_matrix, dtype=float)).tolist()
     ranked = sorted(enumerate(scores), key=lambda pair: pair[1], reverse=True)
     return [
         {

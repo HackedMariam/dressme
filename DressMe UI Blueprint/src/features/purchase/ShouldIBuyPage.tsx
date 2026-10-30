@@ -436,7 +436,7 @@ export default function ShouldIBuyPage() {
 
                   {toolEvidence.xgboost_prediction && (
                     <div className="text-xs text-[#8C8A82]">
-                      ML Model Decision: <b className="text-[#1C1C1C]">{toolEvidence.xgboost_prediction}</b>{" "}
+                      {toolEvidence.prediction_source === "heuristic" ? "Rule-based decision" : "ML Model Decision"}: <b className="text-[#1C1C1C]">{toolEvidence.xgboost_prediction}</b>{" "}
                       {toolEvidence.xgboost_confidence != null && (
                         <span>({Math.round(toolEvidence.xgboost_confidence * 100)}% confidence)</span>
                       )}

@@ -4,5 +4,6 @@ __pycache__/
 /models/fashionclip/
 /models/bo3_gap_ranker.json
 /models/bo3_gap_ranker.meta.json
+/models/users/
 .env
 /data/agent_memory.sqlite3

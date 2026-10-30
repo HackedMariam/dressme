@@ -9,65 +9,45 @@ Tools:
 """
 
 import os
-import sys
 import re
 import hashlib
+import importlib.util
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from PIL import Image
 
-from schemas import (
-    Garment,
-    CandidateItem,
-    SimilarItemMatch,
-    OutfitRecommendation,
-    GapAnalysisResult,
-    PurchaseScoreResult,
-    PurchaseScoreBreakdown,
-    DecisionType,
-)
-
-try:
+if __package__:
+    from .schemas import (Garment, CandidateItem, SimilarItemMatch, OutfitRecommendation,
+                          GapAnalysisResult, PurchaseScoreResult, PurchaseScoreBreakdown, DecisionType)
+    from .color_similarity import ColorSimilarityService, compare_colors, compute_color_similarity as ciede_color_similarity
+    from .ml_model import predict_purchase_ml, get_ml_classifier
+    from .vision_model import get_vision_model, DressMeVisionModel
+else:
+    from schemas import (Garment, CandidateItem, SimilarItemMatch, OutfitRecommendation,
+                         GapAnalysisResult, PurchaseScoreResult, PurchaseScoreBreakdown, DecisionType)
     from color_similarity import ColorSimilarityService, compare_colors, compute_color_similarity as ciede_color_similarity
-except ImportError:
-    from smart_purchasing.color_similarity import ColorSimilarityService, compare_colors, compute_color_similarity as ciede_color_similarity
-
-try:
     from ml_model import predict_purchase_ml, get_ml_classifier
-except ImportError:
-    from smart_purchasing.ml_model import predict_purchase_ml, get_ml_classifier
-
-try:
     from vision_model import get_vision_model, DressMeVisionModel
-except ImportError:
-    from smart_purchasing.vision_model import get_vision_model, DressMeVisionModel
 
-# Teammates' Integration Paths (Redundancy, Recommendation BO4, Gap Analysis BO3)
+# Load teammate modules by path without shadowing unrelated modules named "agent" or "tools".
 ROOT_DIR = Path(__file__).resolve().parent.parent
-for subpath in [
-    ROOT_DIR / "bo4" / "backend",
-    ROOT_DIR / "purchase-redundancy-ai" / "backend",
-    ROOT_DIR / "DressMe UI Blueprint" / "backend",
-]:
-    if subpath.exists() and str(subpath) not in sys.path:
-        sys.path.insert(0, str(subpath))
+def _load_optional(name: str, path: Path):
+    try:
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
 
-try:
-    import outfit_engine
-except Exception:
-    outfit_engine = None
 
-try:
-    from features import FeatureSet
-except Exception:
-    FeatureSet = None
-
-try:
-    from agent import coverage
-    import xgboost_ranker
-except Exception:
-    coverage = None
-    xgboost_ranker = None
+outfit_engine = _load_optional("dressme_bo4_outfit_engine", ROOT_DIR / "bo4" / "backend" / "outfit_engine.py")
+_features = _load_optional("dressme_redundancy_features", ROOT_DIR / "purchase-redundancy-ai" / "backend" / "features.py")
+FeatureSet = _features.FeatureSet if _features is not None else None
+coverage = _load_optional("dressme_bo3_coverage", ROOT_DIR / "DressMe UI Blueprint" / "backend" / "agent" / "coverage.py")
+xgboost_ranker = _load_optional("dressme_bo3_ranker", ROOT_DIR / "DressMe UI Blueprint" / "backend" / "xgboost_ranker.py")
 
 
 

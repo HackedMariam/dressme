@@ -118,7 +118,8 @@ export interface PurchaseEvaluationResult {
     }>
     wardrobe_gap_score?: number
     xgboost_prediction?: string
-    xgboost_confidence?: number
+    xgboost_confidence?: number | null
+    prediction_source?: "xgboost" | "heuristic"
     deterministic_score?: number
     budget_penalty?: number
   }

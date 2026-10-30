@@ -107,7 +107,7 @@ backend/.venv/Scripts/python.exe -m uvicorn api:app --app-dir backend --port 800
 pnpm dev
 ```
 
-Vite proxies `/api/bo3` to `http://127.0.0.1:8001` (override with `BO3_API_URL`); the rest of `/api` goes to the BO1 backend on port 8000.
-`GET /api/bo3/gaps` runs the deterministic pipeline without the LLM;
-`POST /api/bo3/chat` runs the tool-calling agent. The wardrobe is still
-`data/sample_wardrobe.json` until it is read from BO1's `items` table.
+Vite proxies `/api/bo3` to `http://127.0.0.1:8001` (override with `BO3_API_URL`); the rest of `/api` goes to the BO1 backend on port 8000. BO3 validates the user's bearer token through BO1 and loads that user's items from `/api/items`. Set `BO1_URL` when BO1 is not at `http://127.0.0.1:8000`. BO1 must enable Supabase authentication. A failed request does not fall back to a sample wardrobe. Feedback, conversations, and personalised models are scoped to the signed-in user. Until BO1 exposes profile preferences, ranking uses neutral defaults instead of the sample profile.
+
+`GET /api/bo3/gaps` runs the rules and XGBoost ranking without an LLM;
+`POST /api/bo3/chat` requires `LLM_API_KEY` and runs the tool-calling agent. The bundled XGBoost demo model is available without downloading weights; FashionCLIP weights are optional and the agent falls back to lexical similarity when they are absent.

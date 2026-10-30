@@ -50,7 +50,7 @@ def interpret_gaps_with_gpt(gaps_data: dict[str, Any]) -> Optional[str]:
 
     user_prompt = (
         f"Wardrobe Goal: {goal_label} ({season} season)\n"
-        f"Pieces you already have covered: {', '.join(covered) if covered else 'None'}\n\n"
+        f"Pieces you already have covered: {', '.join(str(item.get('name', '')) for item in covered) if covered else 'None'}\n\n"
         f"Ranked Wardrobe Gaps Identified by the AI Ranker:\n"
         f"{json.dumps(summary_gaps, indent=2)}\n\n"
         "Please provide a concise stylist interpretation with:\n"

@@ -30,9 +30,10 @@ if sys.platform == "win32":
 
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = CURRENT_DIR / "smart_purchasing" if (CURRENT_DIR / "smart_purchasing").exists() else CURRENT_DIR
-for p in [CURRENT_DIR, PROJECT_DIR, CURRENT_DIR.parent]:
-    if p.exists() and str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+if not __package__:
+    for p in [CURRENT_DIR, PROJECT_DIR, CURRENT_DIR.parent]:
+        if p.exists() and str(p) not in sys.path:
+            sys.path.insert(0, str(p))
 
 
 def load_dotenv(env_path: Optional[Path] = None):
@@ -63,16 +64,18 @@ def load_dotenv(env_path: Optional[Path] = None):
 load_dotenv()
 
 # Domain schemas and tools
-from schemas import CandidateItem, Garment
-from wardrobe_loader import load_user_wardrobe, load_wardrobe_from_csv
-from tools import (
-    find_similar_items,
-    check_outfit_compatibility,
-    analyze_wardrobe_gaps,
-    calculate_purchase_value,
-    analyze_item,
-)
-from ml_model import predict_purchase_ml
+if __package__:
+    from .schemas import CandidateItem, Garment
+    from .wardrobe_loader import load_user_wardrobe, load_wardrobe_from_csv
+    from .tools import (find_similar_items, check_outfit_compatibility, analyze_wardrobe_gaps,
+                        calculate_purchase_value, analyze_item)
+    from .ml_model import predict_purchase_ml
+else:
+    from schemas import CandidateItem, Garment
+    from wardrobe_loader import load_user_wardrobe, load_wardrobe_from_csv
+    from tools import (find_similar_items, check_outfit_compatibility, analyze_wardrobe_gaps,
+                       calculate_purchase_value, analyze_item)
+    from ml_model import predict_purchase_ml
 
 DEFAULT_LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 
@@ -291,7 +294,8 @@ class DressMeInferenceEngine:
                 "matching_outfits": matching_outfits,
                 "wardrobe_gap_score": gap_score,
                 "xgboost_prediction": ml_res["ml_decision"],
-                "xgboost_confidence": round(ml_res["confidence"], 3),
+                "xgboost_confidence": round(ml_res["confidence"], 3) if ml_res["status"] == "success" else None,
+                "prediction_source": "xgboost" if ml_res["status"] == "success" else "heuristic",
                 "deterministic_score": round(val_res.overall_score, 1),
                 "budget_penalty": penalty,
             },
@@ -301,7 +305,8 @@ class DressMeInferenceEngine:
                 "matching_item_ids": paired_item_ids,
                 "reasons": [
                     f"Compatible with {comp_count} outfits in existing wardrobe.",
-                    f"XGBoost classification: {ml_res['ml_decision']} (confidence {ml_res['confidence']*100:.1f}%).",
+                    (f"XGBoost classification: {ml_res['ml_decision']} (confidence {ml_res['confidence']*100:.1f}%)."
+                     if ml_res["status"] == "success" else f"Rule-based classification: {ml_res['ml_decision']} (XGBoost unavailable)."),
                     f"Wardrobe gap score: {gap_score:.1f}/100.",
                     f"Redundancy risk: {redundancy_pct}%.",
                 ],

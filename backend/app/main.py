@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -438,75 +438,113 @@ def delete_item(item_id: str, user: User = Depends(current_user)) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Shopping Assistant — wraps smart_purchasing.inference.DressMeInferenceEngine
+# Shopping Assistant — evaluates against the authenticated user's BO1 wardrobe.
 # ---------------------------------------------------------------------------
+def _shopping_components():
+    import sys
+    from pathlib import Path
+
+    root = str(Path(__file__).resolve().parents[2])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from smart_purchasing.inference import DressMeInferenceEngine
+    from smart_purchasing.wardrobe_loader import row_to_garment
+    return DressMeInferenceEngine, row_to_garment
+
+
+def _download_shopping_image(url: str) -> bytes:
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import urlsplit
+    from urllib.request import Request as UrlRequest, urlopen
+
+    try:
+        parts = urlsplit(url)
+        valid_url = parts.scheme in ("http", "https") and bool(parts.hostname)
+    except ValueError:
+        valid_url = False
+    if not valid_url:
+        raise HTTPException(400, "Please provide a valid HTTP or HTTPS image URL.")
+    limit = int(config.MAX_UPLOAD_MB * 1024 * 1024)
+    try:
+        request = UrlRequest(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(request, timeout=15) as response:
+            data = response.read(limit + 1)
+    except (HTTPError, URLError, OSError, ValueError):
+        raise HTTPException(400, "Could not download the image from that URL.")
+    if not data:
+        raise HTTPException(400, "The image URL returned an empty file.")
+    if len(data) > limit:
+        raise HTTPException(413, f"Image too large (max {config.MAX_UPLOAD_MB:g} MB)")
+    return data
+
+
+def _evaluate_shopping(data: bytes, image_source: str, prompt: str,
+                       price: float, budget: float, user: User) -> dict[str, Any]:
+    import os
+    import tempfile
+
+    try:
+        rows = store.list_items(user.id)
+    except Exception as exc:
+        log.exception("Could not load shopping wardrobe")
+        raise HTTPException(503, "Could not load your wardrobe. Please try again.") from exc
+    try:
+        engine_class, row_to_garment = _shopping_components()
+    except Exception as exc:
+        log.exception("Could not import shopping assistant engine")
+        raise HTTPException(503, "Shopping assistant is unavailable. Check its backend dependencies.") from exc
+
+    # Pass even an empty list explicitly: the engine must not load a sample or another user's wardrobe.
+    wardrobe = [row_to_garment(row) for row in rows]
+    path = None
+    try:
+        # YOLO accepts common image extensions; it reads the actual format from the file bytes.
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as image:
+            path = image.name
+            image.write(data)
+        engine = engine_class(skip_llm=False, wardrobe=wardrobe)
+        result = engine.evaluate(image_path=path, price=price, budget=budget, user_prompt=prompt)
+        if isinstance(result.get("candidate_item"), dict):
+            result["candidate_item"]["image_source"] = image_source
+        return result
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                log.warning("Could not remove temporary shopping image")
+
+
 @app.post("/api/shopping-assistant/evaluate")
 async def shopping_assistant_evaluate(
     image_file: UploadFile | None = File(default=None),
-    image_url: str = "",
-    prompt: str = "Should I buy this?",
-    price: float = 0.0,
-    budget: float = 0.0,
+    image_url: str = Form(default=""),
+    prompt: str = Form(default="Should I buy this?", max_length=1000),
+    price: float = Form(default=0.0, ge=0, allow_inf_nan=False),
+    budget: float = Form(default=0.0, ge=0, allow_inf_nan=False),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    """Run the full DressMe purchase-evaluation pipeline on a candidate item."""
-    import sys
-    import tempfile
-    import urllib.request
-    from pathlib import Path as _Path
-
-    _sm_dir = _Path(__file__).resolve().parents[2] / "smart_purchasing"
-    if str(_sm_dir) not in sys.path:
-        sys.path.insert(0, str(_sm_dir))
-
+    """Evaluate an uploaded image or URL using only the caller's wardrobe."""
+    if image_file and image_file.filename:
+        data = await _read_upload(image_file)
+        image_source = "uploaded image"
+    elif image_url.strip():
+        image_source = image_url.strip()
+        data = await run_in_threadpool(_download_shopping_image, image_source)
+    else:
+        raise HTTPException(422, "Provide either an image file or an image URL.")
     try:
-        from inference import DressMeInferenceEngine  # type: ignore
+        await run_in_threadpool(GarmentDetector.load_image, data)
     except Exception as exc:
-        log.exception("Could not import smart_purchasing inference engine")
-        raise HTTPException(503, f"Shopping assistant engine unavailable: {exc}") from exc
-
-    tmp_path: str | None = None
+        raise HTTPException(400, "The supplied file is not a readable image.") from exc
     try:
-        if image_file and image_file.filename:
-            data = await image_file.read()
-            suffix = _Path(image_file.filename).suffix or ".jpg"
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-            tmp.write(data); tmp.close()
-            tmp_path = tmp.name
-        elif image_url.strip():
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-            tmp.close()
-            tmp_path = tmp.name
-            req = urllib.request.Request(image_url.strip(), headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp, open(tmp_path, "wb") as f:
-                f.write(resp.read())
-        else:
-            raise HTTPException(422, "Provide either image_file or image_url.")
-
-        def _run():
-            engine = DressMeInferenceEngine(skip_llm=False)
-            return engine.evaluate(
-                image_path=tmp_path,
-                price=float(price or 0),
-                budget=float(budget or 0),
-                user_prompt=prompt or "Should I buy this?",
-            )
-
-        result = await run_in_threadpool(_run)
-        return result
-
+        return await run_in_threadpool(_evaluate_shopping, data, image_source,
+                                       prompt.strip() or "Should I buy this?", price, budget, user)
     except HTTPException:
         raise
     except Exception as exc:
         log.exception("Shopping assistant evaluation failed")
-        raise HTTPException(500, f"Evaluation failed: {type(exc).__name__}: {exc}") from exc
-    finally:
-        if tmp_path:
-            try:
-                import os as _os
-                _os.unlink(tmp_path)
-            except Exception:
-                pass
+        raise HTTPException(500, "Shopping evaluation failed. Please try again.") from exc
 
 @app.get("/api/stats/accuracy")
 def accuracy(user: User = Depends(current_user)) -> list[dict]:
