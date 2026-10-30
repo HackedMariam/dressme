@@ -56,6 +56,11 @@ export default defineConfig(({ mode }) => {
           target: process.env.BO3_API_URL || 'http://127.0.0.1:8001',
           changeOrigin: true,
         },
+        // Smart Purchasing API (smart_purchasing/api.py): price, budget and GPT interpretation for "Should I buy?".
+        '/api/smart-purchasing': {
+          target: process.env.SMART_PURCHASING_API_URL || 'http://127.0.0.1:8050',
+          changeOrigin: true,
+        },
         '/api': {
           target: process.env.BACKEND_URL || 'http://127.0.0.1:8000',
           changeOrigin: true,

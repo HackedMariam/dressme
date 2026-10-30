@@ -3,6 +3,7 @@ import type {
   AccuracyRow,
   AgentReply,
   AnalyzeResponse,
+  PurchaseEvaluation,
   DuplicateResult,
   Health,
   PhotoMatch,
@@ -125,6 +126,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message }),
     }),
+
+  evaluatePurchase: (file: File | Blob, price: number, budget: number, prompt: string) => {
+    const body = fileBody(file)
+    body.append("price", String(price))
+    body.append("budget", String(budget))
+    body.append("prompt", prompt)
+    return request<PurchaseEvaluation>("/api/smart-purchasing/evaluate", { method: "POST", body })
+  },
 
   checkDuplicate: (item: Pick<WardrobeItem, "category" | "color_name" | "pattern" | "material">) =>
     request<DuplicateResult>("/api/agent/check-duplicate", {

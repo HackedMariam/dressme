@@ -21,6 +21,9 @@ Rules:
 - Give a prioritised list, not a shopping list. Mention owned items that already cover parts of the goal.
 - Mention closest_owned_item only when redundancy_score >= 0.6: then say the user may already own something
   similar (name it). Below 0.6, do not mention closest_owned_item at all.
+- `semantic_review` is FashionCLIP's advisory second opinion. For each entry say the rules flagged a gap (or
+  coverage) but FashionCLIP sees a similar owned item (name it from `fashionclip_items`) and the user should check.
+  Never remove or add a gap because of it.
 - "Already covered" lists the goal's covered requirements (the `covered` field), not individual items.
 - Be honest about uncertainty: the wardrobe analysis is real, but the ranker that orders gaps is trained on
   synthetic data until real user feedback is collected.

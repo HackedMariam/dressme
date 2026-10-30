@@ -15,7 +15,6 @@ from agent.learning import learning_status, reset_model, retrain
 from agent.memory import AgentMemory
 from agent.tools import GapAgentTools, load_profile, load_wardrobe, score_candidates
 from agent.wardrobe_source import SOURCE_INFO
-from agent.gap_interpreter import interpret_gaps_with_gpt
 from xgboost_ranker import FEATURES
 
 USER_ID = "demo_user"
@@ -59,16 +58,11 @@ def context() -> dict[str, Any]:
 
 
 @app.get("/api/bo3/gaps")
-def gaps(goal: str = "winter_work", interpret: bool = True) -> dict[str, Any]:
-    """Pipeline (rules -> features -> XGBoost) with optional GPT-4 interpretation."""
+def gaps(goal: str = "winter_work") -> dict[str, Any]:
+    """Deterministic pipeline (rules -> features -> XGBoost) without the LLM."""
     if goal not in GOALS:
         raise HTTPException(404, f"Unknown goal {goal!r}.")
-    result = GapAgentTools(memory, USER_ID).rank_gaps(goal)
-    if interpret:
-        interpretation = interpret_gaps_with_gpt(result)
-        if interpretation:
-            result["stylist_interpretation"] = interpretation
-    return result
+    return GapAgentTools(memory, USER_ID).rank_gaps(goal)
 
 
 @app.post("/api/bo3/feedback")

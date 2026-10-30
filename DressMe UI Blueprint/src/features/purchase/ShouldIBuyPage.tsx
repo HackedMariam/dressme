@@ -1,8 +1,119 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react"
 import { api, asset } from "../../lib/api"
 import { cap, seasonLabel } from "../../lib/taxonomy"
-import type { DuplicateResult, WardrobeItem } from "../../lib/types"
+import type { DuplicateResult, PurchaseEvaluation, WardrobeItem } from "../../lib/types"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
+
+const VERDICT_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+  BUY: { bg: "bg-[#E8EDE0]", text: "text-[#556B2F]", label: "Go for it" },
+  CONSIDER: { bg: "bg-amber-100", text: "text-amber-800", label: "Think twice" },
+  SKIP: { bg: "bg-red-100", text: "text-red-700", label: "Better skip" },
+}
+
+function Rich({ text }: { text: string }) {
+  return (
+    <div className="space-y-2 text-sm leading-relaxed text-[#1C1C1C]">
+      {text.split(/\n+/).filter(Boolean).map((line, index) => (
+        <p key={index}>
+          {line.split(/\*\*(.+?)\*\*/g).map((part, i) =>
+            i % 2 ? <b key={i}>{part}</b> : part,
+          )}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-lg border border-[#E2E0D8] bg-white p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-[#8C8A82]">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-[#1C1C1C]">{value}</p>
+      {hint && <p className="truncate text-[10px] text-[#8C8A82]">{hint}</p>}
+    </div>
+  )
+}
+
+function EvaluationCard({ evaluation, loading }: { evaluation: PurchaseEvaluation | null; loading: boolean }) {
+  if (!evaluation) {
+    return (
+      <div className="rounded-xl bg-[#F0EFEA] p-5 text-sm text-[#8C8A82]">
+        {loading ? "Evaluating this purchase..." : ""}
+      </div>
+    )
+  }
+  const { agent_verdict: verdict, tool_evidence: evidence, candidate_item: candidate } = evaluation
+  const style = VERDICT_STYLE[verdict.decision.toUpperCase()] ?? VERDICT_STYLE.CONSIDER
+  const score = Math.max(0, Math.min(100, verdict.score))
+  const overBudget = candidate.price - candidate.budget
+  return (
+    <div className="space-y-4 rounded-xl bg-[#F0EFEA] p-5">
+      <p className="text-xs font-semibold uppercase tracking-widest text-[#8C8A82]">Purchase verdict</p>
+      <div className={`rounded-xl ${style.bg} p-4`}>
+        <div className="flex items-end justify-between">
+          <div>
+            <p className={`font-display text-3xl font-semibold ${style.text}`}>{verdict.decision}</p>
+            <p className={`text-sm ${style.text}`}>{style.label}</p>
+          </div>
+          <p className="text-sm text-[#1C1C1C]"><b className="text-2xl">{score}</b>/100</p>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/70">
+          <div className="h-full rounded-full bg-[#556B2F]" style={{ width: `${score}%` }} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Metric
+          label="Price vs budget"
+          value={`${candidate.price} / ${candidate.budget}`}
+          hint={overBudget > 0 ? `${overBudget} over budget (-${evidence.budget_penalty} pts)` : "Within budget"}
+        />
+        <Metric
+          label="Redundancy"
+          value={`${evidence.redundancy_score}%`}
+          hint={evidence.closest_wardrobe_match ? `Closest: ${evidence.closest_wardrobe_match}` : "Nothing similar owned"}
+        />
+        <Metric label="Compatible outfits" value={String(evidence.compatible_outfits_count)} />
+        <Metric label="Wardrobe gap filled" value={`${evidence.wardrobe_gap_score}/100`} />
+      </div>
+
+      <p className="text-xs text-[#8C8A82]">
+        Detected: {cap(candidate.detected_color)} {cap(candidate.detected_category)} - {cap(candidate.inferred_occasion)}
+      </p>
+
+      {(evidence.matching_outfits ?? []).length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#8C8A82]">Outfits it would complete</p>
+          <div className="mt-2 space-y-2">
+            {(evidence.matching_outfits ?? []).map((outfit) => (
+              <div key={outfit.outfit_id} className="rounded-lg border border-[#E2E0D8] bg-white p-2.5">
+                <p className="text-xs text-[#1C1C1C]">
+                  {outfit.paired_items.map((piece) => piece.name).join(" + ")}
+                </p>
+                <p className="text-[10px] text-[#8C8A82]">Compatibility {outfit.compatibility_score}/100</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <ul className="list-disc space-y-1 pl-5 text-xs text-[#1C1C1C]">
+        {verdict.reasons.map((reason) => (
+          <li key={reason}>{reason}</li>
+        ))}
+      </ul>
+
+      {evaluation.stylist_interpretation && (
+        <div className="rounded-lg border border-[#E2E0D8] bg-white p-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#8C8A82]">
+            Stylist interpretation
+          </p>
+          <Rich text={evaluation.stylist_interpretation} />
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function ShouldIBuyPage() {
   const { items, health, addItems } = useWardrobe()
@@ -16,6 +127,11 @@ export default function ShouldIBuyPage() {
   const [added, setAdded] = useState(false)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [price, setPrice] = useState("")
+  const [budget, setBudget] = useState("")
+  const [question, setQuestion] = useState("")
+  const [evaluation, setEvaluation] = useState<PurchaseEvaluation | null>(null)
+  const [evaluating, setEvaluating] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -52,6 +168,22 @@ export default function ShouldIBuyPage() {
     setDuplicate(null)
     setError("")
     setAdded(false)
+    setEvaluation(null)
+  }
+
+  const evaluatePurchase = async () => {
+    if (!file) return
+    setEvaluating(true)
+    setError("")
+    try {
+      setEvaluation(
+        await api.evaluatePurchase(file, Number(price), Number(budget), question || "Should I buy this?"),
+      )
+    } catch (evalError) {
+      setError(evalError instanceof Error ? evalError.message : "Could not evaluate this purchase.")
+    } finally {
+      setEvaluating(false)
+    }
   }
 
   const analyzeFile = async (selected: File) => {
@@ -118,7 +250,7 @@ export default function ShouldIBuyPage() {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
         <div className="space-y-4">
           {!file ? (
             <div
@@ -216,6 +348,56 @@ export default function ShouldIBuyPage() {
                   </div>
                 </div>
               )}
+
+              {analysis && (
+                <div className="rounded-xl bg-[#F0EFEA] p-5">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-[#8C8A82]">
+                    Purchase evaluation
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="text-xs text-[#8C8A82]">
+                      Price of the garment
+                      <input
+                        type="number"
+                        min="0"
+                        value={price}
+                        onChange={(event) => setPrice(event.target.value)}
+                        placeholder="e.g. 120"
+                        className="mt-1 w-full rounded-lg border border-[#E2E0D8] bg-white px-3 py-2 text-sm text-[#1C1C1C]"
+                      />
+                    </label>
+                    <label className="text-xs text-[#8C8A82]">
+                      Your budget
+                      <input
+                        type="number"
+                        min="0"
+                        value={budget}
+                        onChange={(event) => setBudget(event.target.value)}
+                        placeholder="e.g. 100"
+                        className="mt-1 w-full rounded-lg border border-[#E2E0D8] bg-white px-3 py-2 text-sm text-[#1C1C1C]"
+                      />
+                    </label>
+                  </div>
+                  <label className="mt-3 block text-xs text-[#8C8A82]">
+                    Your question
+                    <textarea
+                      value={question}
+                      onChange={(event) => setQuestion(event.target.value)}
+                      rows={2}
+                      placeholder="e.g. Is this blazer good for work?"
+                      className="mt-1 w-full rounded-lg border border-[#E2E0D8] bg-white px-3 py-2 text-sm text-[#1C1C1C]"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={evaluating || !(Number(price) > 0) || !(Number(budget) > 0)}
+                    onClick={() => void evaluatePurchase()}
+                    className="mt-3 rounded-lg bg-[#1C1C1C] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {evaluating ? "Evaluating..." : "Should I buy it?"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -233,6 +415,9 @@ export default function ShouldIBuyPage() {
         </div>
 
         <div className="space-y-4">
+          {(evaluating || evaluation) && (
+            <EvaluationCard evaluation={evaluation} loading={evaluating} />
+          )}
           <div className="rounded-xl bg-[#F0EFEA] p-5">
             <p className="text-xs font-semibold uppercase tracking-widest text-[#8C8A82]">
               Duplicate check

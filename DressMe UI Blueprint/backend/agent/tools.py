@@ -12,6 +12,7 @@ from xgboost_ranker import rank_gap_candidates
 from .coverage import GOALS, compute_coverage, get_requirement
 from .learning import DEMO_MODEL_PATH, active_model_path, model_metadata
 from .memory import AgentMemory
+from .semantic_coverage import semantic_review
 from .wardrobe_source import load_wardrobe
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -139,6 +140,14 @@ class GapAgentTools:
     def compute_coverage(self, goal: str) -> dict[str, Any]:
         return compute_coverage(load_wardrobe(), goal)
 
+    def semantic_coverage(self, goal: str) -> dict[str, Any]:
+        """FashionCLIP second opinion: advisory only, the rules still decide which gaps exist."""
+        wardrobe = load_wardrobe()
+        if not fashionclip_available():
+            return {"goal": goal, "method": "unavailable", "disagreements": []}
+        review = semantic_review(goal, wardrobe, compute_coverage(wardrobe, goal), _encoder(), item_description)
+        return {"goal": goal, **review}
+
     def rank_gaps(self, goal: str) -> dict[str, Any]:
         wardrobe, profile = load_wardrobe(), load_profile()
         coverage = compute_coverage(wardrobe, goal)
@@ -165,6 +174,7 @@ class GapAgentTools:
             ),
             "ranked_gaps": ranked,
             "covered": coverage["covered"],
+            "semantic_review": self.semantic_coverage(goal)["disagreements"],
         }
         self.memory.save_gap_analysis(self.user_id, self.conversation_id, goal, result)
         self.last_ranking = result
@@ -178,6 +188,7 @@ class GapAgentTools:
             "get_wardrobe": self.get_wardrobe,
             "compute_coverage": self.compute_coverage,
             "rank_gaps": self.rank_gaps,
+            "semantic_coverage": self.semantic_coverage,
             "get_past_analyses": self.get_past_analyses,
         }
         if name not in handlers:
@@ -219,6 +230,21 @@ TOOL_SCHEMAS = [
                 "Compute coverage for a goal, score each missing requirement (coverage deficit, use frequency, "
                 "season relevance, outfit gain, preference match, FashionCLIP redundancy) and order them with the "
                 "XGBoost learning-to-rank model. Saves the analysis to memory."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"goal": {"type": "string", "enum": GOAL_ENUM}},
+                "required": ["goal"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "semantic_coverage",
+            "description": (
+                "FashionCLIP second opinion on the coverage rules for a goal. Lists requirements where it disagrees: "
+                "possible_false_gap (rules say missing, an owned item looks like it) or weak_coverage. Advisory only."
             ),
             "parameters": {
                 "type": "object",

@@ -64,6 +64,31 @@ export interface DuplicateResult {
   note: string
 }
 
+export interface PurchaseEvaluation {
+  user_query: string
+  candidate_item: {
+    detected_category: string
+    detected_color: string
+    inferred_occasion: string
+    price: number
+    budget: number
+  }
+  tool_evidence: {
+    redundancy_score: number
+    closest_wardrobe_match: string | null
+    compatible_outfits_count: number
+    wardrobe_gap_score: number
+    budget_penalty: number
+    matching_outfits?: {
+      outfit_id: string
+      compatibility_score: number
+      paired_items: { name: string; category: string; color: string }[]
+    }[]
+  }
+  agent_verdict: { decision: string; score: number; reasons: string[] }
+  stylist_interpretation?: string
+}
+
 export interface AnalyzeResponse {
   items: WardrobeItem[]
 }
