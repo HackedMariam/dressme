@@ -689,12 +689,21 @@ class TripTools:
         if self.wardrobe_provider.name == "bo1" and (
             weather.source != "open-meteo" or not expected_dates.issubset(available_dates)
         ):
-            message = ("A real weather forecast is unavailable for these dates or destination. "
-                       "Try again when the trip is within the forecast window.")
+            if weather.warning and "outside the Open-Meteo forecast window" in weather.warning:
+                message = ("A real weather forecast is unavailable for these dates. "
+                           "The trip is outside the forecast window. Retry closer to departure "
+                           "or enter your own weather assumptions.")
+            else:
+                message = ("A real weather forecast is unavailable for these dates or destination. "
+                           "The weather service may be unreachable or returned incomplete data. "
+                           "Retry or enter your own weather assumptions.")
             self.state.status = "failed"
-            self.state.errors.append(message)
+            if message not in self.state.errors:
+                self.state.errors.append(message)
             return {"ok": False, "error": message, "next_action": "ask_user"}
 
+        self.state.errors = [error for error in self.state.errors
+                             if not error.startswith("A real weather forecast is unavailable")]
         self.state.weather = weather
         self.state.daily_requirements = []
         self.state.optimization_result = None

@@ -139,8 +139,7 @@ items and can retry after wardrobe updates. When repeating a complete outfit can
 resolve the trip, it offers that as an explicit user choice.
 
 Install `python -m pip install -r requirements.txt` at the root and the BO1 and
-frontend dependencies. Start BO1 and then run `npm run dev:all`, or use
-`start_all.ps1` to start the services. Configure `BO1_URL` if BO1 is not at
+frontend dependencies. Run `npm run dev:all` to start the services. Configure `BO1_URL` if BO1 is not at
 `http://127.0.0.1:8000`, and `VITE_TRIP_API_URL` if the packing API is not at
 `http://localhost:8020`. Configure Supabase in the frontend and BO1. Packing tests:
 `python -m pytest backend/test_api.py backend/test_packing_integration.py packing_backend/trip_agent/tests -q`.
@@ -172,27 +171,33 @@ frontend dependencies. Start BO1 and then run `npm run dev:all`, or use
 - The `corrections` table is a ready-to-use dataset for retraining YOLO on its mistakes.
 - License: Ultralytics/YOLO11 is AGPL-3.0 — take this into account if the app becomes commercial.
 
-## Lancer DressMe
+## Start all services (Windows)
 
-Tout DressMe en local, depuis la racine du dépôt (Windows PowerShell) :
+From the repository root, use one command to start the canonical frontend and all available HTTP agent backends:
 
 ```powershell
-.\start_all.ps1          # démarre, vérifie la santé, précharge qwen2.5:3b
-.\start_all.ps1 -Stop    # arrête ce que le script a lancé
+npm run dev:all
+npm run stop:all
 ```
 
-| Service | Port | Lancement par le script |
+The launcher runs services in the background, checks their HTTP readiness, and prints the frontend URL and per-service status. Running it again reuses healthy services already on the expected ports. The stop command stops only processes started by this launcher, including their child processes. Logs are in `%TEMP%\dressme-run`. A failed service produces a non-zero exit code and a log path; fix the issue and run the start command again.
+
+PowerShell alternatives: `.\start_all.ps1` and `.\start_all.ps1 -Stop`. The `-HealthTimeout` option changes the startup timeout in seconds.
+
+| Service | Port | Entry point |
 |---|---|---|
 | BO1 Wardrobe (`backend/`) | 8000 | `uvicorn app.main:app` |
+| BO3 Wardrobe Gaps (`DressMe UI Blueprint/backend/`) | 8001 | `uvicorn api:app` |
 | HelpMePack (`packing_backend/`) | 8020 | `uvicorn backend.main:app --port 8020` |
-| Purchase Redundancy (`purchase-redundancy-ai/backend/`) | 8040 | `API_PORT=8040 python main.py` (son port par défaut, 8000, est celui de BO1) |
-| Ollama `qwen2.5:3b` | 11434 | `ollama serve` avec `OLLAMA_KEEP_ALIVE=30m` |
-| BO4 Stylist (`bo4/backend/`) | 8061 | `stylist_web.py --require-auth --bo1-url http://localhost:8000` |
-| Orchestrateur (`orchestrator/`) | 8070 | `app.py` : page de conversation sur http://127.0.0.1:8070/ |
+| Purchase Redundancy (`purchase-redundancy-ai/backend/`) | 8040 | `API_PORT=8040 python main.py` |
+| BO4 Stylist (`bo4/backend/`) | 8061 | `stylist_web.py --require-auth --bo1-url http://127.0.0.1:8000` |
+| Orchestrator (`orchestrator/`) | 8070 | `app.py` |
+| Canonical frontend (`DressMe UI Blueprint/`) | 8443 | Vite: http://127.0.0.1:8443/ |
+| Ollama (optional) | 11434 | `ollama serve` if installed |
 
-Chaque service utilise le Python de son dossier (`.venv`, `venv` ou `.venv-*`) ; sinon, indiquer le chemin de
-`python.exe` dans `DRESSME_PY_BO1`, `DRESSME_PY_PURCHASE`, `DRESSME_PY_STYLIST` ou `DRESSME_PY_ORCHESTRATOR`.
-Journaux : `%TEMP%\dressme-run`.
+Install Node.js, pnpm, Python, and the service dependencies first. For example, create the Python environments and install their requirements, then run `pnpm --dir "DressMe UI Blueprint" install`. BO1 uses `backend/requirements.txt`, Help Me Pack uses root `requirements.txt`, BO3 uses `DressMe UI Blueprint/backend/requirements.txt`, Purchase Redundancy uses `purchase-redundancy-ai/backend/requirements.txt`, and the orchestrator uses `orchestrator/requirements.txt`. See `bo4/README.md` for the BO4 dependencies. The launcher prints the selected interpreter and an install command when BO3 or Purchase Redundancy exits because a module is missing.
+
+The launcher first looks for `.venv` or `venv` in each service directory, then the repository root, then `python` on PATH. Set `DRESSME_PY_BO1`, `DRESSME_PY_BO3`, `DRESSME_PY_PACKING`, `DRESSME_PY_PURCHASE`, `DRESSME_PY_STYLIST`, or `DRESSME_PY_ORCHESTRATOR` to a Python executable to override the choice for that service. If using Ollama, install it and pull `qwen2.5:3b` separately. Smart Purchasing currently provides a CLI rather than an HTTP server; `rag_backend/` has no runnable HTTP entry point in this checkout. Starting the BO3 service does not change its sample/configured wardrobe source or the orchestrator's disabled integrations.
 
 Fichiers `.env` (ignorés par git ; ne jamais les commiter). Seuls les **noms** des variables sont donnés ici :
 
@@ -201,6 +206,6 @@ Fichiers `.env` (ignorés par git ; ne jamais les commiter). Seuls les **noms** 
 | `.env` ou `backend/.env` (BO1) | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY` ; facultatif : `LLM_MODEL`, `CORS_ORIGINS`, `PUBLIC_API_URL` |
 | `orchestrator/.env` | `SUPABASE_URL`, `SUPABASE_ANON_KEY` (connexion des utilisateurs sur la page) |
 | `purchase-redundancy-ai/.env` | voir `purchase-redundancy-ai/.env.example` (`SECRET_KEY`, `AUTH_REQUIRED`, `CLIP_ENABLED`, `DB_TYPE`…) ; `API_PORT` est fixé par le script |
-| `frontend/.env` | `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
+| `DressMe UI Blueprint/.env` | `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
 
 Le Stylist n'a pas de `.env` : avec `--require-auth`, il vérifie le jeton de l'utilisateur auprès de BO1.

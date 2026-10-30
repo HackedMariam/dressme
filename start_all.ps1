@@ -1,57 +1,79 @@
-﻿<#
+<#
 .SYNOPSIS
-    Lance DressMe en local : BO1 (8000), HelpMePack (8020), Purchase Redundancy (8040), Ollama (keep_alive 30m),
-    Stylist BO4 (8061, --require-auth) et l'orchestrateur (8070), puis vérifie leur santé.
-
-.DESCRIPTION
-    Chaque service démarre dans son dossier avec le Python de son venv (.venv, venv ou .venv-*), sinon celui du
-    PATH. Pour un autre interpréteur : DRESSME_PY_BO1, DRESSME_PY_PURCHASE, DRESSME_PY_STYLIST,
-    DRESSME_PY_ORCHESTRATOR, DRESSME_PY_PACKING (chemin complet de python.exe).
-    Les secrets restent dans les fichiers .env de chaque service (voir « Lancer DressMe » dans README.md) :
-    ce script n'en lit ni n'en affiche aucun.
-    Un service dont le port répond déjà n'est pas relancé.
-    Journaux et identifiants des processus : %TEMP%\dressme-run (hors du dépôt).
-
+Starts the canonical DressMe frontend and all available HTTP agent services on Windows.
 .EXAMPLE
-    .\start_all.ps1            # démarre tout et vérifie la santé
-    .\start_all.ps1 -Stop      # arrête les services lancés par ce script
+  .\start_all.ps1
+  .\start_all.ps1 -Stop
 #>
 param(
     [switch]$Stop,
-    [int]$HealthTimeout = 120
+    [ValidateRange(1, 3600)][int]$HealthTimeout = 120
 )
 
 $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
 $RunDir = Join-Path $env:TEMP "dressme-run"
-$PidFile = Join-Path $RunDir "pids.txt"
+$StateFile = Join-Path $RunDir "services.json"
 New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
 
-if ($Stop) {
-    if (Test-Path $PidFile) {
-        foreach ($line in Get-Content $PidFile) {
-            $name, $id = $line -split "=", 2
-            try { Stop-Process -Id ([int]$id) -Force -ErrorAction Stop; Write-Host "arrêté : $name (PID $id)" }
-            catch { Write-Host "déjà arrêté : $name (PID $id)" }
-        }
-        Remove-Item $PidFile
-    } else {
-        Write-Host "Aucun service lancé par ce script."
+function Read-State {
+    if (-not (Test-Path -LiteralPath $StateFile)) { return @() }
+    try {
+        $state = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
+        return $state
     }
-    return
+    catch { throw "Cannot read $StateFile. Inspect it before starting or stopping services." }
+}
+
+function Save-State($Entries) {
+    ConvertTo-Json -InputObject @($Entries) -Depth 4 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+}
+
+function Get-OwnedProcess($Entry) {
+    if ($Entry.root -ne $Root) { return $null }
+    $process = Get-Process -Id $Entry.pid -ErrorAction SilentlyContinue
+    if (-not $process) { return $null }
+    try {
+        if ($process.StartTime.ToUniversalTime().Ticks.ToString() -ne [string]$Entry.started) { return $null }
+        return $process
+    } catch { return $null }
+}
+
+$entries = @(Read-State)
+if ($Stop) {
+    $remaining = @()
+    foreach ($entry in $entries) {
+        if ($entry.root -ne $Root) { $remaining += $entry; continue }
+        $process = Get-OwnedProcess $entry
+        if ($process) {
+            & taskkill.exe /PID $entry.pid /T /F 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Host "Stopped $($entry.name) (PID $($entry.pid))." }
+            else { Write-Host "Could not stop $($entry.name) (PID $($entry.pid))."; $remaining += $entry }
+        } else { Write-Host "Already stopped: $($entry.name)." }
+    }
+    Save-State $remaining
+    if ($remaining | Where-Object { $_.root -eq $Root }) { exit 1 }
+    exit 0
 }
 
 function Find-Python([string]$Dir, [string]$Override) {
-    if ($Override -and (Test-Path $Override)) { return $Override }
-    foreach ($name in @(".venv", "venv")) {
-        $candidate = Join-Path $Dir "$name\Scripts\python.exe"
-        if (Test-Path $candidate) { return $candidate }
+    if ($Override) {
+        if (-not (Test-Path -LiteralPath $Override -PathType Leaf)) { throw "Python override not found: $Override" }
+        return $Override
     }
-    $other = Get-ChildItem -Path $Dir -Directory -Filter ".venv*" -Force -ErrorAction SilentlyContinue |
-        ForEach-Object { Join-Path $_.FullName "Scripts\python.exe" } | Where-Object { Test-Path $_ } |
-        Select-Object -First 1
-    if ($other) { return $other }
-    return "python"
+    foreach ($base in @($Dir, $Root)) {
+        foreach ($name in @(".venv", "venv")) {
+            $candidate = Join-Path $base "$name\Scripts\python.exe"
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+        }
+        $candidate = Get-ChildItem -LiteralPath $base -Directory -Filter ".venv*" -Force -ErrorAction SilentlyContinue |
+            ForEach-Object { Join-Path $_.FullName "Scripts\python.exe" } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+        if ($candidate) { return $candidate }
+    }
+    $command = Get-Command python.exe -ErrorAction SilentlyContinue
+    if (-not $command) { throw "Python not found. Install Python or set the service's DRESSME_PY_* override." }
+    return $command.Source
 }
 
 function Test-Port([int]$Port) {
@@ -59,94 +81,117 @@ function Test-Port([int]$Port) {
     try { $client.Connect("127.0.0.1", $Port); return $true } catch { return $false } finally { $client.Close() }
 }
 
-function Start-DressMeService([string]$Name, [string]$Dir, [string]$Python, [string[]]$Arguments, [int]$Port,
-                              [hashtable]$Environment = @{}) {
-    if (Test-Port $Port) {
-        Write-Host ("{0,-14} port {1} déjà en écoute : non relancé" -f $Name, $Port)
-        return
+function Test-Service($Service) {
+    try {
+        $response = Invoke-WebRequest -Uri $Service.url -UseBasicParsing -TimeoutSec 3
+        if ($response.StatusCode -ne 200 -or $response.Content -notmatch $Service.marker) { return $false }
+        if ($Service.name -eq "bo1") {
+            $health = $response.Content | ConvertFrom-Json
+            if (-not $health.ok) { return $false }
+        }
+        if ($Service.name -eq "purchase") {
+            $health = $response.Content | ConvertFrom-Json
+            if ($health.status -ne "healthy") { return $false }
+        }
+        return $true
+    } catch { return $false }
+}
+
+# Remove stale records without taking ownership of unrelated listeners.
+$entries = @($entries | Where-Object { $_.root -ne $Root -or (Get-OwnedProcess $_) })
+Save-State $entries
+
+$bo1 = Join-Path $Root "backend"
+$bo3 = Join-Path $Root "DressMe UI Blueprint\backend"
+$purchase = Join-Path $Root "purchase-redundancy-ai\backend"
+$stylist = Join-Path $Root "bo4\backend"
+$orchestrator = Join-Path $Root "orchestrator"
+$frontend = Join-Path $Root "DressMe UI Blueprint"
+
+# Each service has its own working directory and can use its own virtual environment.
+$services = @(
+    @{ name="bo1"; dir=$bo1; override=$env:DRESSME_PY_BO1; port=8000; args=@("-m","uvicorn","app.main:app","--host","127.0.0.1","--port","8000"); url="http://127.0.0.1:8000/api/health"; marker='"model_loaded"'; env=@{} },
+    @{ name="bo3"; dir=$bo3; override=$env:DRESSME_PY_BO3; port=8001; args=@("-m","uvicorn","api:app","--host","127.0.0.1","--port","8001"); url="http://127.0.0.1:8001/openapi.json"; marker='DressMe BO3 Gap Agent API'; env=@{}; requirements="DressMe UI Blueprint\backend\requirements.txt" },
+    @{ name="helpmepack"; dir=$Root; override=$env:DRESSME_PY_PACKING; port=8020; args=@("-m","uvicorn","backend.main:app","--host","127.0.0.1","--port","8020"); url="http://127.0.0.1:8020/api/health"; marker='"weather_network_enabled"'; env=@{} },
+    @{ name="purchase"; dir=$purchase; override=$env:DRESSME_PY_PURCHASE; port=8040; args=@("main.py"); url="http://127.0.0.1:8040/health"; marker='"clip_available"'; env=@{ API_PORT="8040"; API_HOST="127.0.0.1" }; requirements="purchase-redundancy-ai\backend\requirements.txt" },
+    @{ name="stylist"; dir=$stylist; override=$env:DRESSME_PY_STYLIST; port=8061; args=@("-X","utf8","stylist_web.py","--port","8061","--require-auth","--bo1-url","http://127.0.0.1:8000"); url="http://127.0.0.1:8061/openapi.json"; marker='DressMe Stylist Agent'; env=@{} },
+    @{ name="orchestrator"; dir=$orchestrator; override=$env:DRESSME_PY_ORCHESTRATOR; port=8070; args=@("-X","utf8","app.py","--port","8070"); url="http://127.0.0.1:8070/openapi.json"; marker='DressMe Orchestrator'; env=@{} },
+    @{ name="frontend"; dir=$frontend; port=8443; args=@("node_modules/vite/bin/vite.js","--host","127.0.0.1","--port","8443","--strictPort"); url="http://127.0.0.1:8443/"; marker='/src/main.tsx'; env=@{ PORT="8443" } }
+)
+
+$ollama = Get-Command ollama -ErrorAction SilentlyContinue
+if ($ollama -or (Test-Port 11434)) {
+    $services += @{ name="ollama"; dir=$Root; port=11434; command=if ($ollama) { $ollama.Source } else { "ollama" }; args=@("serve"); url="http://127.0.0.1:11434/api/version"; marker='"version"'; env=@{ OLLAMA_KEEP_ALIVE="30m" } }
+} else {
+    Write-Host "Ollama is not installed; local LLM features require Ollama and qwen2.5:3b."
+}
+
+$failed = @()
+foreach ($service in $services) {
+    if (Test-Port $service.port) {
+        Write-Host "$($service.name): port $($service.port) already in use; checking the existing service."
+        continue
     }
     $saved = @{}
-    foreach ($key in $Environment.Keys) {          # variables propres au service, rétablies juste après
-        $saved[$key] = [Environment]::GetEnvironmentVariable($key, "Process")
-        [Environment]::SetEnvironmentVariable($key, $Environment[$key], "Process")
-    }
     try {
-        $process = Start-Process -FilePath $Python -ArgumentList $Arguments -WorkingDirectory $Dir -PassThru `
-            -WindowStyle Hidden -RedirectStandardOutput (Join-Path $RunDir "$Name.out.log") `
-            -RedirectStandardError (Join-Path $RunDir "$Name.err.log")
+        if ($service.name -eq "frontend") {
+            if (-not (Test-Path -LiteralPath (Join-Path $frontend "node_modules\vite\bin\vite.js"))) { throw 'Frontend dependencies missing. Run pnpm --dir "DressMe UI Blueprint" install.' }
+            $node = Get-Command node.exe -ErrorAction Stop
+            $command = $node.Source
+        } elseif ($service.name -eq "ollama") { $command = $service.command }
+        else { $command = Find-Python $service.dir $service.override }
+        $service.command = $command
+        foreach ($key in $service.env.Keys) {
+            $saved[$key] = [Environment]::GetEnvironmentVariable($key, "Process")
+            [Environment]::SetEnvironmentVariable($key, $service.env[$key], "Process")
+        }
+        $process = Start-Process -FilePath $command -ArgumentList $service.args -WorkingDirectory $service.dir -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $RunDir "$($service.name).out.log") `
+            -RedirectStandardError (Join-Path $RunDir "$($service.name).err.log")
+        $entries += [pscustomobject]@{ root=$Root; name=$service.name; pid=$process.Id; started=$process.StartTime.ToUniversalTime().Ticks.ToString() }
+        Save-State $entries
+        Write-Host "$($service.name): started on port $($service.port) (PID $($process.Id))."
+    } catch {
+        Write-Host "$($service.name): could not start: $($_.Exception.Message)"
+        $failed += $service.name
     } finally {
         foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key], "Process") }
     }
-    Add-Content -Path $PidFile -Value "$Name=$($process.Id)"
-    Write-Host ("{0,-14} démarré sur le port {1} (PID {2}, python : {3})" -f $Name, $Port, $process.Id, $Python)
 }
 
-# 1. Ollama : garde le modèle chargé 30 min (l'orchestrateur renvoie aussi keep_alive 30m à chaque appel)
-if (Test-Port 11434) {
-    Write-Host ("{0,-14} port 11434 déjà en écoute : non relancé" -f "ollama")
-} elseif (Get-Command ollama -ErrorAction SilentlyContinue) {
-    $env:OLLAMA_KEEP_ALIVE = "30m"
-    $ollama = Start-Process -FilePath "ollama" -ArgumentList "serve" -PassThru -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $RunDir "ollama.out.log") -RedirectStandardError (Join-Path $RunDir "ollama.err.log")
-    Add-Content -Path $PidFile -Value "ollama=$($ollama.Id)"
-    Write-Host ("{0,-14} démarré (OLLAMA_KEEP_ALIVE=30m, PID {1})" -f "ollama", $ollama.Id)
-} else {
-    Write-Host "ollama         introuvable : le Stylist et l'orchestrateur fonctionneront avec leurs règles"
-}
-
-# 2. Services Python
-$bo1 = Join-Path $Root "backend"
-Start-DressMeService "bo1" $bo1 (Find-Python $bo1 $env:DRESSME_PY_BO1) `
-    @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000") 8000
-
-Start-DressMeService "helpmepack" $Root (Find-Python $Root $env:DRESSME_PY_PACKING) `
-    @("-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8020") 8020
-
-$purchase = Join-Path $Root "purchase-redundancy-ai\backend"
-Start-DressMeService "purchase" $purchase (Find-Python $purchase $env:DRESSME_PY_PURCHASE) @("main.py") 8040 `
-    @{ API_PORT = "8040"; API_HOST = "127.0.0.1" }      # son port par défaut (8000) est celui de BO1
-
-$stylist = Join-Path $Root "bo4\backend"
-Start-DressMeService "stylist" $stylist (Find-Python $stylist $env:DRESSME_PY_STYLIST) `
-    @("-X", "utf8", "stylist_web.py", "--port", "8061", "--require-auth", "--bo1-url", "http://localhost:8000") 8061
-
-$orchestrator = Join-Path $Root "orchestrator"
-Start-DressMeService "orchestrator" $orchestrator (Find-Python $orchestrator $env:DRESSME_PY_ORCHESTRATOR) `
-    @("-X", "utf8", "app.py", "--port", "8070") 8070
-
-# 3. Santé
-$checks = [ordered]@{
-    "ollama"       = "http://127.0.0.1:11434/api/version"
-    "bo1"          = "http://127.0.0.1:8000/api/health"
-    "helpmepack"   = "http://127.0.0.1:8020/api/health"
-    "purchase"     = "http://127.0.0.1:8040/health"
-    "stylist"      = "http://127.0.0.1:8061/api/graph"
-    "orchestrator" = "http://127.0.0.1:8070/api/config"
-}
+$pending = @($services | Where-Object { $_.name -notin $failed })
 $deadline = (Get-Date).AddSeconds($HealthTimeout)
-$failed = @()
-foreach ($name in $checks.Keys) {
-    $ok = $false
-    while (-not $ok -and (Get-Date) -lt $deadline) {
-        try { $ok = (Invoke-WebRequest -Uri $checks[$name] -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200 }
-        catch { Start-Sleep -Seconds 2 }
+while ($pending.Count -and (Get-Date) -lt $deadline) {
+    $next = @()
+    foreach ($service in $pending) {
+        if (Test-Service $service) { Write-Host "$($service.name): ready ($($service.url))." }
+        else {
+            $owned = @($entries | Where-Object { $_.root -eq $Root -and $_.name -eq $service.name })
+            if ($owned.Count -and -not (Get-OwnedProcess $owned[-1])) {
+                Write-Host "$($service.name): exited during startup. See $RunDir\$($service.name).err.log"
+                $errorLog = Join-Path $RunDir "$($service.name).err.log"
+                if (Test-Path -LiteralPath $errorLog) {
+                    $missing = @(Select-String -LiteralPath $errorLog -Pattern '^ModuleNotFoundError:.*' | Select-Object -Last 1)
+                    if ($missing.Count) {
+                        Write-Host "  $($missing[0].Line)"
+                        if ($service.requirements) { Write-Host "  Install dependencies: & `"$($service.command)`" -m pip install -r `"$($service.requirements)`"" }
+                    }
+                }
+                $failed += $service.name
+            } else { $next += $service }
+        }
     }
-    Write-Host ("santé {0,-14} {1}" -f $name, $(if ($ok) { "OK" } else { "ÉCHEC" }))
-    if (-not $ok) { $failed += $name }
+    $pending = $next
+    if ($pending.Count) { Start-Sleep -Seconds 1 }
+}
+foreach ($service in $pending) {
+    Write-Host "$($service.name): not ready on port $($service.port). Check for a port conflict or see $RunDir\$($service.name).err.log"
+    $failed += $service.name
 }
 
-# 4. Préchargement du modèle (premier message plus rapide)
-if (Test-Port 11434) {
-    try {
-        $body = '{"model": "qwen2.5:3b", "keep_alive": "30m"}'
-        Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/generate" -Method Post -Body $body `
-            -ContentType "application/json" -TimeoutSec 120 | Out-Null
-        Write-Host "qwen2.5:3b     chargé pour 30 min"
-    } catch { Write-Host "qwen2.5:3b     non préchargé (modèle absent ? ollama pull qwen2.5:3b)" }
-}
-
-if ($failed) {
-    Write-Host "`nÀ vérifier : $($failed -join ', ') (journaux dans $RunDir)"
-} else {
-    Write-Host "`nDressMe est prêt : http://127.0.0.1:8070/  (arrêt : .\start_all.ps1 -Stop)"
-}
+Write-Host "`nFrontend: http://127.0.0.1:8443/"
+Write-Host "Orchestrator: http://127.0.0.1:8070/"
+Write-Host "Logs: $RunDir"
+Write-Host "Stop launched services: npm run stop:all"
+if ($failed.Count) { Write-Host "Not ready: $($failed -join ', ')"; exit 1 }
+Write-Host "All available services are ready."

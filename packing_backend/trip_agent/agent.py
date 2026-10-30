@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import timedelta
 from typing import Any, Callable
 
 from .config import MAX_AGENT_ITERATIONS
 from .llm import LLMClient, LLMError
 from .logging_utils import log_event
-from .schemas import AgentResponse, AgentState
+from .schemas import AgentResponse, AgentState, WeatherData, WeatherDay
 from .tools import TripTools, tool_specs
 from .wardrobe import WardrobeProvider
 
@@ -129,6 +130,40 @@ class TripAgent:
             return self._response(question)
         if reoptimize:
             self._complete_workflow()
+        return self._response(self._compose_completion_message())
+
+    def use_manual_weather(self, temperature_c: float, condition: str) -> AgentResponse:
+        """Plan using the user's explicit, uniform assumptions for the whole trip."""
+        details = self.state.trip_details
+        if not details or not details.is_complete or not details.start_date or not details.end_date:
+            raise ValueError("Complete trip details are required before entering weather.")
+        days = [
+            WeatherDay(
+                date=details.start_date + timedelta(days=i),
+                weather=condition,
+                temperature_c=temperature_c,
+                source="user_provided",
+            )
+            for i in range((details.end_date - details.start_date).days + 1)
+        ]
+        self.state.weather = WeatherData(
+            destination=details.destination or "",
+            source="user_provided",
+            days=days,
+            warning=("These are your weather assumptions, applied to every trip day; "
+                     "they are not a forecast. Rainfall amounts, wind and UV were not provided."),
+        )
+        self.state.daily_requirements = []
+        self.state.optimization_result = None
+        self.state.capsule = None
+        self.state.checklist = None
+        self.state.suggestions = []
+        self.state.missing_items = []
+        self.state.can_repeat_outfits = False
+        self.state.errors = [error for error in self.state.errors
+                             if not error.startswith("A real weather forecast is unavailable")]
+        self.state.status = "ready"
+        self._complete_workflow()
         return self._response(self._compose_completion_message())
 
     def mark_packed(self, item_id: str, packed: bool = True) -> AgentResponse:

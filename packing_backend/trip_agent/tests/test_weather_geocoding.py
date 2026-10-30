@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+import requests
 
 from packing_backend.trip_agent import TripAgent, weather
 from packing_backend.trip_agent.schemas import WeatherData, WeatherDay
@@ -208,6 +209,34 @@ def test_network_failure_still_uses_synthetic_fallback(monkeypatch) -> None:
     assert result.source == "synthetic_fallback"
     assert result.warning
     assert all(day.synthetic for day in result.days)
+
+
+def test_weather_request_retries_transient_timeout(monkeypatch) -> None:
+    calls = []
+    class Response:
+        def raise_for_status(self):
+            pass
+    def request(url, params, timeout):
+        calls.append((url, params, timeout))
+        if len(calls) == 1:
+            raise requests.Timeout("temporary timeout")
+        return Response()
+    monkeypatch.setattr(weather.requests, "get", request)
+    assert isinstance(weather._weather_request("https://example.test", {"name": "Paris"}), Response)
+    assert len(calls) == 2
+
+
+def test_weather_request_does_not_retry_client_error(monkeypatch) -> None:
+    calls = []
+    response = requests.Response()
+    response.status_code = 400
+    def request(url, params, timeout):
+        calls.append(url)
+        return response
+    monkeypatch.setattr(weather.requests, "get", request)
+    with pytest.raises(requests.HTTPError):
+        weather._weather_request("https://example.test", {})
+    assert len(calls) == 1
 
 
 def test_agent_asks_for_destination_when_geocoding_is_unresolved(monkeypatch) -> None:

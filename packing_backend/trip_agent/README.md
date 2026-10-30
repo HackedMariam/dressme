@@ -10,7 +10,8 @@ real wardrobe; the standalone CLI retains synthetic demo data.
 2. Asks for missing mandatory information instead of inventing it.
 3. Selects and calls tools based on the current state.
 4. Retrieves daily weather from Open-Meteo. The integrated API requires a real
-   forecast for every trip day; the standalone demo can use synthetic weather.
+   forecast for every trip day, unless the user explicitly enters their own
+   weather assumptions. The standalone demo can use synthetic weather.
 5. Converts activities, weather, and occasions into optimizer-compatible daily
    requirements.
 6. Runs the existing CP-SAT optimizer unchanged through an adapter.
@@ -78,7 +79,8 @@ LLM_MODEL=gpt-4o
 
 The standalone CLI works without an LLM or network using synthetic demo data.
 Set `TRIP_AGENT_USE_LLM=0` (or pass `--no-llm`) to use the deterministic parser.
-The integrated API requires BO1 and a real weather forecast.
+The integrated API requires BO1 and either a real weather forecast or explicit
+user-provided weather assumptions.
 
 ## Run
 
@@ -198,6 +200,7 @@ Useful overrides for the launcher: `BACKEND_PORT`, `FRONTEND_PORT`,
 | `PATCH` | `/api/trips/{session_id}` | Update trip details and optionally reoptimize |
 | `DELETE` | `/api/trips/{session_id}` | Drop an in-memory session |
 | `POST` | `/api/trips/{session_id}/weather` | Retrieve/refresh weather |
+| `POST` | `/api/trips/{session_id}/weather/manual` | Use explicit user-provided weather assumptions and replan |
 | `POST` | `/api/trips/{session_id}/requirements` | Retrieve/generate daily requirements |
 | `POST` | `/api/trips/{session_id}/optimize` | Run CP-SAT and return the result |
 | `POST` | `/api/trips/{session_id}/suggest-alternatives` | Diagnose infeasibility |
@@ -227,6 +230,13 @@ description" tab. Both modes call the same backend:
    permits repeating a complete outfit while retaining weather and weight limits.
 8. Gap analysis -> unavailable unless a real integration is configured.
 
+If the weather service is unreachable or the dates are outside its forecast
+window, the result offers **Retry live weather** or lets the user enter an
+expected temperature and condition. These assumptions apply to every trip day,
+are labelled as user-provided (not a forecast), and do not include actual
+precipitation amounts, wind or UV. The optimizer still enforces its packing
+constraints. Changing the destination or dates invalidates the assumptions.
+
 ## LLM behavior and safety
 
 - LangGraph controls the integrated packing workflow; the LLM can extract trip details.
@@ -246,7 +256,8 @@ description" tab. Both modes call the same backend:
 
 - The integrated API uses BO1 wardrobe items; weights and compatibility are estimates.
 - Open-Meteo forecasts are limited to roughly the next 15 days. The integrated API
-  reports unavailable forecasts instead of planning with synthetic weather.
+  reports unavailable forecasts instead of planning with synthetic weather;
+  user-provided assumptions can be used explicitly instead.
 - Destination geocoding is confidence-checked. Fuzzy/fictional names are
   refused instead of silently using an unrelated real town; the agent asks for a
   valid destination. Country requests use a representative city where available

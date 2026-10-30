@@ -85,6 +85,13 @@ class WeatherRequest(BaseModel):
     force_refresh: bool = False
 
 
+class ManualWeatherRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    temperature_c: float = Field(ge=-60, le=60, allow_inf_nan=False)
+    condition: Literal["sunny", "cloudy", "rainy", "windy", "cold", "hot"]
+
+
 # ----------------------------------------------------------------------
 # In-memory session storage (temporary development storage)
 # ----------------------------------------------------------------------
@@ -557,6 +564,17 @@ def create_app(
                 "result": result,
                 "state": _state_payload(session.agent),
             }
+
+    @app.post("/api/trips/{session_id}/weather/manual")
+    def manual_weather(session_id: str, body: ManualWeatherRequest, request: Request) -> dict[str, Any]:
+        session = session_or_404(session_id)
+        with session.lock:
+            refresh_wardrobe(session, request)
+            try:
+                response = session.agent.use_manual_weather(body.temperature_c, body.condition)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            return _response_payload(session.agent, response)
 
     @app.post("/api/trips/{session_id}/requirements")
     def get_requirements(session_id: str) -> dict[str, Any]:

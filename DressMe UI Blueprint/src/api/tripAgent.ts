@@ -37,7 +37,7 @@ export type WeatherData = {
   latitude?: number | null;
   longitude?: number | null;
   days: WeatherDay[];
-  source: "open-meteo" | "synthetic_fallback";
+  source: "open-meteo" | "synthetic_fallback" | "user_provided";
   warning?: string | null;
   resolved_name?: string | null;
   resolved_country?: string | null;
@@ -291,6 +291,17 @@ export function updateTrip(
   return request<TripPayload>(`/api/trips/${encodeURIComponent(sessionId)}`, {
     method: "PATCH",
     body: JSON.stringify({ updates, reoptimize }),
+  });
+}
+
+export function useManualWeather(
+  sessionId: string,
+  temperatureC: number,
+  condition: string,
+): Promise<TripPayload> {
+  return request<TripPayload>(`/api/trips/${encodeURIComponent(sessionId)}/weather/manual`, {
+    method: "POST",
+    body: JSON.stringify({ temperature_c: temperatureC, condition }),
   });
 }
 

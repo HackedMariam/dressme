@@ -51,6 +51,11 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
       proxy: {
+        // BO4 stylist scores the selected garments from the caller's BO1 wardrobe.
+        '/api/stylist': {
+          target: process.env.STYLIST_API_URL || 'http://127.0.0.1:8061',
+          changeOrigin: true,
+        },
         // BO3 gap agent API (DressMe UI Blueprint/backend/api.py); listed first so it wins over /api.
         '/api/bo3': {
           target: process.env.BO3_API_URL || 'http://127.0.0.1:8001',

@@ -5,6 +5,7 @@ import type {
   AnalyzeResponse,
   DuplicateResult,
   Health,
+  OutfitScore,
   PhotoMatch,
   QuickDetection,
   WardrobeItem,
@@ -23,7 +24,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, base = API_BASE): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json")
@@ -37,10 +38,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE}${path}`, { ...init, headers })
+    response = await fetch(`${base}${path}`, { ...init, headers })
   } catch {
     throw new ApiError(
-      `Cannot reach the API server${API_BASE ? ` at ${API_BASE}` : ""}. Make sure the backend is running.`,
+      `Cannot reach the API server${base ? ` at ${base}` : ""}. Make sure the backend is running.`,
       0,
     )
   }
@@ -125,6 +126,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message }),
     }),
+
+  scoreOutfit: (itemIds: string[], occasion: string, season: string) =>
+    request<OutfitScore>("/api/stylist/outfit-score", {
+      method: "POST",
+      body: JSON.stringify({ item_ids: itemIds, occasion, season }),
+    }, (import.meta.env.VITE_STYLIST_API_URL || "").replace(/\/$/, "")),
 
   checkDuplicate: (item: Pick<WardrobeItem, "category" | "color_name" | "pattern" | "material">) =>
     request<DuplicateResult>("/api/agent/check-duplicate", {

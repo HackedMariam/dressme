@@ -87,6 +87,54 @@ def test_wardrobe_endpoint(client):
     assert data["report"]["kept"] == 10 and len(data["items"]) == 10
 
 
+def test_outfit_studio_scores_owned_garments(client):
+    import outfit_engine
+    wardrobe, _ = fixture_loader()
+    top = next(item for item in wardrobe if outfit_engine.garment_role(item) == "top")
+    bottom = next(item for item in wardrobe if outfit_engine.garment_role(item) == "bottom")
+    response = client.post("/api/stylist/outfit-score", json={
+        "item_ids": [top["id"], bottom["id"]], "occasion": "work", "season": "winter"})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["complete"] is True
+    assert data["score"] == outfit_engine.evaluate_outfit([top, bottom], "work", "winter")["score"]
+    assert data["explanations"]
+
+
+def test_outfit_studio_incomplete_suggestions_are_owned(client):
+    import outfit_engine
+    wardrobe, _ = fixture_loader()
+    top = next(item for item in wardrobe if outfit_engine.garment_role(item) == "top")
+    response = client.post("/api/stylist/outfit-score", json={"item_ids": [top["id"]]})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["complete"] is False and body["score"] is None
+    assert body["suggested_item_ids"]
+    assert set(body["suggested_item_ids"]) <= {item["id"] for item in wardrobe
+                                                if outfit_engine.garment_role(item) == "bottom"}
+
+
+def test_outfit_studio_rejects_invalid_and_foreign_items(client):
+    wardrobe, _ = fixture_loader()
+    item_id = wardrobe[0]["id"]
+    assert client.post("/api/stylist/outfit-score", json={"item_ids": ["not-owned"]}).status_code == 404
+    assert client.post("/api/stylist/outfit-score", json={"item_ids": [item_id, item_id]}).status_code == 422
+    assert client.post("/api/stylist/outfit-score", json={"item_ids": [item_id], "season": "monsoon"}).status_code == 422
+
+
+def test_outfit_studio_forwards_identity_to_wardrobe_loader(client):
+    wardrobe, report = fixture_loader()
+    def per_user(token=None):
+        return (wardrobe if token == "alice" else [], report)
+    stylist_web.configure(llm=None, loader=per_user, weather=None, require_auth=True,
+                          identity=lambda token: token)
+    item_id = wardrobe[0]["id"]
+    request = {"item_ids": [item_id]}
+    assert client.post("/api/stylist/outfit-score", json=request).status_code == 401
+    assert client.post("/api/stylist/outfit-score", headers={"Authorization": "Bearer alice"}, json=request).status_code == 200
+    assert client.post("/api/stylist/outfit-score", headers={"Authorization": "Bearer bob"}, json=request).status_code == 404
+
+
 def test_wardrobe_endpoint_distinguishes_duplicate_names(client):
     def twin_jackets():
         wardrobe, report = fixture_loader()

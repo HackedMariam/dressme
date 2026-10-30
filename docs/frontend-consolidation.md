@@ -94,7 +94,7 @@ The Blueprint `App.tsx` is a monolith. Its mock pages are defined in `src/App.ts
 | Should I Buy? | Ready (main backend version) | `POST /api/items/analyze?save=false`, `POST /api/agent/check-duplicate` |
 | Find Similar | Ready (in wardrobe) | `POST /api/search/photo`, `POST /api/agent/search` |
 | AI Stylist | Ready (main backend version) | `POST /api/agent/search` |
-| Outfit Studio / outfit scoring | Preview only | needs `purchase-redundancy-ai` or `bo4` |
+| Outfit Studio / outfit scoring | Real wardrobe + BO4 heuristic scoring | `GET /api/items`, `POST /api/stylist/outfit-score` (BO4, port 8061) |
 | Help Me Pack / weather | Preview only | needs the packing service |
 | Avatar / try-on | Out of scope on this branch | `avatar/try1` |
 | RAG stylist | Out of scope on this branch | `rag/try1` |

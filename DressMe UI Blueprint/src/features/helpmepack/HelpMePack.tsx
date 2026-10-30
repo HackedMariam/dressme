@@ -7,6 +7,7 @@ import {
   getTrip,
   updateChecklist,
   updateTrip,
+  useManualWeather,
   type ChecklistItem,
   type DailyRequirement,
   type GapAnalysisResponse,
@@ -99,6 +100,13 @@ function formatDay(value: string | null | undefined) {
 
 function humanize(value: string) {
   return value.replace(/-/g, " ");
+}
+
+function weatherSourceLabel(source: string | null | undefined) {
+  if (source === "open-meteo") return "Open-Meteo";
+  if (source === "user_provided") return "Your assumptions";
+  if (source === "synthetic_fallback") return "Synthetic fallback";
+  return "Unavailable";
 }
 
 function weatherIcon(weather: string) {
@@ -210,6 +218,8 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
   const [gap, setGap] = useState<GapAnalysisResponse | null>(null);
   const [gapLoading, setGapLoading] = useState(false);
   const [packingItem, setPackingItem] = useState<string | null>(null);
+  const [manualTemperature, setManualTemperature] = useState("");
+  const [manualCondition, setManualCondition] = useState("cloudy");
 
   const prefillForm = (details: TripDetails | null | undefined) => {
     if (!details) return;
@@ -395,6 +405,24 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
     }
   };
 
+  const submitManualWeather = async () => {
+    if (!sessionId) return;
+    const temperature = Number(manualTemperature);
+    if (!manualTemperature.trim() || !Number.isFinite(temperature) || temperature < -60 || temperature > 60) {
+      setError("Enter a temperature between -60 and 60 °C.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      applyResponse(await useManualWeather(sessionId, temperature, manualCondition));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to use your weather assumptions.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const startNewTrip = () => {
     localStorage.removeItem(sessionKey);
     setSessionId(null);
@@ -405,6 +433,8 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
     setClarification("");
     setAiText("");
     setInputMode("manual");
+    setManualTemperature("");
+    setManualCondition("cloudy");
     setDestination("");
     setStartDate("");
     setEndDate("");
@@ -419,6 +449,8 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
   const syntheticWeather =
     weather?.source === "synthetic_fallback" ||
     Boolean(weather?.days.some((day) => day.synthetic));
+  const weatherFailed = trip?.status === "failed" && !weather &&
+    trip.errors.some((item) => item.toLowerCase().includes("weather forecast is unavailable"));
   const checklist = trip?.checklist || capsule?.checklist || null;
   const missingItems = trip ? recoveryItems(trip.missing_items, trip.suggestions || []) : [];
   const oldPackingService = !!trip && (
@@ -752,7 +784,7 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
               <div className="rounded-lg bg-white/5 px-4 py-3">
                 <p className="text-white/40 text-[10px] uppercase tracking-widest">Status</p>
                 <p className="text-white text-sm font-semibold mt-1">
-                  {trip.status === "infeasible" ? "Needs attention" : capsule?.optimization_status || trip.optimization_status || "Pending"}
+                  {trip.status === "failed" ? "Failed" : trip.status === "infeasible" ? "Needs attention" : capsule?.optimization_status || trip.optimization_status || "Pending"}
                 </p>
               </div>
               <div className="rounded-lg bg-white/5 px-4 py-3">
@@ -770,7 +802,7 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
               <div className="rounded-lg bg-white/5 px-4 py-3">
                 <p className="text-white/40 text-[10px] uppercase tracking-widest">Weather source</p>
                 <p className="text-white text-sm font-semibold mt-1">
-                  {weather?.source === "open-meteo" ? "Open-Meteo" : "Synthetic fallback"}
+                  {weatherSourceLabel(weather?.source)}
                 </p>
               </div>
             </div>
@@ -785,6 +817,12 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
                   {weather?.warning ||
                     "A forecast was unavailable for these dates, so explicitly labeled synthetic weather was used."}
                 </p>
+              </div>
+            )}
+            {weather?.source === "user_provided" && (
+              <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-3">
+                <p className="text-xs font-semibold text-amber-200">Your weather assumptions</p>
+                <p className="text-xs text-amber-100/70 mt-1">{weather.warning}</p>
               </div>
             )}
           </div>
@@ -860,8 +898,8 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
                           {formatDay(day.date)}
                         </p>
                         <p className="text-[10px] text-[#8C8A82] capitalize">
-                          {day.weather} · {Math.round(day.temperature_c)}°C ·{" "}
-                          {day.precipitation_mm.toFixed(1)} mm
+                          {day.weather} · {Math.round(day.temperature_c)}°C
+                          {day.source !== "user_provided" && ` · ${day.precipitation_mm.toFixed(1)} mm`}
                         </p>
                       </div>
                       {day.synthetic && (
@@ -990,8 +1028,8 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
                             </p>
                             <p className="text-[10px] text-[#8C8A82] mt-0.5">
                               {day.required_style} · {day.weather} ·{" "}
-                              {Math.round(day.temperature_c)}°C ·{" "}
-                              {day.precipitation_mm.toFixed(1)} mm
+                              {Math.round(day.temperature_c)}°C
+                              {capsule.trip.weather_source !== "user_provided" && ` · ${day.precipitation_mm.toFixed(1)} mm`}
                             </p>
                           </div>
                           <span className="text-lg">{weatherIcon(day.weather)}</span>
@@ -1105,7 +1143,7 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
                         ["Unique items", String(capsule.number_of_items)],
                         ["Estimated clothing weight", `${(capsule.total_weight_g / 1000).toFixed(2)} kg`],
                         ["Luggage limit", `${capsule.trip.max_luggage_weight_kg} kg`],
-                        ["Weather", capsule.trip.weather_source === "open-meteo" ? "Open-Meteo" : "Synthetic fallback"],
+                        ["Weather", weatherSourceLabel(capsule.trip.weather_source)],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-center justify-between gap-3">
                           <span className="text-white/40 text-[10px] uppercase tracking-widest">
@@ -1168,10 +1206,45 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
             </>
           ) : (
             <div className="bg-[#F0EFEA] rounded-xl p-6">
-              <p className="text-sm text-[#8C8A82]">
-                The agent has not produced a capsule yet. Try editing the trip or sending more
-                details.
-              </p>
+              {weatherFailed ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-display text-lg font-medium text-[#1C1C1C]">Weather unavailable</h3>
+                    <p className="mt-2 text-sm text-[#8C8A82]">{trip.errors[trip.errors.length - 1]}</p>
+                  </div>
+                  <button type="button" disabled={loading} onClick={() => void retryWithWardrobe()}
+                    className="rounded-lg bg-[#556B2F] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                    {loading ? "Planning…" : "Retry live weather"}
+                  </button>
+                  <div className="rounded-xl border border-[#E2E0D8] bg-white p-4 space-y-3">
+                    <p className="text-sm font-semibold text-[#1C1C1C]">Or enter your own weather assumptions</p>
+                    <p className="text-xs text-[#8C8A82]">Use an expected temperature and condition for every day of this trip. These are not a forecast; rainfall amounts, wind and UV are unknown.</p>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <label className="text-xs text-[#1C1C1C]">Temperature (°C)
+                        <input type="number" min="-60" max="60" value={manualTemperature}
+                          onChange={(event) => setManualTemperature(event.target.value)}
+                          className="mt-1 block w-32 rounded-lg border border-[#E2E0D8] px-3 py-2 text-sm" />
+                      </label>
+                      <label className="text-xs text-[#1C1C1C]">Condition
+                        <select value={manualCondition} onChange={(event) => setManualCondition(event.target.value)}
+                          className="mt-1 block rounded-lg border border-[#E2E0D8] px-3 py-2 text-sm">
+                          {["cloudy", "sunny", "rainy", "windy", "cold", "hot"].map((condition) => (
+                            <option key={condition} value={condition}>{humanize(condition)}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button type="button" disabled={loading} onClick={() => void submitManualWeather()}
+                        className="rounded-lg border border-[#556B2F] px-4 py-2 text-xs font-semibold text-[#556B2F] disabled:opacity-50">
+                        {loading ? "Planning…" : "Plan with these assumptions"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-[#8C8A82]">
+                  {trip.status === "failed" ? (trip.errors[trip.errors.length - 1] || "The trip could not be planned.") : "The agent has not produced a capsule yet. Try editing the trip or sending more details."}
+                </p>
+              )}
             </div>
           )}
         </>

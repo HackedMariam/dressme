@@ -358,16 +358,30 @@ def _prepare_destination(destination: str) -> _PreparedDestination:
 
 
 def _fetch_geocode_results(query: str) -> list[dict]:
-    response = requests.get(
+    response = _weather_request(
         GEOCODING_URL,
         params={"name": query, "count": 10, "language": "en", "format": "json"},
-        timeout=DEFAULT_WEATHER_TIMEOUT,
     )
-    response.raise_for_status()
     payload = response.json()
     if payload.get("error"):
         raise ValueError(payload.get("reason", "Open-Meteo geocoding returned an error"))
     return list(payload.get("results") or [])
+
+
+def _weather_request(url: str, params: dict) -> requests.Response:
+    """Retry transient network failures once without retrying invalid requests."""
+    for attempt in range(2):
+        try:
+            response = requests.get(url, params=params, timeout=DEFAULT_WEATHER_TIMEOUT)
+            response.raise_for_status()
+            return response
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt:
+                raise
+        except requests.HTTPError as exc:
+            if attempt or exc.response is None or exc.response.status_code not in {429, 500, 502, 503, 504}:
+                raise
+    raise RuntimeError("Weather request failed")  # pragma: no cover
 
 
 def _score_geocode_result(
@@ -581,7 +595,7 @@ def _forecast(
     start: date,
     end: date,
 ) -> WeatherData:
-    response = requests.get(
+    response = _weather_request(
         FORECAST_URL,
         params={
             "latitude": latitude,
@@ -595,9 +609,7 @@ def _forecast(
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
         },
-        timeout=DEFAULT_WEATHER_TIMEOUT,
     )
-    response.raise_for_status()
     payload = response.json()
     if payload.get("error"):
         raise ValueError(payload.get("reason", "Open-Meteo returned an error"))

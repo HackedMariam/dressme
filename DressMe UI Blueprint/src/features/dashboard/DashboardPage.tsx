@@ -4,7 +4,8 @@ import { TAXONOMY, cap } from "../../lib/taxonomy"
 import type { AccuracyRow } from "../../lib/types"
 import { useUserData } from "../profile/UserDataProvider"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
-import GapsCard from "../wardrobegaps/GapsCard"
+import RecommendationCard from "./RecommendationCard"
+import { wardrobeStats } from "./wardrobeStats"
 
 function Bar({ label, value, total }: { label: string; value: number; total: number }) {
   const width = total ? Math.round((value / total) * 100) : 0
@@ -21,20 +22,29 @@ function Bar({ label, value, total }: { label: string; value: number; total: num
   )
 }
 
-export default function DashboardPage({ onOpenGaps }: { onOpenGaps?: () => void }) {
-  const { items, health, loading, error } = useWardrobe()
+export default function DashboardPage({ onOpenGaps, onOpenWardrobe }: { onOpenGaps?: () => void; onOpenWardrobe: () => void }) {
+  const { items, loading, error, reload } = useWardrobe()
   const { profile } = useUserData()
-  const [accuracy, setAccuracy] = useState<AccuracyRow[]>([])
+  const [accuracy, setAccuracy] = useState<AccuracyRow[] | null>(null)
+  const [accuracyError, setAccuracyError] = useState(false)
 
   useEffect(() => {
     let active = true
+    setAccuracy(null)
+    setAccuracyError(false)
     api
       .accuracy()
       .then((rows) => {
-        if (active) setAccuracy(rows)
+        if (active) {
+          setAccuracy(rows)
+          setAccuracyError(false)
+        }
       })
       .catch(() => {
-        if (active) setAccuracy([])
+        if (active) {
+          setAccuracy([])
+          setAccuracyError(true)
+        }
       })
     return () => {
       active = false
@@ -74,18 +84,12 @@ export default function DashboardPage({ onOpenGaps }: { onOpenGaps?: () => void 
       .filter((entry) => entry.value > 0)
       .sort((a, b) => b.value - a.value)
 
-    const avgConfidence = items.length
-      ? items.reduce((sum, item) => sum + (item.confidence ?? 0), 0) / items.length
-      : 0
-
     return {
+      ...wardrobeStats(items),
       byGroup,
       colors,
       byOccasion,
       byStyle,
-      avgConfidence,
-      toReview: items.filter((item) => item.needs_review).length,
-      confirmed: items.filter((item) => item.status === "confirmed").length,
     }
   }, [items])
 
@@ -96,12 +100,13 @@ export default function DashboardPage({ onOpenGaps }: { onOpenGaps?: () => void 
     month: "long",
     day: "numeric",
   })
+  const greeting = now.getHours() < 12 ? "Good morning" : now.getHours() < 18 ? "Good afternoon" : "Good evening"
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">
-          Good morning{displayName ? `, ${displayName}` : ""}.
+          {greeting}{displayName ? `, ${displayName}` : ""}.
         </h1>
         <p className="mt-1 text-sm text-[#8C8A82]">{dateLabel} - your wardrobe at a glance</p>
       </div>
@@ -109,6 +114,7 @@ export default function DashboardPage({ onOpenGaps }: { onOpenGaps?: () => void 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+          <button type="button" onClick={() => void reload()} className="ml-3 font-semibold underline">Try again</button>
         </div>
       )}
 
@@ -116,21 +122,19 @@ export default function DashboardPage({ onOpenGaps }: { onOpenGaps?: () => void 
         <div className="flex min-h-[240px] items-center justify-center text-sm text-[#8C8A82]">
           Loading your wardrobe...
         </div>
-      ) : (
+      ) : error && !items.length ? null : (
         <>
+          <RecommendationCard items={items} onOpenWardrobe={onOpenWardrobe} />
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { label: "Total items", value: String(items.length), sub: "in your wardrobe" },
+              { label: "Total items", value: String(items.length), sub: `across ${stats.categoryCount} ${stats.categoryCount === 1 ? "category" : "categories"}` },
               { label: "To review", value: String(stats.toReview), sub: "need a quick check" },
+              { label: "Confirmed items", value: String(stats.confirmed), sub: "reviewed and confirmed" },
               {
                 label: "Avg. confidence",
-                value: `${Math.round(stats.avgConfidence * 100)}%`,
-                sub: "model detection",
-              },
-              {
-                label: "AI classification",
-                value: health?.llm ? "On" : "Off",
-                sub: health?.llm ? health.llm_model ?? "LLM ready" : "rules only",
+                value: stats.avgConfidence == null ? "—" : `${Math.round(stats.avgConfidence * 100)}%`,
+                sub: stats.confidenceCount ? `detection · ${stats.confidenceCount} ${stats.confidenceCount === 1 ? "item" : "items"}` : "no detection data yet",
               },
             ].map((card) => (
               <div key={card.label} className="rounded-xl bg-[#F0EFEA] p-5">
@@ -143,9 +147,26 @@ export default function DashboardPage({ onOpenGaps }: { onOpenGaps?: () => void 
             ))}
           </div>
 
-          {onOpenGaps && <GapsCard onOpen={onOpenGaps} />}
-
           <div className="grid gap-6 lg:grid-cols-2">
+            <section className="rounded-xl bg-[#F0EFEA] p-6">
+              <h2 className="font-display text-lg font-medium text-[#1C1C1C]">Potential overlaps</h2>
+              <p className="mb-4 mt-1 text-xs text-[#8C8A82]">Items with the same category and colour; these are not necessarily duplicates.</p>
+              {stats.overlaps.length ? stats.overlaps.slice(0, 4).map((group) => (
+                <div key={JSON.stringify([group.category, group.color])} className="flex items-center justify-between gap-4 border-b border-[#E2E0D8] py-3 last:border-0">
+                  <div>
+                    <p className="text-xs font-medium text-[#1C1C1C]">{cap(group.color)} {group.category}</p>
+                    <p className="mt-0.5 text-[10px] text-[#8C8A82]">{group.items.map((item) => item.name).join(", ")}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[#E8EDE0] px-2 py-0.5 text-xs font-semibold text-[#556B2F]">{group.items.length} items</span>
+                </div>
+              )) : <p className="text-sm text-[#8C8A82]">No matching categories and colours found.</p>}
+            </section>
+            {onOpenGaps && <section className="rounded-xl bg-[#F0EFEA] p-6">
+              <h2 className="font-display text-lg font-medium text-[#1C1C1C]">Wardrobe Gaps</h2>
+              <p className="mt-1 text-xs text-[#8C8A82]">Explore the gap agent and its wardrobe analysis.</p>
+              <button type="button" onClick={onOpenGaps} className="mt-4 text-xs font-semibold text-[#556B2F] hover:underline">Open agent →</button>
+            </section>}
+
             <section className="rounded-xl bg-[#F0EFEA] p-6">
               <h2 className="font-display text-lg font-medium text-[#1C1C1C]">By category</h2>
               <p className="mb-4 mt-1 text-xs text-[#8C8A82]">How your wardrobe is distributed</p>
@@ -226,7 +247,11 @@ export default function DashboardPage({ onOpenGaps }: { onOpenGaps?: () => void 
               <p className="mb-4 mt-1 text-xs text-[#8C8A82]">
                 Measured on items you reviewed. A field counts as wrong when you corrected it.
               </p>
-              {accuracy.length ? (
+              {accuracyError ? (
+                <p className="text-sm text-[#8C8A82]">Detection accuracy is unavailable right now.</p>
+              ) : accuracy === null ? (
+                <p className="text-sm text-[#8C8A82]">Loading detection accuracy...</p>
+              ) : accuracy.some((row) => row.reviewed > 0) ? (
                 <div className="overflow-hidden rounded-lg border border-[#E2E0D8] bg-white">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-[#F0EFEA] text-[#8C8A82]">

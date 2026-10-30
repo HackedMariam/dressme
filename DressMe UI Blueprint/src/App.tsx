@@ -16,6 +16,7 @@ import WardrobePage from "./features/wardrobe/WardrobePage";
 import { WardrobeProvider } from "./features/wardrobe/WardrobeProvider";
 import { getSupabaseConfigMessage } from "./lib/supabase";
 import WardrobeGapsPage from "./features/wardrobegaps/WardrobeGapsPage";
+import OutfitStudioPage from "./features/outfits/OutfitStudioPage";
 
 type Page =
   | "dashboard"
@@ -316,138 +317,6 @@ function MyWardrobe() {
           <span className="text-3xl text-[#E2E0D8] group-hover:text-[#556B2F] transition-colors">+</span>
           <p className="text-sm text-[#8C8A82] font-medium mt-2">Add clothing</p>
           <p className="text-xs text-[#8C8A82]/60 mt-0.5">Drag & drop or browse</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function OutfitStudio() {
-  const [canvas, setCanvas] = useState<typeof wardrobeItems>([]);
-  const [score, setScore] = useState(0);
-
-  const addToCanvas = (item: (typeof wardrobeItems)[0]) => {
-    if (!canvas.find((c) => c.id === item.id)) {
-      const next = [...canvas, item];
-      setCanvas(next);
-      setScore(Math.min(98, 40 + next.length * 15 + Math.floor(Math.random() * 10)));
-    }
-  };
-
-  const removeFromCanvas = (id: number) => {
-    const next = canvas.filter((c) => c.id !== id);
-    setCanvas(next);
-    setScore(next.length === 0 ? 0 : Math.max(0, score - 15));
-  };
-
-  return (
-    <div className="space-y-6 h-full">
-      <div>
-        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Outfit Studio</h1>
-        <p className="text-[#8C8A82] text-sm mt-1">Assemble looks and get AI feedback</p>
-      </div>
-
-      <div className="grid grid-cols-[280px_1fr] gap-6 h-[calc(100vh-220px)]">
-        {/* Wardrobe Panel */}
-        <div className="bg-[#F0EFEA] rounded-xl p-4 flex flex-col overflow-hidden">
-          <p className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest mb-3">Your Wardrobe</p>
-          <div className="space-y-2 overflow-y-auto flex-1">
-            {wardrobeItems.map((item) => {
-              const inCanvas = !!canvas.find((c) => c.id === item.id);
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => addToCanvas(item)}
-                  disabled={inCanvas}
-                  className={`w-full flex items-center gap-3 p-2.5 rounded-lg text-left transition-all ${
-                    inCanvas
-                      ? "opacity-40 cursor-not-allowed bg-[#E2E0D8]"
-                      : "hover:bg-[#E2E0D8] cursor-pointer"
-                  }`}
-                >
-                  <div className="w-10 h-12 rounded bg-[#E2E0D8] overflow-hidden shrink-0">
-                    <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-[#1C1C1C] truncate">{item.name}</p>
-                    <p className="text-[10px] text-[#8C8A82]">{item.category} · {item.color}</p>
-                  </div>
-                  {!inCanvas && <span className="ml-auto text-[#556B2F] text-sm">+</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Canvas */}
-        <div className="flex flex-col gap-4">
-          <div className="bg-[#F0EFEA] rounded-xl p-6 flex-1 overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest">Outfit Canvas</p>
-              <button
-                onClick={() => { setCanvas([]); setScore(0); }}
-                className="text-xs text-[#8C8A82] hover:text-[#1C1C1C] transition-colors"
-              >
-                Clear all
-              </button>
-            </div>
-
-            {canvas.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center">
-                <div className="w-16 h-16 rounded-full bg-[#E2E0D8] flex items-center justify-center mb-3">
-                  <span className="text-2xl text-[#8C8A82]">✦</span>
-                </div>
-                <p className="text-sm font-medium text-[#8C8A82]">Select items from your wardrobe</p>
-                <p className="text-xs text-[#8C8A82]/60 mt-1">Click pieces to add them to your outfit</p>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {canvas.map((item) => (
-                  <div key={item.id} className="relative group">
-                    <div className="w-28 h-36 rounded-xl overflow-hidden bg-[#E2E0D8]">
-                      <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
-                    </div>
-                    <div className="mt-1.5 text-center">
-                      <p className="text-xs font-medium text-[#1C1C1C] truncate w-28">{item.name}</p>
-                    </div>
-                    <button
-                      onClick={() => removeFromCanvas(item.id)}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#1C1C1C] text-white rounded-full text-xs hidden group-hover:flex items-center justify-center"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Score Panel */}
-          {canvas.length > 0 && (
-            <div className="bg-[#1C1C1C] rounded-xl p-5 flex items-center gap-6">
-              <div className="relative">
-                <ScoreRing score={score} size={72} />
-                <span className="absolute inset-0 flex items-center justify-center text-white font-bold text-lg">{score}</span>
-              </div>
-              <div className="flex-1">
-                <p className="text-[#556B2F] text-xs font-semibold uppercase tracking-widest">Style Synergy Score</p>
-                <p className="text-white font-display text-xl font-medium mt-0.5">
-                  {score >= 85 ? "Excellent combination" : score >= 65 ? "Good pairing" : "Building potential"}
-                </p>
-                <p className="text-white/50 text-xs mt-1">
-                  {canvas.length < 3
-                    ? "Add shoes or an outer layer to complete the look"
-                    : "Well-balanced silhouette · Seasonal cohesion · Try adding an accessory"}
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <p className="text-white/40 text-[10px] uppercase tracking-widest">Suggested additions</p>
-                {["Leather Belt", "Silk Scarf", "Watch"].map((s) => (
-                  <div key={s} className="text-xs text-white/70 bg-white/10 px-3 py-1.5 rounded-lg">{s}</div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -872,10 +741,10 @@ function AuthenticatedApp() {
 
   const renderPage = () => {
     switch (page) {
-      case "dashboard": return <DashboardPage onOpenGaps={() => setPage("wardrobe-gaps")} />;
+      case "dashboard": return <DashboardPage onOpenGaps={() => setPage("wardrobe-gaps")} onOpenWardrobe={() => setPage("wardrobe")} />;
       case "wardrobe": return <WardrobePage />;
       case "wardrobe-gaps": return <WardrobeGapsPage />;
-      case "outfit-studio": return <OutfitStudio />;
+      case "outfit-studio": return <OutfitStudioPage onOpenWardrobe={() => setPage("wardrobe")} />;
       case "help-me-pack": return <HelpMePack onOpenWardrobe={() => setPage("wardrobe")} />;
       case "weather": return <WeatherPage />;
       case "should-i-buy": return <ShouldIBuyPage />;
@@ -955,7 +824,7 @@ function AuthenticatedApp() {
               </button>
             </div>
           )}
-          {["outfit-studio", "weather"].includes(page) && (
+          {page === "weather" && (
             <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
               <b>Design preview.</b> This screen is not connected to a live backend on this branch
               yet.

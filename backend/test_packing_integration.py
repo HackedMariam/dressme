@@ -82,6 +82,87 @@ def test_unavailable_weather_is_not_used_for_optimization(setup, monkeypatch):
     assert "forecast is unavailable" in body["errors"][-1]
 
 
+def test_manual_weather_recovers_failed_trip_and_is_user_scoped(setup, monkeypatch):
+    client, _ = setup
+    from packing_backend.trip_agent.weather import _synthetic_weather
+    monkeypatch.setattr("packing_backend.trip_agent.tools.fetch_weather",
+                        lambda destination, start, end, allow_network:
+                        _synthetic_weather(destination, start, end, "Weather network timed out"))
+    headers = {"Authorization": "Bearer alice"}
+    created = client.post("/api/trips", headers=headers, json={
+        "mode": "structured", "trip": {"destination": "Rome", "start_date": "2027-06-01",
+        "end_date": "2027-06-02", "activities": ["sightseeing"], "max_luggage_weight_kg": 8}}).json()
+    assert created["status"] == "failed" and created["weather"] is None
+    path = f"/api/trips/{created['session_id']}/weather/manual"
+    assert client.post(path, headers={"Authorization": "Bearer bob"},
+                       json={"temperature_c": 20, "condition": "sunny"}).status_code == 404
+    assert client.post(path, headers=headers,
+                       json={"temperature_c": 100, "condition": "sunny"}).status_code == 422
+    assert client.post(path, headers=headers,
+                       json={"temperature_c": 20, "condition": "unknown"}).status_code == 422
+
+    response = client.post(path, headers=headers, json={"temperature_c": 20, "condition": "cloudy"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "optimized", body
+    assert body["capsule"]["trip"]["weather_source"] == "user_provided"
+    assert "not a forecast" in body["weather"]["warning"]
+    assert len(body["weather"]["days"]) == 2
+    assert all(day["source"] == "user_provided" and day["temperature_c"] == 20
+               for day in body["weather"]["days"])
+    assert all(requirement["weather_source"] == "user_provided" for requirement in body["daily_requirements"])
+    assert not any("forecast is unavailable" in error for error in body["errors"])
+
+    restored = client.get(f"/api/trips/{created['session_id']}", headers=headers).json()
+    assert restored["weather"]["source"] == "user_provided"
+    changed = client.patch(f"/api/trips/{created['session_id']}", headers=headers,
+                           json={"updates": {"destination": "Paris"}, "reoptimize": True}).json()
+    assert changed["status"] == "failed" and changed["weather"] is None
+
+
+def test_retry_live_weather_after_failure(setup, monkeypatch):
+    client, _ = setup
+    from packing_backend.trip_agent.weather import _synthetic_weather
+    def forecast(destination, start, end, allow_network):
+        return _synthetic_weather(destination, start, end, "Network error")
+    monkeypatch.setattr("packing_backend.trip_agent.tools.fetch_weather", forecast)
+    headers = {"Authorization": "Bearer alice"}
+    created = client.post("/api/trips", headers=headers, json={
+        "mode": "structured", "trip": {"destination": "Rome", "start_date": "2027-06-01",
+        "end_date": "2027-06-02", "activities": ["sightseeing"], "max_luggage_weight_kg": 8}}).json()
+    assert created["status"] == "failed"
+    monkeypatch.setattr("packing_backend.trip_agent.tools.fetch_weather",
+                        lambda destination, start, end, allow_network: WeatherData(
+                            destination=destination, source="open-meteo", days=[
+                                WeatherDay(date=start + timedelta(days=i), weather="cloudy", temperature_c=20)
+                                for i in range((end - start).days + 1)]))
+    retried = client.patch(f"/api/trips/{created['session_id']}", headers=headers,
+                           json={"updates": {}, "reoptimize": True}).json()
+    assert retried["status"] == "optimized", retried
+    assert retried["weather"]["source"] == "open-meteo"
+    assert not any("forecast is unavailable" in error for error in retried["errors"])
+
+
+def test_manual_rain_still_requires_rain_protection(setup, monkeypatch):
+    client, items = setup
+    from packing_backend.trip_agent.weather import _synthetic_weather
+    items[:] = [{"id": "top", "name": "Top", "category": "top"},
+                {"id": "pants", "name": "Trousers", "category": "pants"},
+                {"id": "shoes", "name": "Sneakers", "category": "shoe"}]
+    monkeypatch.setattr("packing_backend.trip_agent.tools.fetch_weather",
+                        lambda destination, start, end, allow_network:
+                        _synthetic_weather(destination, start, end, "unavailable"))
+    headers = {"Authorization": "Bearer alice"}
+    created = client.post("/api/trips", headers=headers, json={
+        "mode": "structured", "trip": {"destination": "Rome", "start_date": "2027-06-01",
+        "end_date": "2027-06-01", "activities": ["sightseeing"], "max_luggage_weight_kg": 8}}).json()
+    result = client.post(f"/api/trips/{created['session_id']}/weather/manual", headers=headers,
+                         json={"temperature_c": 15, "condition": "rainy"}).json()
+    assert result["status"] == "infeasible"
+    assert result["daily_requirements"][0]["needs_rain_protection"] is True
+    assert any(item["key"] == "rain" for item in result["missing_items"])
+
+
 def test_reoptimization_refreshes_changed_wardrobe(setup):
     client, items = setup
     headers = {"Authorization": "Bearer alice"}

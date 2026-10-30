@@ -20,13 +20,14 @@ import datetime as dt
 import os
 import uuid
 from html import escape
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 import bo1_api_adapter
+import outfit_engine
 import stylist_agent as sa
 import stylist_feedback
 
@@ -337,6 +338,14 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
 
 
+class OutfitScoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_ids: list[str] = Field(min_length=1, max_length=10)
+    occasion: Literal["casual", "university", "work", "evening"] = "casual"
+    season: Literal["spring", "summer", "autumn", "winter"] = "autumn"
+
+
 @app.post("/api/chat")
 def api_chat(body: ChatRequest, authorization: Optional[str] = Header(None)) -> dict:
     user_id, token = authenticate(authorization)
@@ -390,6 +399,49 @@ def api_wardrobe(authorization: Optional[str] = Header(None)) -> dict:
         raise HTTPException(503, str(exc)) from exc
     labels = sa.display_names(wardrobe)
     return {"report": report, "items": [_item_view(item, labels) for item in wardrobe]}
+
+
+@app.post("/api/stylist/outfit-score")
+def api_outfit_score(body: OutfitScoreRequest, authorization: Optional[str] = Header(None)) -> dict:
+    """Score a user's selected BO1 garments using the existing BO4 engine."""
+    _, token = authenticate(authorization)
+    if len(set(body.item_ids)) != len(body.item_ids):
+        raise HTTPException(422, "Each wardrobe item can be selected only once.")
+    try:
+        wardrobe, _ = _loader(token)
+    except bo1_api_adapter.BO1UnavailableError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    by_id = {str(item["id"]): item for item in wardrobe if item.get("id")}
+    if any(item_id not in by_id for item_id in body.item_ids):
+        raise HTTPException(404, "A selected garment was not found in your wardrobe.")
+    items = [by_id[item_id] for item_id in body.item_ids]
+    roles = [outfit_engine.garment_role(item) for item in items]
+    counts = {role: roles.count(role) for role in ("top", "bottom", "dress", "outerwear")}
+    complete = (counts["dress"] == 1 and counts["top"] == 0 and counts["bottom"] == 0) or (
+        counts["dress"] == 0 and counts["top"] == 1 and counts["bottom"] == 1
+    )
+    complete = complete and counts["outerwear"] <= 1
+    if not complete:
+        if any(counts[role] > 1 for role in counts):
+            message = "Choose only one top, bottom, dress and outer layer for BO4 scoring."
+        elif counts["dress"] and (counts["top"] or counts["bottom"]):
+            message = "Choose a dress or a top-and-bottom combination for BO4 scoring."
+        else:
+            message = "Add a top and a bottom, or a dress, to score this outfit."
+        needed = []
+        if not counts["dress"]:
+            if not counts["top"]:
+                needed.append("top")
+            if not counts["bottom"]:
+                needed.append("bottom")
+            if not counts["top"] and not counts["bottom"]:
+                needed.append("dress")
+        suggestions = [str(item["id"]) for item in wardrobe
+                       if str(item.get("id")) not in body.item_ids
+                       and outfit_engine.garment_role(item) in needed][:6]
+        return {"complete": False, "message": message, "score": None, "suggested_item_ids": suggestions}
+    result = outfit_engine.evaluate_outfit(items, body.occasion, body.season)
+    return {"complete": True, "message": "BO4 heuristic score", **result, "suggested_item_ids": []}
 
 
 @app.get("/api/graph")

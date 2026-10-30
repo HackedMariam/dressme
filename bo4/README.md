@@ -153,6 +153,15 @@ Depuis `bo4/backend` :
 .\.venv\Scripts\python.exe stylist_web.py --port 8060 --fallback tests\fixtures\bo1_items_sample.json
 ```
 
+Outfit Studio utilise aussi `POST /api/stylist/outfit-score` sur ce service.
+Il transmet les identifiants des vêtements BO1, l'occasion et la saison ; le
+Stylist vérifie l'identité et recharge la garde-robe avant d'appeler
+`outfit_engine.evaluate_outfit`. Les chaussures et accessoires restent visibles
+sur le canevas mais ne sont pas inclus dans le score BO4. En développement,
+Vite transfère `/api/stylist` vers le port 8061 ; en production, configurer le
+proxy correspondant, ou définir `VITE_STYLIST_API_URL` vers une passerelle
+qui autorise l'origine du frontend (CORS).
+
 | Option | Effet |
 |---|---|
 | `--port` | port de la page (8060 par défaut) |

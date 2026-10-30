@@ -75,3 +75,15 @@ export interface QuickDetection {
   box: number[]
   color_name?: string | null
 }
+
+export interface OutfitScore {
+  complete: boolean
+  message: string
+  score: number | null
+  color_score?: number
+  style_score?: number
+  occasion_score?: number
+  season_score?: number
+  explanations?: string[]
+  suggested_item_ids: string[]
+}
