@@ -307,3 +307,18 @@ def test_new_conversation_banner_is_removed_by_the_first_message(env):
     reopen = html[html.index("async function openThread(id)"):html.index("$(\"new-thread\")")]
     assert "newThreadNote = null;" in reopen and "note(" not in reopen.split("catch")[0]
     assert 'newThreadNote = note("Nouvelle conversation' in html
+
+
+def test_page_ignores_a_late_reopen_of_the_last_conversation(env):
+    """Course corrigée : la réouverture lente de la dernière conversation ne doit pas écraser une conversation que
+    l'utilisatrice vient de commencer (contrôle réel dans le navigateur : tests_e2e/run_browser.py, n11)."""
+    start, _, _ = env
+    html = start().get("/").text
+    reopen = html[html.index("async function openThread(id)"):html.index('$("new-thread")')]
+    assert "epoch = ++viewEpoch" in reopen and reopen.count("epoch !== viewEpoch") == 2
+    load = html[html.index("async function loadHistory(openLatest)"):html.index("async function openThread(id)")]
+    assert "epoch === viewEpoch" in load
+    new_thread = html[html.index('$("new-thread").addEventListener'):html.index('$("clear-history")')]
+    assert "viewEpoch++;" in new_thread
+    ask = html[html.index("async function ask(message)"):]
+    assert ask.splitlines()[1].strip().startswith("viewEpoch++;")

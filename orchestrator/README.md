@@ -129,6 +129,32 @@ Supabase avec la **clé anon et le jeton de l'utilisatrice** : la RLS limite cha
 | `GET /api/history/{thread_id}` | messages d'une conversation |
 | `DELETE /api/history` | efface toutes ses conversations |
 
+## Tests de bout en bout (compte de test)
+
+`tests_e2e/run_e2e.py` joue des scénarios contre le **vrai** orchestrateur, le vrai Stylist, le vrai BO1 (Supabase) et
+le vrai Purchase Redundancy, avec un compte de test dédié, puis la page dans un vrai navigateur (Playwright).
+
+```powershell
+.\start_all.ps1                                   # BO1 (8000) et Purchase (8040) doivent répondre
+python orchestrator	ests_e2eun_e2e.py --env-file .env      # --no-browser, --unseed, --skip-seed
+```
+
+- **Identifiants** : `orchestrator/.env.test` avec `TEST_EMAIL` et `TEST_PASSWORD` (ignoré par git, jamais affiché).
+  `SUPABASE_URL` et `SUPABASE_ANON_KEY` viennent de l'environnement, de `--env-file`, de `orchestrator/.env` ou du
+  `.env` de la racine. La connexion passe par l'API Auth de Supabase (clé anon) ; le jeton reste en mémoire.
+- **Garde-robe de test** (`wardrobe.py`) : BO1 ne crée un vêtement qu'à partir d'une photo détectée, le script écrit donc
+  15 pièces sans image dans la table `items` avec le jeton du compte de test (la règle RLS « own items » limite
+  l'écriture à ce compte ; aucune clé service_role). Chaque ligne porte le tag `e2e-test` ; `--unseed` les supprime.
+- **Piles isolées** : le script démarre ses propres Stylist et orchestrateur (ports 8161/8170, et 8162/8171 pour la pluie),
+  sans LLM pour des réponses reproductibles, avec leurs propres fichiers de goûts et de mémoire : vos services et vos
+  goûts ne sont pas touchés.
+- **Scénarios** : a entretien sans pièce interdite (O3, O4) ; b « j'aime pas » jusqu'à « plus aucune tenue » avec le
+  blazer ; c 👎 sur la tenue 2 seulement ; d tenue n° 5 inexistante ; e « top » après une clarification ; f achat puis
+  réaction courte ; g historique relu après une nouvelle connexion ; h pluie en météo hors ligne ; i réinitialisation des
+  goûts ; n1 à n11 la page (connexion, liste, bouton Effacer éloigné, confirmation cachée, déconnexion, reconnexion,
+  course de la réouverture lente). Captures dans `tests_e2e/screenshots/` (ignoré par git, adresse e-mail masquée).
+- **À la fin** : conversations et goûts du compte de test remis à zéro.
+
 ## Limites
 
 - **Routage par mots-clés** : une demande sans indice dépend de qwen2.5:3b ; une demande à plusieurs indices est

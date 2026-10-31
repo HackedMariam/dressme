@@ -164,3 +164,12 @@ def test_services_use_ipv4_loopback():
     services = load_services()
     assert services["bo1"].url == "http://127.0.0.1:8000" and services["ollama"].url == "http://127.0.0.1:11434"
     assert all("localhost" not in s.url for s in services.values())
+
+
+def test_like_after_a_clarification_at_the_start_of_a_thread_says_there_is_nothing_to_note(fake):
+    graph = make(fake)
+    first = turns(graph, "Que penses-tu de tout ça ?")
+    assert first["route"] == "clarify" and "Réponds par" in first["response"]
+    state = turns(graph, "top")
+    assert state["route"] == "clarify" and state["response"] == "Il n'y a rien à noter dans ma dernière réponse."
+    assert not fake.calls

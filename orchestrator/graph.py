@@ -257,9 +257,12 @@ def decide_route(message: str, state: dict, llm: Optional[LLM],
         return choices[int(choice.group(1)) - 1], "réponse à la question de clarification", []
     if kind := reaction_kind(message):
         # Réaction courte : elle porte sur la réponse précédente, quel que soit le mot employé.
-        if not state.get("last_route"):
-            return "clarify", "réaction sans réponse précédente", []
         last = state.get("last_turn") or {}
+        if not state.get("last_route"):
+            if kind in ("like", "dislike") and last.get("route") == "clarify" and not asks_for_more(message):
+                # début de fil : la seule réponse précédente est une clarification, il n'y a rien à noter
+                return "clarify", "réaction après une réponse sans résultat", []
+            return "clarify", "réaction sans réponse précédente", []
         if (kind in ("like", "dislike") and not asks_for_more(message) and last
                 and (last.get("route") == "clarify" or not last.get("ok", True))):
             # 👍 / 👎 sur une question ou une erreur : rien à noter (une demande de suite, elle, repart au module)

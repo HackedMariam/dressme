@@ -409,7 +409,7 @@ PAGE = r"""<!doctype html>
   .history .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .history h3 { margin:0; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
   #threads { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; }
-  .thread { border:1px solid var(--border); background:none; color:var(--ink); border-radius:999px; padding:4px 12px;
+  .thread { flex:0 0 auto; border:1px solid var(--border); background:none; color:var(--ink); border-radius:999px; padding:4px 12px;
             cursor:pointer; white-space:nowrap; max-width:260px; overflow:hidden; text-overflow:ellipsis; }
   .thread:hover { border-color:var(--olive); color:var(--olive); }
   .thread.active { background:var(--olive-muted); border-color:var(--olive); color:var(--olive); }
@@ -506,6 +506,10 @@ PAGE = r"""<!doctype html>
   let threadId = null;
   let currentUser = null;    // id Supabase de l'utilisatrice connectée
   let newThreadNote = null;  // bandeau « Nouvelle conversation… » : retiré dès le premier message
+  // Change dès que l'utilisatrice agit sur la conversation affichée (nouvelle conversation, envoi, clic sur un fil,
+  // changement de session, effacement) : une réouverture lente de la dernière conversation, arrivée trop tard, est
+  // alors ignorée au lieu d'écraser ce qu'elle vient de commencer.
+  let viewEpoch = 0;
   let client = null;
 
   // ---------------------------------------------------------------- connexion (supabase-js)
@@ -535,6 +539,7 @@ PAGE = r"""<!doctype html>
     if (changed) {
       // Changement d'utilisatrice ou déconnexion : la page se vide (rien n'est supprimé en base),
       // puis, si quelqu'un est connecté, sa dernière conversation est rechargée.
+      viewEpoch++;
       threadId = null;
       log.replaceChildren();
       $("threads").replaceChildren();
@@ -565,7 +570,7 @@ PAGE = r"""<!doctype html>
   $("logout").addEventListener("click", async () => {
     try { if (client) await client.auth.signOut(); } catch (err) { /* le jeton est effacé quand même */ }
     setSession(null);
-    note("Déconnecté : retour au mode démo.");
+    note(BOOT.require_auth ? "Déconnecté : connecte-toi pour continuer." : "Déconnecté : retour au mode démo.");
   });
 
   // ---------------------------------------------------------------- historique (Supabase, via l'orchestrateur)
@@ -588,22 +593,23 @@ PAGE = r"""<!doctype html>
     });
   }
   async function loadHistory(openLatest) {
-    const user = currentUser;
+    const user = currentUser, epoch = viewEpoch;
     try {
       const r = await fetch("/api/history", { headers: authHeaders() });
       if (user !== currentUser) return;          // déconnexion pendant la requête
       if (!r.ok) { $("threads").replaceChildren(); note("Historique indisponible pour l'instant."); return; }
       const data = await r.json();
       renderThreads(data.threads || []);
-      if (openLatest && data.threads && data.threads.length) await openThread(data.threads[0].id);
+      if (openLatest && epoch === viewEpoch && data.threads && data.threads.length) await openThread(data.threads[0].id);
     } catch (e) { if (user === currentUser) note("Historique indisponible : l'orchestrateur ne répond pas."); }
   }
   async function openThread(id) {
-    const user = currentUser;
+    const user = currentUser, epoch = ++viewEpoch;
     try {
       const r = await fetch("/api/history/" + encodeURIComponent(id), { headers: authHeaders() });
-      if (user !== currentUser || !r.ok) return;
+      if (user !== currentUser || epoch !== viewEpoch || !r.ok) return;
       const data = await r.json();
+      if (user !== currentUser || epoch !== viewEpoch) return;     // l'utilisatrice a agi pendant la lecture
       threadId = id;
       newThreadNote = null;      // rouvrir une conversation existante : pas de bandeau
       log.replaceChildren();
@@ -612,6 +618,7 @@ PAGE = r"""<!doctype html>
     } catch (e) { note("Impossible de rouvrir cette conversation."); }
   }
   $("new-thread").addEventListener("click", () => {
+    viewEpoch++;
     threadId = null; log.replaceChildren();
     document.querySelectorAll(".thread").forEach((b) => b.classList.remove("active"));
     newThreadNote = note("Nouvelle conversation : elle sera enregistrée dès ton premier message."); q.focus();
@@ -621,6 +628,7 @@ PAGE = r"""<!doctype html>
   $("cancel-clear").addEventListener("click", closeClearConfirm);
   $("do-clear").addEventListener("click", async () => {
     $("do-clear").disabled = true;
+    viewEpoch++;
     const resetProfile = $("reset-profile").checked;
     try {
       const r = await fetch("/api/history" + (resetProfile ? "?reset_profile=true" : ""),
@@ -721,6 +729,7 @@ PAGE = r"""<!doctype html>
     graph.replaceChildren(document.importNode(doc.documentElement, true));
   }
   async function ask(message) {
+    viewEpoch++;                // un envoi rend caduque toute réouverture encore en cours
     dropNewThreadNote();        // la conversation commence : le bandeau n'a plus de raison d'être
     addUser(message);
     send.disabled = true;
