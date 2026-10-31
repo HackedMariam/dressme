@@ -91,6 +91,8 @@ Python 3.11 (64 bits), depuis `bo4/backend` :
 
 ```powershell
 python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
+# ou, paquet par paquet (mêmes versions) :
 .\.venv\Scripts\python.exe -m pip install fastapi==0.143.0 "uvicorn[standard]==0.54.0" langgraph==1.2.16 `
     langgraph-checkpoint-sqlite==3.1.3 pydantic==2.14.0 requests==2.34.2 httpx==0.28.1 pillow==12.3.0 psutil==7.2.2 numpy==2.4.6 `
     "psycopg[binary]==3.3.6" pytest==8.4.2 websockets==16.1.1
