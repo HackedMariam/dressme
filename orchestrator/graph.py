@@ -890,6 +890,20 @@ def build_graph(gateway: Optional[Gateway] = None, llm: Any = "ollama", checkpoi
     return builder.compile(checkpointer=checkpointer or InMemorySaver())
 
 
+def sqlite_checkpointer(path: Any):
+    """Mémoire persistante du graphe (fils « <user_id>:<thread_id> ») dans un fichier SQLite local : le contexte
+    survit au redémarrage du serveur. Le jeton n'y est jamais écrit : il voyage dans la configuration du tour
+    (clé __bo1_token, objet RequestToken), pas dans l'état."""
+    import sqlite3
+    from pathlib import Path
+
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    # check_same_thread=False : FastAPI sert les requêtes depuis plusieurs fils ; SqliteSaver verrouille ses accès.
+    return SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
+
+
 def visited_nodes(trace: list[str]) -> list[str]:
     names = [line.split(" -> ", 1)[0].strip() for line in trace]
     return list(dict.fromkeys(n for n in names if n in NODE_ORDER))

@@ -106,6 +106,29 @@ cd orchestrator
 .\.venv\Scripts\python.exe -m pytest tests -q        # 101 tests (Node.js requis pour 8 d'entre eux)
 ```
 
+## Historique des conversations
+
+En mode connecté, chaque tour (question et réponse) est enregistré dans Supabase, tables `chat_threads` et
+`chat_messages` (script `docs/chat_history.sql`, à exécuter une fois dans le SQL Editor). L'orchestrateur appelle
+Supabase avec la **clé anon et le jeton de l'utilisatrice** : la RLS limite chacune à ses propres lignes ; la clé
+`service_role` n'est jamais utilisée. Un échec d'enregistrement ne bloque jamais la réponse (la carte l'indique).
+
+- À la connexion, la page recharge la dernière conversation et liste les conversations passées ; « Nouvelle
+  conversation » et « Effacer mon historique » (confirmation dans la page) sont au-dessus du fil.
+- À la déconnexion, la page se vide ; rien n'est supprimé en base.
+- Le `thread_id` est celui du fil enregistré : il est transmis au Stylist, dont le contexte suit la conversation.
+- Mémoire des graphes : `SqliteSaver` dans `orchestrator/data/checkpoints.sqlite` et
+  `bo4/data/stylist_checkpoints.sqlite` (ignorés par git ; autres chemins : `ORCHESTRATOR_CHECKPOINT_DB`,
+  `STYLIST_CHECKPOINT_DB`), clé `<user_id>:<thread_id>`. Le contexte survit au redémarrage ; le jeton n'y est
+  jamais écrit (il passe par la configuration du tour). « Effacer mon historique » efface aussi la mémoire de
+  l'orchestrateur pour ces fils.
+
+| Route | Rôle |
+|---|---|
+| `GET /api/history` | conversations de l'utilisatrice (plus récente d'abord) |
+| `GET /api/history/{thread_id}` | messages d'une conversation |
+| `DELETE /api/history` | efface toutes ses conversations |
+
 ## Limites
 
 - **Routage par mots-clés** : une demande sans indice dépend de qwen2.5:3b ; une demande à plusieurs indices est

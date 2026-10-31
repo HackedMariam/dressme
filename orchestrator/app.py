@@ -5,9 +5,12 @@
 - GET  /api/graph : SVG du graphe (nodes visités en olive, paramètre ?visited=route_intent,stylist,respond).
 - GET  /api/config: configuration publique de la connexion (URL Supabase et clé anon, publiques par nature).
 - GET  /          : page de chat au style DressMe : connexion Supabase (supabase-js), panneau « coulisses ».
+- GET  /api/history, GET /api/history/{thread_id}, DELETE /api/history : conversations enregistrées (connecté).
 
 Connexion : SUPABASE_URL et SUPABASE_ANON_KEY lus dans orchestrator/.env (ignoré par git, voir .env.example).
-Sans ce fichier, ou sans connexion, la page reste en mode démo (pas de jeton).
+Sans ce fichier, ou sans connexion, la page reste en mode démo (pas de jeton, pas d'historique).
+Historique : tables chat_threads / chat_messages (docs/chat_history.sql), avec le jeton de l'utilisatrice et la clé
+anon ; mémoire du graphe : SqliteSaver dans orchestrator/data/checkpoints.sqlite (ignoré par git).
 
 Lancement : python app.py [--port 8070] [--require-auth] [--no-llm] [--services services.yaml]
 """
@@ -15,7 +18,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
+import re
 import uuid
 from html import escape
 from pathlib import Path
@@ -26,7 +31,13 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 import graph as og
+from history import ChatHistory, HistoryError
 from services import Gateway, load_modules, load_services
+
+logger = logging.getLogger("dressme.orchestrator")
+THREAD_ID = re.compile(r"[A-Za-z0-9-]{1,100}")
+CHECKPOINT_DB = Path(os.environ.get("ORCHESTRATOR_CHECKPOINT_DB") or Path(__file__).resolve().parent / "data"
+                     / "checkpoints.sqlite")
 
 app = FastAPI(title="DressMe Orchestrator")
 _settings: dict[str, Any] = {}
@@ -59,11 +70,17 @@ def public_auth_config(env: dict[str, str]) -> dict:
 
 
 def configure(*, gateway: Optional[Gateway] = None, llm: Any = "ollama", require_auth: bool = False,
-              env: Optional[dict[str, str]] = None, modules: Optional[dict] = None) -> None:
+              env: Optional[dict[str, str]] = None, modules: Optional[dict] = None,
+              history: Any = "auto", checkpointer: Any = None) -> None:
+    """history : « auto » = Supabase si SUPABASE_URL et SUPABASE_ANON_KEY sont configurés ; None = désactivé.
+    checkpointer : None = mémoire (tests) ; main() passe un SqliteSaver persistant."""
     gateway = gateway or Gateway(load_services())
+    auth = public_auth_config(env or {})
+    if isinstance(history, str) and history == "auto":
+        history = ChatHistory(auth["supabase_url"], auth["supabase_anon_key"]) if auth["auth_available"] else None
     _settings.clear()
-    _settings.update(gateway=gateway, require_auth=require_auth, auth=public_auth_config(env or {}),
-                     graph=og.build_graph(gateway=gateway, llm=llm, modules=modules))
+    _settings.update(gateway=gateway, require_auth=require_auth, auth=auth, history=history,
+                     graph=og.build_graph(gateway=gateway, llm=llm, modules=modules, checkpointer=checkpointer))
 
 
 def settings() -> dict:
@@ -169,19 +186,85 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 def api_chat(body: ChatRequest, authorization: Optional[str] = Header(None)) -> dict:
     user_id, token = authenticate(authorization)
-    thread_id = body.thread_id or uuid.uuid4().hex[:12]
-    if ":" in thread_id:
+    if body.thread_id and ":" in body.thread_id:
         raise HTTPException(422, "thread_id ne doit pas contenir « : ».")
+    history = settings()["history"] if token else None
+    thread_id, saved, history_error = body.thread_id, False, None
+    if history is not None and not thread_id:
+        # Nouvelle conversation : le fil Supabase donne le thread_id, transmis tel quel au Stylist.
+        try:
+            thread_id = history.create_thread(token, body.message)
+        except Exception as exc:  # l'historique ne bloque jamais la réponse
+            history_error = str(exc) if isinstance(exc, HistoryError) else f"erreur inattendue : {type(exc).__name__}"
+    thread_id = thread_id or uuid.uuid4().hex[:12]
     config = og.turn_config(thread_id, user_id, token)
     graph = settings()["graph"]
     graph.invoke(og.new_turn(body.message), config)
     state = graph.get_state(config).values
+    if history is not None and history_error is None:
+        try:
+            history.append_turn(token, thread_id, body.message, state.get("response", ""), state.get("route"))
+            saved = True
+        except Exception as exc:  # Supabase en panne, table absente, fil d'une autre session...
+            history_error = str(exc) if isinstance(exc, HistoryError) else f"erreur inattendue : {type(exc).__name__}"
+    if history_error:
+        logger.warning("historique non enregistré : %s", history_error)
     visited = og.visited_nodes(state.get("trace") or [])
     return {"thread_id": thread_id, "mode": "connecté" if token else "démo",
             "response": state.get("response", ""), "route": state.get("route"),
             "route_source": state.get("route_source"), "candidates": state.get("candidates") or [],
             "result": state.get("result") or {}, "trace": state.get("trace") or [], "visited": visited,
-            "svg": graph_svg(visited)}
+            "svg": graph_svg(visited),
+            "history": {"enabled": history is not None, "saved": saved, "error": history_error}}
+
+
+def _history_for(authorization: Optional[str]) -> tuple[str, str, ChatHistory]:
+    """Historique de l'utilisatrice connectée : 401 sans jeton, 503 si Supabase n'est pas configuré."""
+    user_id, token = authenticate(authorization)
+    if not token:
+        raise HTTPException(401, "Connexion requise pour l'historique.")
+    history = settings()["history"]
+    if history is None:
+        raise HTTPException(503, "Historique indisponible : orchestrator/.env sans Supabase.")
+    return user_id, token, history
+
+
+@app.get("/api/history")
+def api_history(authorization: Optional[str] = Header(None)) -> dict:
+    _, token, history = _history_for(authorization)
+    try:
+        return {"threads": history.list_threads(token)}
+    except HistoryError as exc:
+        raise HTTPException(502, f"Historique illisible : {exc}") from exc
+
+
+@app.get("/api/history/{thread_id}")
+def api_history_thread(thread_id: str, authorization: Optional[str] = Header(None)) -> dict:
+    _, token, history = _history_for(authorization)
+    if not THREAD_ID.fullmatch(thread_id):
+        raise HTTPException(422, "thread_id invalide.")
+    try:
+        return {"thread_id": thread_id, "messages": history.messages(token, thread_id)}
+    except HistoryError as exc:
+        raise HTTPException(502, f"Historique illisible : {exc}") from exc
+
+
+@app.delete("/api/history")
+def api_history_clear(authorization: Optional[str] = Header(None)) -> dict:
+    """Efface les conversations de l'utilisatrice dans Supabase et la mémoire correspondante de l'orchestrateur."""
+    user_id, token, history = _history_for(authorization)
+    try:
+        threads = history.list_threads(token, limit=1000)
+        history.delete_all(token)
+    except HistoryError as exc:
+        raise HTTPException(502, f"Effacement impossible : {exc}") from exc
+    checkpointer = getattr(settings()["graph"], "checkpointer", None)
+    for thread in threads:
+        try:
+            checkpointer.delete_thread(f"{user_id}:{thread['id']}")
+        except Exception:  # mémoire déjà absente : rien à faire
+            pass
+    return {"deleted": len(threads)}
 
 
 @app.get("/api/graph")
@@ -282,6 +365,22 @@ PAGE = r"""<!doctype html>
   .login input { width:100%; }
   .login .row { display:flex; gap:8px; justify-content:flex-end; margin-top:18px; }
   .login .error { color:var(--danger); font-size:13px; min-height:18px; margin-top:10px; }
+  /* Historique (connecté) : conversations passées, nouvelle conversation, effacement confirmé dans la page */
+  .history { border-bottom:1px solid var(--border); padding:10px 28px; display:flex; flex-direction:column; gap:8px; }
+  .history .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .history h3 { margin:0; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  #threads { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; }
+  .thread { border:1px solid var(--border); background:none; color:var(--ink); border-radius:999px; padding:4px 12px;
+            cursor:pointer; white-space:nowrap; max-width:260px; overflow:hidden; text-overflow:ellipsis; }
+  .thread:hover { border-color:var(--olive); color:var(--olive); }
+  .thread.active { background:var(--olive-muted); border-color:var(--olive); color:var(--olive); }
+  .history .muted { color:var(--muted); font-size:13px; }
+  .confirm { border:1px solid var(--danger); border-radius:10px; padding:10px 12px; display:flex; gap:10px;
+             align-items:center; flex-wrap:wrap; }
+  .confirm p { margin:0; flex:1; min-width:200px; }
+  .btn.danger { border-color:var(--danger); color:var(--danger); }
+  .btn.danger.solid { background:var(--danger); color:#fff; }
+  .saved-note { font-size:12px; color:var(--amber); }
   @media (max-width: 860px) { .app { grid-template-columns:1fr; height:auto; } aside { border-left:0; border-top:1px solid var(--border); }
     #log { min-height:50vh; } header, #log, form#f { padding-left:16px; padding-right:16px; } }
 </style>
@@ -305,6 +404,19 @@ PAGE = r"""<!doctype html>
         <button class="chip" type="button">Comment porter un col roulé noir avec un pantalon large ?</button>
       </div>
     </header>
+    <div class="history" id="history" hidden>
+      <div class="row">
+        <h3>Mes conversations</h3>
+        <button class="btn" id="new-thread" type="button">Nouvelle conversation</button>
+        <button class="btn danger" id="clear-history" type="button">Effacer mon historique</button>
+      </div>
+      <div id="threads" role="list" aria-label="Conversations passées"></div>
+      <div class="confirm" id="confirm-clear" role="alertdialog" aria-labelledby="confirm-text" hidden>
+        <p id="confirm-text">Effacer toutes tes conversations enregistrées ? Cette action est définitive.</p>
+        <button class="btn" id="cancel-clear" type="button">Annuler</button>
+        <button class="btn danger solid" id="do-clear" type="button">Oui, tout effacer</button>
+      </div>
+    </div>
     <div id="log" aria-live="polite"></div>
     <form id="f">
       <input id="q" autocomplete="off" placeholder="Écris ta demande…" aria-label="Message">
@@ -347,6 +459,7 @@ PAGE = r"""<!doctype html>
                    clarify: "Clarification" };
   let accessToken = null;    // jeton de session : en mémoire seulement, jamais dans le stockage du navigateur
   let threadId = null;
+  let currentUser = null;    // id Supabase de l'utilisatrice connectée
   let client = null;
 
   // ---------------------------------------------------------------- connexion (supabase-js)
@@ -362,7 +475,9 @@ PAGE = r"""<!doctype html>
   }
 
   function setSession(session) {
-    const changed = (session ? session.access_token : null) !== accessToken;
+    const user = session && session.user ? session.user.id : null;
+    const changed = user !== currentUser;   // le rafraîchissement du jeton ne change pas de conversation
+    currentUser = user;
     accessToken = session ? session.access_token : null;
     const email = session && session.user ? session.user.email || "" : "";
     $("demo").hidden = Boolean(accessToken);
@@ -370,7 +485,16 @@ PAGE = r"""<!doctype html>
     $("email").textContent = email;
     $("open-login").hidden = Boolean(accessToken);
     $("logout").hidden = !accessToken;
-    if (changed) threadId = null;   // un nouvel utilisateur commence un nouveau fil
+    $("history").hidden = !accessToken;
+    if (changed) {
+      // Changement d'utilisatrice ou déconnexion : la page se vide (rien n'est supprimé en base),
+      // puis, si quelqu'un est connecté, sa dernière conversation est rechargée.
+      threadId = null;
+      log.replaceChildren();
+      $("threads").replaceChildren();
+      $("confirm-clear").hidden = true;
+      if (accessToken) loadHistory(true);
+    }
   }
   function openLogin() { $("login-error").textContent = ""; $("overlay").classList.add("open"); $("login-email").focus(); }
   function closeLogin() { $("overlay").classList.remove("open"); $("login-password").value = ""; }
@@ -398,7 +522,79 @@ PAGE = r"""<!doctype html>
     note("Déconnecté : retour au mode démo.");
   });
 
+  // ---------------------------------------------------------------- historique (Supabase, via l'orchestrateur)
+  function authHeaders() { return accessToken ? { Authorization: "Bearer " + accessToken } : {}; }
+  function renderThreads(threads) {
+    const box = $("threads");
+    box.replaceChildren();
+    if (!threads.length) {
+      const empty = document.createElement("span"); empty.className = "muted";
+      empty.textContent = "Aucune conversation enregistrée pour l'instant.";
+      box.appendChild(empty); return;
+    }
+    threads.forEach((t) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "thread" + (t.id === threadId ? " active" : "");
+      b.setAttribute("role", "listitem"); b.dataset.id = t.id;
+      b.textContent = t.title || "Conversation"; b.title = (t.title || "") + " · " + new Date(t.updated_at).toLocaleString("fr-FR");
+      b.addEventListener("click", () => openThread(t.id));
+      box.appendChild(b);
+    });
+  }
+  async function loadHistory(openLatest) {
+    const user = currentUser;
+    try {
+      const r = await fetch("/api/history", { headers: authHeaders() });
+      if (user !== currentUser) return;          // déconnexion pendant la requête
+      if (!r.ok) { $("threads").replaceChildren(); note("Historique indisponible pour l'instant."); return; }
+      const data = await r.json();
+      renderThreads(data.threads || []);
+      if (openLatest && data.threads && data.threads.length) await openThread(data.threads[0].id);
+    } catch (e) { if (user === currentUser) note("Historique indisponible : l'orchestrateur ne répond pas."); }
+  }
+  async function openThread(id) {
+    const user = currentUser;
+    try {
+      const r = await fetch("/api/history/" + encodeURIComponent(id), { headers: authHeaders() });
+      if (user !== currentUser || !r.ok) return;
+      const data = await r.json();
+      threadId = id;
+      log.replaceChildren();
+      (data.messages || []).forEach((m) => { if (m.role === "user") addUser(m.content); else addStored(m.content, m.route); });
+      document.querySelectorAll(".thread").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
+    } catch (e) { note("Impossible de rouvrir cette conversation."); }
+  }
+  $("new-thread").addEventListener("click", () => {
+    threadId = null; log.replaceChildren();
+    document.querySelectorAll(".thread").forEach((b) => b.classList.remove("active"));
+    note("Nouvelle conversation : elle sera enregistrée dès ton premier message."); q.focus();
+  });
+  $("clear-history").addEventListener("click", () => { $("confirm-clear").hidden = false; $("cancel-clear").focus(); });
+  $("cancel-clear").addEventListener("click", () => { $("confirm-clear").hidden = true; });
+  $("do-clear").addEventListener("click", async () => {
+    $("do-clear").disabled = true;
+    try {
+      const r = await fetch("/api/history", { method: "DELETE", headers: authHeaders() });
+      if (!r.ok) { note("L'historique n'a pas pu être effacé."); return; }
+      threadId = null; log.replaceChildren(); renderThreads([]);
+      note("Ton historique a été effacé.");
+    } catch (e) { note("L'historique n'a pas pu être effacé : l'orchestrateur ne répond pas."); }
+    finally { $("do-clear").disabled = false; $("confirm-clear").hidden = true; }
+  });
+
   // ---------------------------------------------------------------- conversation
+  function addStored(content, route) {
+    // Réponse relue depuis l'historique : texte enregistré, sans les détails du tour (sources, trace).
+    const card = document.createElement("div"); card.className = "msg card";
+    const head = document.createElement("div"); head.className = "head";
+    const tag = document.createElement("span"); tag.className = "tag";
+    tag.textContent = LABELS[route] || route || "Réponse";
+    head.appendChild(tag); card.appendChild(head);
+    const body = document.createElement("div"); body.className = "body";
+    body.appendChild(window.DressMeMarkdown.render(content, document));
+    card.appendChild(body);
+    log.appendChild(card); log.scrollTop = log.scrollHeight;
+  }
   function note(text) {
     const div = document.createElement("div");
     div.className = "msg card";
@@ -484,8 +680,15 @@ PAGE = r"""<!doctype html>
         if (r.status === 401 && client) openLogin();
         return;
       }
+      const created = !threadId && data.history && data.history.saved;
       threadId = data.thread_id;
       addCard(data);
+      if (data.history && data.history.enabled && !data.history.saved) {
+        const warn = document.createElement("div"); warn.className = "saved-note";
+        warn.textContent = "Réponse non enregistrée dans ton historique (Supabase indisponible).";
+        log.lastChild.appendChild(warn);
+      }
+      if (created) loadHistory(false);
       showGraph(data.svg);
       $("trace").textContent = data.trace.join("\n");
     } catch (e) {
@@ -513,7 +716,7 @@ def main() -> None:
     services = load_services(args.services) if args.services else load_services()
     modules = load_modules(args.services) if args.services else load_modules()
     configure(gateway=Gateway(services), llm=None if args.no_llm else "ollama", require_auth=args.require_auth,
-              env=read_env(), modules=modules)
+              env=read_env(), modules=modules, checkpointer=og.sqlite_checkpointer(CHECKPOINT_DB))
     import uvicorn
     uvicorn.run(app, host=args.host, port=args.port)
 

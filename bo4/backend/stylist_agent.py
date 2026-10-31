@@ -1038,6 +1038,19 @@ def build_graph(llm: Optional[Callable[[str], Any]] = ollama_extract,
     return builder.compile(checkpointer=checkpointer or InMemorySaver())
 
 
+def sqlite_checkpointer(path: Any):
+    """Mémoire persistante des conversations (fils « <user_id>:<thread_id> ») dans un fichier SQLite local :
+    occasion, contraintes et tenues déjà montrées survivent au redémarrage. Le jeton n'y est jamais écrit : il
+    voyage dans la configuration du tour (clé __bo1_token, objet RequestToken), pas dans l'état."""
+    import sqlite3
+
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    # check_same_thread=False : FastAPI sert les requêtes depuis plusieurs fils ; SqliteSaver verrouille ses accès.
+    return SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
+
+
 def bo5_advice(base_url: Optional[str]) -> Optional[Callable[[str], dict]]:
     """Fonction de conseil branchée sur BO5, ou None (node désactivé) sans URL."""
     if not base_url:

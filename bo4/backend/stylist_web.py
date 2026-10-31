@@ -20,6 +20,7 @@ import datetime as dt
 import os
 import uuid
 from html import escape
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, Header, HTTPException
@@ -45,8 +46,12 @@ _settings: dict[str, Any] = {
     "advice": None,  # BO5 (RAG) désactivé par défaut : activé par --bo5-url
     "require_auth": False,  # --require-auth : jeton Supabase obligatoire (mode production)
     "identity": None,       # fonction jeton -> user_id ; par défaut GET /api/me de BO1
+    "checkpointer": None,   # None = mémoire (tests) ; main() : SqliteSaver persistant (CHECKPOINT_DB)
 }
 _graph = None
+# Mémoire des conversations (fils « <user_id>:<thread_id> ») : bo4/data/ est ignoré par git.
+CHECKPOINT_DB = Path(os.environ.get("STYLIST_CHECKPOINT_DB")
+                     or Path(__file__).resolve().parent.parent / "data" / "stylist_checkpoints.sqlite")
 
 
 def configure(*, bo1_url: Optional[str] = None, fallback: Optional[str] = None,
@@ -55,7 +60,7 @@ def configure(*, bo1_url: Optional[str] = None, fallback: Optional[str] = None,
               weather: Optional[Callable] = sa.open_meteo_forecast, city: str = sa.DEFAULT_CITY,
               feedback: Optional[stylist_feedback.FeedbackStore] = None,
               advice: Optional[Callable[[str], dict]] = None, require_auth: bool = False,
-              identity: Optional[Callable[[str], str]] = None) -> None:
+              identity: Optional[Callable[[str], str]] = None, checkpointer: Any = None) -> None:
     """(Re)configure l'agent : utilisé par main() et par les tests."""
     global _graph
     if require_auth and fallback:
@@ -63,7 +68,7 @@ def configure(*, bo1_url: Optional[str] = None, fallback: Optional[str] = None,
         raise ValueError("--require-auth est incompatible avec --fallback")
     _settings.update(bo1_url=bo1_url, fallback=fallback, llm=llm, loader=loader, today=today,
                      weather=weather, city=city, feedback=feedback or stylist_feedback.FeedbackStore(),
-                     advice=advice, require_auth=require_auth, identity=identity)
+                     advice=advice, require_auth=require_auth, identity=identity, checkpointer=checkpointer)
     _graph = None
 
 
@@ -125,7 +130,8 @@ def get_graph():
     if _graph is None:
         _graph = sa.build_graph(llm=_settings["llm"], wardrobe_loader=_loader, today=_settings["today"],
                                 weather=_settings["weather"], default_city=_settings["city"],
-                                feedback_store=_settings["feedback"], advice=_settings["advice"])
+                                feedback_store=_settings["feedback"], advice=_settings["advice"],
+                                checkpointer=_settings["checkpointer"])
     return _graph
 
 
@@ -1065,7 +1071,8 @@ def main() -> None:
     configure(bo1_url=args.bo1_url, fallback=args.fallback, llm=None if args.no_llm else sa.ollama_extract,
               weather=None if args.no_weather else sa.open_meteo_forecast, city=args.city,
               feedback=stylist_feedback.FeedbackStore(args.feedback_file),
-              advice=sa.bo5_advice(args.bo5_url), require_auth=args.require_auth)
+              advice=sa.bo5_advice(args.bo5_url), require_auth=args.require_auth,
+              checkpointer=sa.sqlite_checkpointer(CHECKPOINT_DB))
 
     import uvicorn
     print(f"Stylist web : http://127.0.0.1:{args.port}")
