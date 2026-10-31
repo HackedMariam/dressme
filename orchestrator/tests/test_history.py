@@ -296,3 +296,14 @@ def test_page_explains_each_failure_kind(env):
     for text in ("droits refusés par Supabase", "table d'historique introuvable", "réseau : Supabase injoignable",
                  "certificat TLS refusé"):
         assert text in html
+
+
+def test_new_conversation_banner_is_removed_by_the_first_message(env):
+    """Le bandeau « Nouvelle conversation… » disparaît au premier message et n'apparaît pas en rouvrant un fil."""
+    start, _, _ = env
+    html = start().get("/").text
+    ask = html[html.index("async function ask(message)"):]
+    assert ask.index("dropNewThreadNote();") < ask.index("addUser(message);")
+    reopen = html[html.index("async function openThread(id)"):html.index("$(\"new-thread\")")]
+    assert "newThreadNote = null;" in reopen and "note(" not in reopen.split("catch")[0]
+    assert 'newThreadNote = note("Nouvelle conversation' in html

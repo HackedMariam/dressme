@@ -468,6 +468,7 @@ PAGE = r"""<!doctype html>
   let accessToken = null;    // jeton de session : en mémoire seulement, jamais dans le stockage du navigateur
   let threadId = null;
   let currentUser = null;    // id Supabase de l'utilisatrice connectée
+  let newThreadNote = null;  // bandeau « Nouvelle conversation… » : retiré dès le premier message
   let client = null;
 
   // ---------------------------------------------------------------- connexion (supabase-js)
@@ -567,6 +568,7 @@ PAGE = r"""<!doctype html>
       if (user !== currentUser || !r.ok) return;
       const data = await r.json();
       threadId = id;
+      newThreadNote = null;      // rouvrir une conversation existante : pas de bandeau
       log.replaceChildren();
       (data.messages || []).forEach((m) => { if (m.role === "user") addUser(m.content); else addStored(m.content, m.route); });
       document.querySelectorAll(".thread").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
@@ -575,7 +577,7 @@ PAGE = r"""<!doctype html>
   $("new-thread").addEventListener("click", () => {
     threadId = null; log.replaceChildren();
     document.querySelectorAll(".thread").forEach((b) => b.classList.remove("active"));
-    note("Nouvelle conversation : elle sera enregistrée dès ton premier message."); q.focus();
+    newThreadNote = note("Nouvelle conversation : elle sera enregistrée dès ton premier message."); q.focus();
   });
   $("clear-history").addEventListener("click", () => { $("confirm-clear").hidden = false; $("cancel-clear").focus(); });
   $("cancel-clear").addEventListener("click", () => { $("confirm-clear").hidden = true; });
@@ -608,7 +610,9 @@ PAGE = r"""<!doctype html>
     div.className = "msg card";
     div.textContent = text;
     log.appendChild(div); log.scrollTop = log.scrollHeight;
+    return div;
   }
+  function dropNewThreadNote() { if (newThreadNote) { newThreadNote.remove(); newThreadNote = null; } }
   function addUser(text) {
     const div = document.createElement("div");
     div.className = "msg user"; div.textContent = text;
@@ -674,6 +678,7 @@ PAGE = r"""<!doctype html>
     graph.replaceChildren(document.importNode(doc.documentElement, true));
   }
   async function ask(message) {
+    dropNewThreadNote();        // la conversation commence : le bandeau n'a plus de raison d'être
     addUser(message);
     send.disabled = true;
     const headers = { "Content-Type": "application/json" };
