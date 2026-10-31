@@ -331,7 +331,7 @@ def test_interview_never_proposes_a_mini_skirt(make_graph, wardrobe_by_id):
         return wardrobe, report
     mini_id = next(i["id"] for i in with_mini()[0] if i["name"] == "Plaid Mini Skirt")
     state = run(make_graph(loader=with_mini), "J'ai un entretien demain")
-    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert state["outfits"] and not state["outfit_fallback"]
     assert all(mini_id not in sa._outfit_ids(o) for o in state["outfits"])
     weekend = run(make_graph(loader=with_mini), "Une tenue décontractée pour le week-end", thread="t2")
     assert weekend["request"]["dress_code"] == "casual"
@@ -368,7 +368,7 @@ def _without_blazer():
 
 def test_interview_requires_the_blazer_when_owned(make_graph, wardrobe_by_id):
     state = run(make_graph(), "J'ai un entretien demain")
-    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert state["outfits"] and not state["outfit_fallback"]
     for items in outfit_items(state, wardrobe_by_id):
         assert any(item["name"] == "Navy Blazer" for item in items)
     assert NO_JACKET_MESSAGE not in state["response"]
@@ -428,7 +428,7 @@ def _with_off_shoulder():
 
 def test_interview_no_longer_proposes_the_off_shoulder_sweater(make_graph):
     state = run(make_graph(loader=_with_off_shoulder), "J'ai un entretien demain")
-    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert state["outfits"] and not state["outfit_fallback"]
     assert all("off-shoulder" not in sa._outfit_ids(o) for o in state["outfits"])
     assert state["casual_tops_excluded"] == [f"{OFF_SHOULDER} (épaules dénudées)"]
     assert f"Écarté pour ce dress code : {OFF_SHOULDER} (épaules dénudées)." in state["response"]
@@ -463,7 +463,7 @@ def test_ollama_keeps_the_model_loaded(monkeypatch):
 
 def test_interview_without_structured_jacket_explains_it(make_graph):
     state = run(make_graph(loader=_without_blazer), "J'ai un entretien demain")
-    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert state["outfits"] and not state["outfit_fallback"]
     assert state["no_structured_jacket"] and NO_JACKET_MESSAGE in state["response"]
 
 
@@ -475,7 +475,7 @@ def test_no_jacket_message_only_for_business_or_formal(make_graph, message):
 
 def test_without_jacket_constraint_disables_the_requirement(make_graph, wardrobe_by_id):
     state = run(make_graph(), "J'ai un entretien demain, sans veste")
-    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert state["outfits"] and not state["outfit_fallback"]
     for items in outfit_items(state, wardrobe_by_id):
         assert all(item["category"] not in {"blazer", "jacket"} for item in items)
     assert NO_JACKET_MESSAGE not in state["response"]
@@ -489,7 +489,7 @@ def _formality_ok(items, min_mean, min_item):
 def test_interview_applies_business_dress_code(make_graph, wardrobe_by_id):
     state = run(make_graph(), "J'ai un entretien demain")
     assert state["request"]["dress_code"] == "business"
-    assert state["outfits"] and not state["dress_code_relaxed"]
+    assert state["outfits"] and not state["outfit_fallback"]
     for items in outfit_items(state, wardrobe_by_id):
         assert _formality_ok(items, 3.0, 2)
     assert "Dress code : business" in state["response"]
@@ -510,15 +510,17 @@ def test_dress_code_is_kept_then_reset_with_new_occasion(make_graph):
     assert state["request"]["dress_code_source"] == "par défaut pour l'occasion"
 
 
-def test_impossible_dress_code_shows_closest_outfits(make_graph):
+def test_impossible_dress_code_proposes_nothing_and_suggests_a_piece(make_graph):
+    """Les règles de dress code sont absolues : jamais de repli « les plus proches » (ancien comportement)."""
     def casual_only():
         wardrobe, report = fixture_loader()
         keep = {"White Tee", "Blue Jeans", "Black Puffer"}
         return [item for item in wardrobe if item["name"] in keep], report
     state = run(make_graph(loader=casual_only), "Une tenue pour un mariage")
     assert state["request"]["dress_code"] == "formal"
-    assert state["outfits"] and state["dress_code_relaxed"]
-    assert "plus proches" in state["response"]
+    assert not state["outfits"] and state["outfit_fallback"] == "none_conform"
+    assert "Aucune tenue de ta garde-robe ne convient à ce dress code" in state["response"]
+    assert "Pièce à ajouter : un blazer" in state["response"] and "plus proches" not in state["response"]
 
 
 # ===================================================================== Météo (I71)
@@ -642,7 +644,7 @@ def test_rain_warning(make_graph):
     ("J'adore la tenue 1 !", {"verdict": "like", "rank": 1}),
     ("je n'aime pas la 3", {"verdict": "dislike", "rank": 3}),
     ("j'aime pas la tenue 1", {"verdict": "dislike", "rank": 1}),
-    ("Je n'aime pas, une autre ?", None),
+    ("Je n'aime pas, une autre ?", {"verdict": "dislike", "rank": None}),   # réaction + suite : 👎 sans numéro
     ("Une tenue pour le 2 novembre", None),
 ])
 def test_extract_feedback(message, expected):
@@ -677,7 +679,7 @@ def test_liked_outfit_gets_a_bonus_next_time(make_graph):
     # Les pièces aimées remontent : au moins une tenue proposée les contient et reçoit un bonus.
     boosted = [o for o in again["outfits"] if o["personal_bonus"] > 0]
     assert boosted and all(liked & set(sa._outfit_ids(o)) for o in boosted)
-    assert "bonus perso" in again["response"]
+    assert "selon tes goûts)" in again["response"]          # score final affiché : « 89,8/100 (96,3 + … ) »
 
 
 def test_dislike_records_regenerates_and_never_shows_again(make_graph):

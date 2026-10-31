@@ -1,0 +1,9 @@
+# Mémoire locale du graphe (SqliteSaver) : conversations des utilisatrices, jamais commitée
+data/
+
+# Identifiants du compte de test des scénarios de bout en bout (jamais commités)
+.env.test
+
+# Captures des tests de bout en bout (page de test), jamais commitées
+tests_e2e/screenshots/
+tests_e2e/__pycache__/

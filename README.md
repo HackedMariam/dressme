@@ -212,7 +212,7 @@ Tout DressMe en local, depuis la racine du dépôt (Windows PowerShell) :
 | HelpMePack (`packing_backend/`) | 8020 | `uvicorn backend.main:app --port 8020` |
 | Purchase Redundancy (`purchase-redundancy-ai/backend/`) | 8040 | `API_PORT=8040 python main.py` (son port par défaut, 8000, est celui de BO1) |
 | Ollama `qwen2.5:3b` | 11434 | `ollama serve` avec `OLLAMA_KEEP_ALIVE=30m` |
-| BO4 Stylist (`bo4/backend/`) | 8061 | `stylist_web.py --require-auth --bo1-url http://localhost:8000` |
+| BO4 Stylist (`bo4/backend/`) | 8061 | `stylist_web.py --require-auth --bo1-url http://127.0.0.1:8000` |
 | Orchestrateur (`orchestrator/`) | 8070 | `app.py` : page de conversation sur http://127.0.0.1:8070/ |
 
 Chaque service utilise le Python de son dossier (`.venv`, `venv` ou `.venv-*`) ; sinon, indiquer le chemin de
@@ -234,3 +234,6 @@ service (`backend/.env`, `orchestrator/.env`, `purchase-redundancy-ai/.env`…) 
 | `API_PORT` | non défini : `start_all.ps1` fixe 8040 pour Purchase Redundancy (son défaut, 8000, est celui de BO1) |
 
 Le Stylist n'a pas de `.env` : avec `--require-auth`, il vérifie le jeton de l'utilisateur auprès de BO1.
+
+Démo sans réseau : `$env:STYLIST_WEATHER_OFFLINE = "1"` avant `.\start_all.ps1` ; le Stylist utilise alors une
+prévision fixe enregistrée (`bo4/backend/weather_offline.json`) au lieu d'Open-Meteo, MET Norway et wttr.in.

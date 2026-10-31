@@ -6,7 +6,8 @@
 services:
   bo1:
     label: "BO1 Wardrobe"
-    url: "http://localhost:8000"    # main : backend/app (uvicorn app.main:app --port 8000)
+    # 127.0.0.1 et non localhost : sous Windows, localhost essaie d'abord IPv6 (::1), refusé au bout de ~2 s
+    url: "http://127.0.0.1:8000"    # main : backend/app (uvicorn app.main:app --port 8000)
     timeout: 10
   stylist:
     label: "BO4 Stylist"
@@ -24,7 +25,7 @@ services:
     enabled: false               # rag_backend/ (branche rag/try1) n'est pas encore dans main
   ollama:
     label: "Ollama qwen2.5:3b"
-    url: "http://localhost:11434"
+    url: "http://127.0.0.1:11434"
     timeout: 60
     model: "qwen2.5:3b"
     keep_alive: "30m"    # Ollama garde le modèle en mémoire 30 min après chaque appel (5 min par défaut)

@@ -6,7 +6,7 @@ Graphe :
                     |      +--(retour « j'aime la 2 »)--> record_feedback (I76) --> END
                     |                                       +--(« je n'aime pas la 1 »)--> get_weather
                     v
-             get_weather (I71 : Open-Meteo, prévision de la ville et du jour demandés)
+             get_weather (I71 : Open-Meteo, MET Norway, wttr.in, cache ; voir weather_sources.py)
                     |
                     v
              fetch_wardrobe (BO1, GET /api/items) --(BO1 indisponible)--> respond
@@ -44,6 +44,7 @@ import datetime as dt
 import json
 import os
 import re
+import time
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -53,6 +54,8 @@ from typing import Any, Callable, Optional, TypedDict
 
 import bo1_api_adapter
 import stylist_feedback
+import weather_sources
+from weather_sources import WeatherError, season_from_temperature  # noqa: F401 (API du module)
 
 try:  # LangGraph n'injecte la configuration du tour que dans un paramètre typé RunnableConfig.
     from langchain_core.runnables import RunnableConfig
@@ -62,7 +65,8 @@ except ImportError:  # sans LangGraph, les nodes restent appelables directement
 OCCASIONS = ("university", "work", "evening", "casual")
 SEASONS = ("spring", "summer", "autumn", "winter")
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+# 127.0.0.1 et non localhost : sous Windows, localhost essaie d'abord IPv6 (::1), refusé au bout de ~2 s.
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("STYLIST_LLM_MODEL", "qwen2.5:3b")
 # Durée pendant laquelle Ollama garde le modèle en mémoire après un appel (5 min par défaut côté Ollama) :
 # 30 min évitent de recharger qwen2.5:3b entre deux tours d'une démo.
@@ -73,7 +77,11 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 # « à Paris », « in London »… sur le message d'origine (majuscule obligatoire).
 CITY_PATTERN = r"(?:^|\s)(?:à|a|au|in)\s+([A-ZÀ-Ý][\w'-]+(?:[\s-][A-ZÀ-Ý][\w'-]+)?)"
 CITY_STOPWORDS = {"esprit", "demain", "midi", "minuit"}
-RAIN_ALERT = 60  # probabilité de pluie (%) à partir de laquelle on prévient
+RAIN_ALERT = 50  # probabilité de pluie (%) à partir de laquelle la contrainte de pluie s'applique
+# Pièces de dessus contre la pluie : veste (blazer compris), manteau, trench ; le cardigan ne protège pas.
+RAIN_OUTERWEAR_CATEGORIES = {"jacket", "coat", "blazer"}
+RAIN_OUTERWEAR_NAMES = r"\b(trench|parka|raincoat|imperm[eé]able|anorak|k-?way)\b"
+RAIN_FRAGILE_MATERIALS = r"\b(suede|silk|daim|soie)\b"   # écartés sous la pluie si la matière est connue
 
 # Groupes de vêtements qu'on peut exclure, exprimés en catégories BO4.
 EXCLUDABLE_CATEGORIES = {
@@ -141,6 +149,29 @@ DISLIKE_AFTER_RANK = rf"\b({RANK_WORDS})\b\D{{0,15}}?\b({DISLIKE_WORDS})\b"
 LIKE_AFTER_RANK = rf"\b({RANK_WORDS})\b\D{{0,15}}?\b({LIKE_WORDS})\b"
 ANOTHER_PATTERN = (r"\b(une autre|un autre|autre tenue|autre chose|autres propositions|"
                    r"another|something else|je n'aime pas|pas celle|change|tu as mieux)\b")
+# Réaction courte (le message ENTIER, sans numéro de tenue) sur les dernières propositions. Négative : 👎 sur
+# toutes les tenues montrées et nouvelles propositions ; positive : 👍 ; les autres : réponse courte, sans
+# nouvelle recommandation. « j'aime pas » est testé avant « j'aime ».
+REACTION_PATTERNS = {
+    "dislike": r"(j'aime pas|je n'aime pas|j'aime pas (ca|trop|beaucoup|du tout)|je n'aime pas (ca|trop|beaucoup|du tout)|"
+               r"non|nan|bof|bof bof|pas terrible|pas top|pas fan|pas convaincue?|nul|moche|"
+               r"i don't like( it| them)?|i do not like( it| them)?|don't like( it| them)?|not for me|no|nope|meh|"
+               r"not great|not really)",
+    "like": r"(j'aime( bien| beaucoup| ca)?|j'adore|top|super|genial|parfait|pas mal|tres bien|cool|joli|"
+            r"i like( it| them)?|i love( it| them)?|love it|nice|great|perfect|looks good)",
+    "thanks": r"(merci( beaucoup)?|ok|okay|d'accord|ca marche|thanks?( you)?|thank you)",
+    "why": r"(pourquoi|pourquoi ca|why|why that one|why this one)",
+    "color": r"((et )?en|(and )?in|what about( in)?) (bleue?|rouge|noire?|blanche?|verte?|grise?|beige|marron|rose|"
+             r"jaune|violette?|marine|blue|red|black|white|green|gr[ae]y|brown|pink|yellow|purple|navy)",
+}
+# Réaction suivie d'une demande de suite : « j'aime pas, une autre », « bof, autre chose »,
+# « non, donne-moi autre chose » : le 👎 (ou 👍) est enregistré PUIS d'autres tenues sont proposées.
+CONTINUE_REQUEST = (r"((donne|propose|montre)[- ]?moi |tu as |t'as |je veux )?"
+                    r"(une autre|un autre|autre chose|une autre tenue|d'autres tenues|another( one)?|something else)"
+                    r"( (tenue|stp|s'il te plait|please))?")
+# Délai pendant lequel la garde-robe lue dans un fil est réutilisée pour une réaction ou une suite.
+WARDROBE_REUSE_S = 300
+WARDROBE_CLOCK = time.time
 # Dress code (I83) : niveau exigé, déduit du message ou de l'occasion.
 DRESS_CODE_PATTERNS = {
     "formal": r"\b(formel\w*|tres habille\w*|habille\w*|gala|mariage|ceremonie|black tie|formal|wedding)\b",
@@ -192,10 +223,16 @@ class StylistState(TypedDict, total=False):
     shown: list[list[str]]            # tenues déjà proposées (ids), pour la régénération
     last_outfits: list[list[str]]     # tenues du dernier tour proposant des tenues (rang 1, 2, 3)
     feedback_note: str                # accusé de réception d'un retour (I76)
-    dress_code_relaxed: bool         # aucune tenue conforme : on montre les plus proches
+    outfit_fallback: str              # "", "replay_rejected" (toutes les conformes ont reçu un 👎), "none_conform",
+                                      # "all_rejected" (conformes toutes rejetées et déjà revues) ou "exhausted"
     no_structured_jacket: bool        # business ou formal sans veste structurée dans la garde-robe
     casual_tops_excluded: list[str]   # O4 : hauts écartés pour le dress code (« nom (raison) »)
+    short_cut_excluded: list[str]     # O3 : shorts et pièces « mini » écartés pour le dress code
+    feedback_proceed: bool            # après un retour : vrai = proposer d'autres tenues, faux = s'arrêter
     weather: dict                     # prévision utilisée au dernier tour (si disponible)
+    rain_plan: dict                   # pluie : pièce de dessus exigée, matières écartées (apply_constraints)
+    last_turn_outfits: list[list[str]]  # tenues de la DERNIÈRE réponse ([] : erreur, question, simple retour)
+    wardrobe_fetched_at: float        # moment de la dernière lecture de BO1 dans ce fil (réutilisation courte)
     advice: dict                      # conseil BO5 du tour : {"question", "answer", "sources"}
     error: str
     response: str
@@ -241,6 +278,18 @@ def extract_feedback(text: str, last_count: Optional[int] = None) -> Optional[di
     return None
 
 
+def extract_reaction(text: str) -> Optional[str]:
+    """dislike, like, thanks, why ou color si le message entier est une réaction courte (texte normalisé)."""
+    for kind, pattern in REACTION_PATTERNS.items():
+        if re.fullmatch(rf"\s*{pattern}\s*[!.?…]*\s*", text.strip()):
+            return kind
+    for kind in ("dislike", "like"):                    # « j'aime pas, une autre » : réaction puis suite
+        if re.fullmatch(rf"\s*{REACTION_PATTERNS[kind]}\s*[,;.!…-]*\s+{CONTINUE_REQUEST}\s*[!.?…]*\s*",
+                        text.strip()):
+            return kind
+    return None
+
+
 def _occasion_matches(text: str) -> list[tuple[int, str, str]]:
     """Tous les mots-clés d'occasion trouvés : (position, occasion, mot)."""
     found = []
@@ -279,6 +328,11 @@ def extract_with_rules(message: str, last_count: Optional[int] = None) -> dict:
         "city": extract_city(message),
         "feedback": extract_feedback(text, last_count),
     }
+    result["asks_more"] = bool(re.search(r"\b(une autre|un autre|autre chose|autres? tenues?|another|something else)\b",
+                                        text))
+    result["reaction"] = None if result["feedback"] else extract_reaction(text)
+    if result["reaction"] in ("dislike", "like"):       # retour sur les dernières tenues, sans numéro
+        result["feedback"] = {"verdict": result["reaction"], "rank": None}
     if result["feedback"] and result["feedback"]["verdict"] == "dislike":
         result["wants_another"] = True
     for match in re.finditer(NEGATION_PATTERN, text):
@@ -442,10 +496,6 @@ def dress_code_check(items: list[dict], code: Optional[str],
     return ok, shown
 
 
-class WeatherError(RuntimeError):
-    """Prévision météo indisponible (réseau, ville inconnue, jour hors prévision)."""
-
-
 def _get_json(url: str, params: dict, timeout: float) -> dict:
     query = urllib.parse.urlencode(params)
     with urllib.request.urlopen(f"{url}?{query}", timeout=timeout) as response:
@@ -465,27 +515,43 @@ def open_meteo_forecast(city: str, day: dt.date, timeout: float = 6.0) -> dict:
             "daily": "temperature_2m_min,temperature_2m_max,precipitation_probability_max",
             "forecast_days": 7}, timeout)["daily"]
         index = daily["time"].index(day.isoformat())
+        rain = (daily.get("precipitation_probability_max") or [None] * len(daily["time"]))[index]
+        t_min, t_max = daily["temperature_2m_min"][index], daily["temperature_2m_max"][index]
     except WeatherError:
         raise
+    except json.JSONDecodeError as exc:  # page HTML d'un portail captif ou d'un proxy
+        raise WeatherError(f"Open-Meteo : réponse non JSON ({exc})") from exc
     except ValueError as exc:
         raise WeatherError(f"pas de prévision pour le {day.isoformat()}") from exc
     except Exception as exc:  # réseau, JSON inattendu...
         raise WeatherError(f"Open-Meteo injoignable : {exc}") from exc
-    rain = (daily.get("precipitation_probability_max") or [None] * len(daily["time"]))[index]
-    return {"city": place.get("name", city), "date": day.isoformat(),
-            "t_min": daily["temperature_2m_min"][index], "t_max": daily["temperature_2m_max"][index],
+    # Open-Meteo peut renvoyer null : sans ce contrôle, season_from_temperature levait un TypeError
+    # hors de tout try, et /api/chat répondait 500.
+    if any(isinstance(t, bool) or not isinstance(t, (int, float)) for t in (t_min, t_max)):
+        raise WeatherError(f"Open-Meteo : température absente pour le {day.isoformat()}")
+    return {"city": place.get("name", city), "date": day.isoformat(), "t_min": t_min, "t_max": t_max,
             "rain_probability": rain}
 
 
-def season_from_temperature(t_min: float, t_max: float, month: int) -> str:
-    """Traduit la température prévue en « saison » comprise par le moteur BO4.
-    Moyenne <= 10 °C : hiver ; >= 22 °C : été ; sinon mi-saison (printemps ou automne selon le mois)."""
-    mean = (t_min + t_max) / 2
-    if mean <= 10:
-        return "winter"
-    if mean >= 22:
-        return "summer"
-    return "spring" if 3 <= month <= 8 else "autumn"
+def default_weather() -> "weather_sources.RobustWeather":
+    """Météo de production : Open-Meteo, puis MET Norway, puis wttr.in (3 s chacune), puis cache, sinon
+    WeatherError (saison déduite de la date). STYLIST_WEATHER_OFFLINE=1 : prévision fixe, sans réseau."""
+    return weather_sources.RobustWeather([("Open-Meteo", open_meteo_forecast),
+                                          ("MET Norway", weather_sources.met_norway_forecast),
+                                          ("wttr.in", weather_sources.wttr_forecast)])
+
+
+def wants_rain_protection(weather: Optional[dict]) -> bool:
+    """Pluie probable (>= RAIN_ALERT %) ou annoncée par le code météo (pluie, averses, orage)."""
+    weather = weather or {}
+    rain = weather.get("rain_probability")
+    return bool(weather.get("rain_code")) or (isinstance(rain, (int, float)) and not isinstance(rain, bool)
+                                              and rain >= RAIN_ALERT)
+
+
+def is_rain_outerwear(item: dict) -> bool:
+    return (str(item.get("category") or "").lower() in RAIN_OUTERWEAR_CATEGORIES
+            or bool(re.search(RAIN_OUTERWEAR_NAMES, _plain(f"{item.get('name') or ''} {item.get('subcategory') or ''}"))))
 
 
 def merge_occasion(rules: dict, llm_occasion: Optional[str]) -> Optional[str]:
@@ -580,8 +646,11 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
                                      llm_result.get("exclude_colors")),
             "unsupported": _union(previous.get("unsupported"), rules["unsupported"]),
             "unsupported_now": rules["unsupported"],
-            "wants_another": wants_another,
+            # merci, pourquoi, « et en bleu ? » : réponse courte, jamais de nouvelle recommandation
+            "wants_another": wants_another and rules["reaction"] not in ("thanks", "why", "color"),
+            "asks_more": rules["asks_more"],
             "feedback": rules["feedback"],
+            "reaction": rules["reaction"],
         }
         history = list(state.get("history") or []) + [{"role": "user", "content": message}]
         summary = {k: request[k] for k in ("occasion", "season", "dress_code", "exclude_categories",
@@ -591,36 +660,76 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
 
     def record_feedback(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
         request = state["request"]
-        feedback = request["feedback"]
+        feedback = request.get("feedback")
         last = state.get("last_outfits") or []
-        rank, verdict = feedback["rank"], feedback["verdict"]
         trace = state.get("trace", [])
+        if not feedback:                                 # merci, pourquoi, couleur : aucun enregistrement
+            note, line = reaction_reply(request.get("reaction"), request, bool(last))
+            history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
+            return {"feedback_note": note, "response": note, "history": history, "outfits": [],
+                    "last_turn_outfits": [], "feedback_proceed": False, "trace": trace + [f"record_feedback -> {line}"]}
+        rank, verdict = feedback["rank"], feedback["verdict"]
+        if rank is None:                                 # « j'aime pas », « top » : sur les tenues de la dernière réponse
+            shown = state.get("last_turn_outfits")
+            last = last if shown is None else shown       # ancien fil sans ce champ : dernières tenues connues
+            if not last:
+                note = ("Il n'y a pas de tenue à noter dans ma dernière réponse." if state.get("last_outfits")
+                        else "Je n'ai pas encore proposé de tenue dans cette conversation : pour quelle occasion "
+                             "veux-tu une tenue ?")
+                history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
+                # rien à noter : on ne propose d'autres tenues que si le message le demande (« j'aime pas, une autre »)
+                return {"feedback_note": note, "response": note, "history": history, "outfits": [],
+                        "last_turn_outfits": [], "feedback_proceed": bool(request.get("asks_more")),
+                        "trace": trace + ["record_feedback -> réaction sans tenue dans la dernière réponse"]}
+            if verdict == "dislike" and feedback_store is not None:
+                by_id = {str(item["id"]): item for item in state.get("wardrobe") or []}
+                for ids in last:
+                    feedback_store.add("dislike", [by_id[i] for i in ids if i in by_id], request.get("occasion"),
+                                       user=request_user(config))
+                count = len(last)
+                note = ("C'est noté : " + (f"ces {count} tenues ne te plaisent pas, je les mets de côté."
+                                           if count > 1 else "cette tenue ne te plaît pas, je la mets de côté."))
+                history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
+                return {"feedback_note": note, "response": note, "history": history, "outfits": [],
+                        "last_turn_outfits": [], "feedback_proceed": True,
+                        "trace": trace + [f"record_feedback -> dislike enregistré pour {_n(count, 'la dernière tenue', 'les dernières tenues')}"]}
+            rank = 1                                      # « j'aime » sans numéro : la première proposition
         verb = "aimes" if verdict == "like" else "n'aimes pas"
+        proceed = True
         if not 1 <= rank <= len(last):
             note = f"Je ne trouve pas de tenue n° {rank} dans mes dernières propositions."
-            line = f"record_feedback -> rang {rank} introuvable ({len(last)} tenue(s) proposée(s))"
+            line = f"record_feedback -> rang {rank} introuvable ({_n(len(last), 'tenue proposée', 'tenues proposées')})"
+            proceed = False                               # « j'aime pas la 2 » sans tenue 2 : ni 👎 ni nouvelle recommandation"
         elif feedback_store is None:
             note = f"C'est noté pour la tenue {rank}, mais l'enregistrement des retours est désactivé."
             line = "record_feedback -> stockage désactivé"
         else:
             by_id = {str(item["id"]): item for item in state.get("wardrobe") or []}
             items = [by_id[i] for i in last[rank - 1] if i in by_id]
+            if not items:                                 # garde-robe absente du fil : rien à noter (plus de « () »)
+                note = "Il n'y a pas de tenue à noter dans ma dernière réponse."
+                history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
+                return {"feedback_note": note, "response": note, "history": history, "outfits": [],
+                        "last_turn_outfits": [], "feedback_proceed": False,
+                        "trace": trace + ["record_feedback -> tenue introuvable, rien enregistré"]}
             feedback_store.add(verdict, items, request.get("occasion"), user=request_user(config))
             labels = display_names(state.get("wardrobe") or [])
             names = " + ".join(labels[str(item["id"])] for item in items)
             note = f"C'est noté : tu {verb} la tenue {rank} ({names})."
             if verdict == "like":
                 note += " Tes prochaines propositions en tiendront compte."
+                if feedback["rank"] is None and len(last) > 1:
+                    note += " Si tu parlais d'une autre tenue, dis par exemple « j'aime la 2 »."
             line = f"record_feedback -> {verdict} enregistré pour la tenue {rank} : {names}"
         history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
         return {"feedback_note": note, "response": note, "history": history, "outfits": [],
-                "trace": trace + [line]}
+                "last_turn_outfits": [], "feedback_proceed": proceed, "trace": trace + [line]}
 
     def clarify(state: StylistState) -> dict:
         question = ("Pour quelle occasion veux-tu cette tenue ? Par exemple : cours à l'université, "
                     "travail ou entretien, soirée, ou sortie décontractée.")
         history = list(state.get("history") or []) + [{"role": "assistant", "content": question}]
-        return {"response": question, "history": history, "outfits": [],
+        return {"response": question, "history": history, "outfits": [], "last_turn_outfits": [],
                 "trace": state.get("trace", []) + ["clarify -> question posée (occasion manquante)"]}
 
     def get_weather(state: StylistState) -> dict:
@@ -630,36 +739,56 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             return {"weather": {}, "trace": trace + ["get_weather -> saison demandée explicitement : pas d'appel"]}
         if weather is None:
             return {"weather": {}, "trace": trace + ["get_weather -> météo désactivée : saison déduite de la date"]}
-        day = today() + dt.timedelta(days=1 if request.get("when") == "tomorrow" else 0)
-        city = request.get("city") or default_city
-        key = (city.lower(), day.isoformat())
+        # Tout est dans le try : aucune erreur météo (réseau, valeurs nulles, format) ne fait échouer le tour.
         try:
-            forecast = weather_cache.get(key) or weather(city, day)
+            day = today() + dt.timedelta(days=1 if request.get("when") == "tomorrow" else 0)
+            city = request.get("city") or default_city
+            key = (city.lower(), day.isoformat())
+            forecast = dict(weather_cache.get(key) or weather(city, day))
+            checked = weather_sources.normalize(forecast, city, day, forecast.get("source") or "Open-Meteo")
+            forecast = {**forecast, **checked, "attribution": forecast.get("attribution") or checked["attribution"]}
         except Exception as exc:  # WeatherError ou erreur inattendue : on garde la saison de la date
-            return {"weather": {}, "trace": trace + [f"get_weather -> indisponible ({exc}) : saison déduite de la date"]}
+            unavailable = {"unavailable": True, "reason": str(exc)[:300]}
+            return {"weather": unavailable,
+                    "trace": trace + [f"get_weather -> indisponible ({exc}) : saison déduite de la date"]}
         weather_cache[key] = forecast
-        season = season_from_temperature(forecast["t_min"], forecast["t_max"], day.month)
+        season = forecast["season"]
         request["season"] = season
         request["season_source"] = (f"météo {forecast['city']} le {day:%d/%m} : "
                                     f"{forecast['t_min']:.0f} à {forecast['t_max']:.0f} °C")
-        line = (f"get_weather -> Open-Meteo {forecast['city']} {day.isoformat()} : "
+        failed = f" (après : {' ; '.join(forecast['failures'])})" if forecast.get("failures") else ""
+        line = (f"get_weather -> {forecast['source']} {forecast['city']} {day.isoformat()} : "
                 f"{forecast['t_min']}-{forecast['t_max']} °C, pluie {forecast.get('rain_probability')} % "
-                f"=> saison {season}")
+                f"{'(pluie annoncée) ' if forecast.get('rain_code') else ''}=> saison {season}{failed}")
         return {"request": request, "weather": forecast, "trace": trace + [line]}
 
     def fetch_wardrobe(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
         # Jeton de l'utilisateur : lu dans la configuration du tour, jamais dans l'état (persisté).
         token = request_token(config)
-        try:
-            wardrobe, report = wardrobe_loader(token=token) if token else wardrobe_loader()
-        except bo1_api_adapter.BO1UnavailableError as exc:
-            return {"error": f"Je n'arrive pas à lire ta garde-robe (BO1) : {exc}",
-                    "wardrobe": [], "wardrobe_report": {},
-                    "trace": state.get("trace", []) + [f"fetch_wardrobe -> ERREUR BO1 : {exc}"]}
+        request = state.get("request") or {}
+        trace = list(state.get("trace", []))
+        # Réaction ou suite (« une autre », « j'aime pas ») : la garde-robe lue il y a peu dans CE fil (donc pour
+        # cette utilisatrice, la clé du fil commence par son id) est réutilisée, sans rappeler BO1.
+        age = WARDROBE_CLOCK() - float(state.get("wardrobe_fetched_at") or 0)
+        follow_up = request.get("wants_another") or request.get("feedback") or request.get("reaction")
+        if follow_up and state.get("wardrobe") and 0 <= age <= WARDROBE_REUSE_S:
+            return {"trace": trace + [f"fetch_wardrobe -> garde-robe du fil réutilisée (lue il y a {age:.0f} s), "
+                                      "BO1 non rappelé"]}
+        for attempt in (1, 2):
+            try:
+                wardrobe, report = wardrobe_loader(token=token) if token else wardrobe_loader()
+                break
+            except bo1_api_adapter.BO1UnavailableError as exc:
+                if attempt == 1 and "timed out" in str(exc).lower():   # délai dépassé : un seul nouvel essai
+                    trace.append(f"fetch_wardrobe -> délai dépassé, nouvel essai : {exc}")
+                    continue
+                return {"error": f"Je n'arrive pas à lire ta garde-robe (BO1) : {exc}",
+                        "wardrobe": [], "wardrobe_report": {},
+                        "trace": trace + [f"fetch_wardrobe -> ERREUR BO1 : {exc}"]}
         line = (f"fetch_wardrobe -> {report.get('kept')} vêtements utilisables sur "
                 f"{report.get('received')} (source : {report.get('source', 'BO1')})")
-        return {"wardrobe": wardrobe, "wardrobe_report": report,
-                "trace": state.get("trace", []) + [line]}
+        return {"wardrobe": wardrobe, "wardrobe_report": report, "wardrobe_fetched_at": WARDROBE_CLOCK(),
+                "trace": trace + [line]}
 
     def apply_constraints(state: StylistState) -> dict:
         request = state["request"]
@@ -674,57 +803,110 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             else:
                 candidates.append(item)
         line = f"apply_constraints -> {len(candidates)} gardés, {len(excluded)} exclus {excluded}"
-        return {"candidates": candidates, "excluded": excluded,
+        # Pluie : contrainte (pas de score) ; daim et soie écartés si la matière est connue, et une pièce de
+        # dessus exigée dans la tenue si la garde-robe en garde une après les contraintes.
+        rain_plan: dict = {}
+        weather = state.get("weather") or {}
+        if wants_rain_protection(weather):
+            fragile = [item for item in candidates
+                       if re.search(RAIN_FRAGILE_MATERIALS, _plain(str(item.get("material") or "")))]
+            candidates = [item for item in candidates if item not in fragile]
+            outerwear = [item["name"] for item in candidates if is_rain_outerwear(item)]
+            rain_plan = {"probability": weather.get("rain_probability"), "rain_code": bool(weather.get("rain_code")),
+                         "require_outerwear": bool(outerwear), "fragile_excluded": [i["name"] for i in fragile]}
+            line += (f" ; pluie : pièce de dessus {'exigée' if outerwear else 'absente'}"
+                     f"{f' ({len(outerwear)} disponible(s))' if outerwear else ''}, "
+                     f"daim/soie écartés {rain_plan['fragile_excluded']}")
+        return {"candidates": candidates, "excluded": excluded, "rain_plan": rain_plan,
                 "trace": state.get("trace", []) + [line]}
 
     def recommend(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
         request = state["request"]
         shown = [list(ids) for ids in (state.get("shown") or [])] if request["wants_another"] else []
         already = {frozenset(ids) for ids in shown}
+        rain_plan = dict(state.get("rain_plan") or {})
+        code = request.get("dress_code")
+        strict = code in STRICT_DRESS_CODES
+        all_candidates = state.get("candidates") or []
+        # Règles ABSOLUES (jamais assouplies, même en repli) : O3 (short, pièce « mini ») et O4 (haut trop décontracté)
+        # retirent des PIÈCES avant le moteur BO4 ; la formalité et la veste structurée (O2) écartent des TENUES plus bas.
+        casual_tops = [f"{item.get('name')} ({reason})" for item in all_candidates
+                       if strict and (reason := casual_top_reason(item))]
+        short_cuts = [str(item.get("name")) for item in all_candidates
+                      if strict and is_short_cut(item) and not casual_top_reason(item)]
+        banned = {str(item["id"]) for item in all_candidates
+                  if strict and (is_short_cut(item) or casual_top_reason(item))}
+        candidates = [item for item in all_candidates if str(item["id"]) not in banned]
+        # On lit large dans le classement BO4 : les tenues conformes ne sont pas forcément parmi les 30 premières.
         try:
-            ranked = engine.recommend_outfits(state.get("candidates") or [],
-                                              occasion=request["occasion"],
-                                              season=request["season"], top_k=30)
+            ranked = engine.recommend_outfits(candidates, occasion=request["occasion"], season=request["season"],
+                                              top_k=200)
         except ValueError as exc:
             ranked = []
             state_trace = f"recommend -> ERREUR moteur : {exc}"
         else:
             state_trace = None
-        code = request.get("dress_code")
-        candidates = state.get("candidates") or []
-        strict = code in STRICT_DRESS_CODES
         # Exigée seulement si une veste structurée reste disponible (« sans veste » la désactive).
         require_jacket = strict and any(is_structured_jacket(item) for item in candidates)
         no_jacket = strict and not any(is_structured_jacket(item) for item in state.get("wardrobe") or [])
-        casual_tops = [f"{item.get('name')} ({reason})" for item in candidates
-                       if strict and (reason := casual_top_reason(item))]
         user = request_user(config)
         profile = feedback_store.profile(user) if feedback_store else None
         rejected = feedback_store.disliked_outfits(user) if feedback_store else set()
+        dislikes = feedback_store.dislike_counts(user) if feedback_store else {}
         annotated = []
         for outfit in ranked:
-            ids = frozenset(_outfit_ids(outfit))
-            if ids in already or ids in rejected:
-                continue
             items = _outfit_items(outfit, candidates)
             ok, level = dress_code_check(items, code, require_structured_jacket=require_jacket)
+            if not ok:
+                continue                                  # ABSOLU : une tenue non conforme n'est jamais proposée
             bonus = stylist_feedback.personal_bonus(items, profile)
-            annotated.append({**outfit, "dress_code_ok": ok, "formality": level, "personal_bonus": bonus,
+            annotated.append({**outfit, "dress_code_ok": True, "formality": level, "personal_bonus": bonus,
                               "personal_score": round(float(outfit["score"]) + bonus, 1)})
         # Tri stable : à score personnalisé égal, l'ordre du moteur BO4 est conservé.
         annotated.sort(key=lambda o: -o["personal_score"])
-        compliant = [o for o in annotated if o["dress_code_ok"]]
-        relaxed = bool(annotated) and not compliant
-        fresh = diversify(compliant or annotated, k=3)
+        if rain_plan.get("require_outerwear"):
+            covered = [o for o in annotated
+                       if any(is_rain_outerwear(item) for item in _outfit_items(o, candidates))]
+            rain_plan["satisfied"] = bool(covered)
+            annotated = covered or annotated              # aucune pièce de dessus : « prévois un parapluie »
+
+        def key(outfit: dict) -> frozenset:
+            return frozenset(_outfit_ids(outfit))
+
+        # Seules les PRÉFÉRENCES s'assouplissent : d'abord les tenues neuves, puis (si toutes les conformes ont reçu
+        # un 👎) les moins rejetées. Les tenues déjà montrées pendant cette série de « une autre » restent écartées.
+        fallback = ""
+        pool = [o for o in annotated if key(o) not in already and key(o) not in rejected]
+        if not pool:
+            replay = [o for o in annotated if key(o) in rejected and key(o) not in already]
+            if replay:
+                # Par paliers de 👎 : les moins rejetées d'abord ; le palier suivant seulement s'il en manque pour
+                # atteindre le minimum de propositions (sinon diversify irait chercher une tenue très rejetée).
+                for level in sorted({dislikes.get(key(o), 1) for o in replay}):
+                    pool += [o for o in replay if dislikes.get(key(o), 1) == level]
+                    if len(diversify(pool, k=3)) >= min(MIN_PROPOSALS, len(replay)):
+                        break
+                fallback = "replay_rejected"
+            elif not annotated:
+                fallback = "none_conform" if ranked else ""
+            elif all(key(o) in rejected for o in annotated):
+                fallback = "all_rejected"
+            else:
+                fallback = "exhausted"
+        fresh = diversify(pool, k=3)
         shown = shown + [sorted(_outfit_ids(o)) for o in fresh]
         line = state_trace or (f"recommend -> {len(ranked)} tenues classées par BO4, dress code {code} : "
-                               f"{len(compliant)}/{len(annotated)} conformes"
+                               f"{len(annotated)} conformes (règles absolues)"
                                f"{' (veste structurée exigée)' if require_jacket else ''}, {len(fresh)} retenues "
                                f"(déjà montrées : {len(already)}, rejetées : {len(rejected)}, "
                                f"profil : {profile['likes'] if profile else 0} like / "
-                               f"{profile['dislikes'] if profile else 0} dislike)")
-        return {"outfits": fresh, "shown": shown, "dress_code_relaxed": relaxed,
+                               f"{profile['dislikes'] if profile else 0} dislike)"
+                               f"{' ; repli : ' + fallback if fallback else ''}")
+        if rain_plan.get("require_outerwear"):
+            line += f" ; pluie : {'tenues avec pièce de dessus' if rain_plan['satisfied'] else 'aucune tenue avec pièce de dessus'}"
+        return {"outfits": fresh, "shown": shown, "outfit_fallback": fallback, "rain_plan": rain_plan,
                 "no_structured_jacket": no_jacket, "casual_tops_excluded": casual_tops,
+                "short_cut_excluded": short_cuts,
                 "last_outfits": [_outfit_ids(o) for o in fresh] or state.get("last_outfits", []),
                 "trace": state.get("trace", []) + [line]}
 
@@ -753,6 +935,7 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
         text = format_response(state)
         history = list(state.get("history") or []) + [{"role": "assistant", "content": text}]
         return {"response": text, "history": history,
+                "last_turn_outfits": [_outfit_ids(o) for o in state.get("outfits") or []],
                 "trace": state.get("trace", []) + ["respond -> réponse construite depuis les tenues BO4"]}
 
     return {"extract_intent": extract_intent, "record_feedback": record_feedback, "clarify": clarify,
@@ -811,15 +994,34 @@ def turn_config(thread_id: str, user_id: str = DEFAULT_USER, token: Optional[str
     return {"configurable": configurable}
 
 
+def reaction_reply(kind: Optional[str], request: dict, has_outfits: bool) -> tuple[str, str]:
+    """(réponse, trace) pour une réaction courte qui n'est ni un 👍 ni un 👎."""
+    if kind == "why" and has_outfits and request.get("occasion"):
+        return (f"Je les ai choisies pour l'occasion « {OCCASION_FR.get(request['occasion'], request['occasion'])} » "
+                f"et la saison ({SEASON_FR.get(request.get('season'), request.get('season'))}) : le moteur BO4 note l'harmonie "
+                "des couleurs, la cohérence des styles, l'occasion et la saison ; les raisons sont sous chaque tenue. "
+                "Dis-moi « j'aime la 2 » ou « une autre ».", "pourquoi : explication des tenues")
+    if kind == "color":
+        return ("Je ne sais pas encore chercher une couleur précise. Je peux écarter une couleur (« pas de noir ») "
+                "ou te proposer d'autres tenues (« une autre »).", "couleur demandée : non prise en charge, dit")
+    if kind == "why":
+        return ("Je n'ai pas encore proposé de tenue : pour quelle occasion veux-tu une tenue ?",
+                "pourquoi : aucune tenue à expliquer")
+    return ("Avec plaisir ! Dis-moi si tu veux une autre tenue, ou une tenue pour une autre occasion.",
+            "remerciement : pas de nouvelle recommandation")
+
+
 def route_after_intent(state: StylistState) -> str:
     request = state["request"]
-    if request.get("feedback"):
+    if request.get("feedback") or request.get("reaction"):
         return "record_feedback"
     return "clarify" if not request.get("occasion") else "get_weather"
 
 
 def route_after_feedback(state: StylistState) -> str:
     request = state["request"]
+    if state.get("feedback_proceed") is False:           # rien enregistré (tenue introuvable…) : on s'arrête
+        return "end"
     return "get_weather" if request["wants_another"] and request.get("occasion") else "end"
 
 
@@ -913,15 +1115,49 @@ def _outfit_items(outfit: dict, wardrobe: list[dict]) -> list[dict]:
     return [by_id[i] for i in _outfit_ids(outfit) if i in by_id]
 
 
-def _explanations(outfit: dict) -> list[str]:
+MONOCHROME_NEUTRAL = "Ensemble monochrome neutre"
+# Couleurs non neutres repérées dans le nom (la couleur BO1 peut être mal détectée : « Burgundy … » en noir)
+NON_NEUTRAL_NAME = (r"\b(burgundy|bordeaux|red|rouge|green|vert|blue|bleu|pink|rose|yellow|jaune|purple|violet|"
+                    r"orange|khaki|kaki|olive|camel|brown|marron|chocolate|chocolat|tan)\b")
+
+
+def _explanations(outfit: dict, items: Optional[list[dict]] = None) -> list[str]:
+    """Explications du moteur ; « Ensemble monochrome neutre » (texte d'outfit_engine.py, fichier protégé par les
+    empreintes E1/E2) est corrigé ici dès qu'une pièce de la tenue n'est pas neutre."""
     raw = outfit.get("explanations")
     if isinstance(raw, str):
-        return [raw]
-    if isinstance(raw, dict):
-        return [str(v) for v in raw.values()]
-    if isinstance(raw, list):
-        return [str(v) for v in raw]
-    return []
+        lines = [raw]
+    elif isinstance(raw, dict):
+        lines = [str(v) for v in raw.values()]
+    elif isinstance(raw, list):
+        lines = [str(v) for v in raw]
+    else:
+        return []
+    if items and MONOCHROME_NEUTRAL in lines:
+        import outfit_engine
+        if any(not outfit_engine.is_neutral(item.get("color")) or re.search(NON_NEUTRAL_NAME, _plain(str(item.get("name") or "")))
+               for item in items):
+            lines = ["Deux pièces dans la même teinte neutre" if line == MONOCHROME_NEUTRAL else line for line in lines]
+    return lines
+
+
+def _n(count: int, singular: str, plural: str) -> str:
+    """« 1 tenue », « 2 tenues » (au lieu de « tenue(s) »)."""
+    return f"{count} {singular if count == 1 else plural}"
+
+
+def _fr(value: float) -> str:
+    return f"{value:.1f}".replace(".", ",")
+
+
+def score_text(outfit: dict) -> str:
+    """Score qui sert au classement : « score 89,8/100 (96,3 − 6,5 selon tes goûts) » ; sans bonus, le score BO4."""
+    score = float(outfit.get("score") or 0)
+    bonus = float(outfit.get("personal_bonus") or 0)
+    if not bonus:
+        return f"score {_fr(score)}/100"
+    final = float(outfit.get("personal_score", score + bonus))
+    return f"score {_fr(final)}/100 ({_fr(score)} {'+' if bonus > 0 else '−'} {_fr(abs(bonus))} selon tes goûts)"
 
 
 OCCASION_FR = {"university": "université", "work": "travail", "evening": "soirée",
@@ -933,6 +1169,15 @@ EXCLUDE_FR = {"outerwear": "vestes et manteaux", "dress": "robes", "skirt": "jup
               "shorts": "shorts", "jeans": "jeans"}
 
 
+def purchase_hint(state: StylistState) -> str:
+    """Pièce à ajouter quand aucune tenue ne convient : le blazer d'abord (O2), sinon une pièce plus habillée."""
+    if (state.get("request") or {}).get("dress_code") in STRICT_DRESS_CODES:
+        if state.get("no_structured_jacket"):
+            return "Pièce à ajouter : un blazer (veste structurée)."
+        return "Pièce à ajouter : un blazer ou un haut plus habillé (chemise, blouse)."
+    return "Tu peux compléter ta garde-robe avec une pièce adaptée à cette occasion."
+
+
 def format_response(state: StylistState) -> str:
     """Réponse déterministe : seuls des vêtements présents dans la garde-robe apparaissent."""
     if state.get("error"):
@@ -942,30 +1187,48 @@ def format_response(state: StylistState) -> str:
     lines = [state["feedback_note"]] if state.get("feedback_note") else []
     lines += [f"Contexte : {OCCASION_FR[request['occasion']]}, "
              f"{SEASON_FR[request['season']]} ({request['season_source']})."]
-    rain = (state.get("weather") or {}).get("rain_probability")
-    if rain is not None and rain >= RAIN_ALERT:
-        lines.append(f"Pluie probable ({rain} %) : prévois une veste imperméable ou un parapluie "
-                     "(le moteur BO4 ne tient pas encore compte de la pluie).")
+    weather = state.get("weather") or {}
+    if weather.get("unavailable"):
+        lines.append("Météo indisponible, saison estimée d'après la date.")
+    if wants_rain_protection(weather):
+        rain = weather.get("rain_probability")
+        label = f"Pluie probable ({rain} %)" if isinstance(rain, (int, float)) else "Pluie annoncée"
+        plan = state.get("rain_plan") or {}
+        if plan.get("satisfied"):
+            lines.append(f"{label} : chaque tenue comprend une veste ou un manteau.")
+        else:
+            lines.append(f"{label} : prévois un parapluie (aucune veste, aucun manteau ni trench disponible).")
+        if plan.get("fragile_excluded"):
+            lines.append(f"Écarté à cause de la pluie (daim, soie) : {', '.join(plan['fragile_excluded'])}.")
     if request.get("dress_code"):
         lines.append(f"Dress code : {DRESS_CODE_FR[request['dress_code']]} "
                      f"({request['dress_code_source']}).")
-    if state.get("no_structured_jacket"):
+    if state.get("no_structured_jacket") and state.get("outfits"):
         lines.append("Ta garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, "
                      "c'est la pièce à ajouter.")
     if state.get("casual_tops_excluded"):
         lines.append(f"Écarté pour ce dress code : {', '.join(state['casual_tops_excluded'])}.")
+    if state.get("short_cut_excluded"):
+        lines.append(f"Écarté (trop court pour ce dress code) : {', '.join(state['short_cut_excluded'])}.")
     if request["exclude_categories"] or request["exclude_colors"]:
         refused = [EXCLUDE_FR[c] for c in request["exclude_categories"]] + request["exclude_colors"]
         lines.append(f"Contraintes respectées : sans {', '.join(refused)} "
-                     f"({len(state.get('excluded') or [])} vêtement(s) écarté(s)).")
+                     f"({_n(len(state.get('excluded') or []), 'vêtement écarté', 'vêtements écartés')}).")
     if request.get("unsupported_now"):
         lines.append(f"Remarque : « {', '.join(request['unsupported_now'])} » n'est pas encore pris en "
                      "compte, car le moteur BO4 ne gère pas encore les chaussures ni les accessoires.")
 
     outfits = state.get("outfits") or []
     labels = display_names(wardrobe)
+    fallback = state.get("outfit_fallback") or ""
     if not outfits:
-        if request["wants_another"]:
+        if fallback == "none_conform":
+            lines.append("Aucune tenue de ta garde-robe ne convient à ce dress code : je ne te propose rien "
+                         "qui ne le respecte pas. " + purchase_hint(state))
+        elif fallback == "all_rejected":
+            lines.append("Tu as écarté toutes les tenues conformes et je n'en ai plus d'autre à te proposer. "
+                         + purchase_hint(state))
+        elif request["wants_another"]:
             lines.append("Je n'ai plus d'autre tenue différente avec ces critères. "
                          "Tu peux changer d'occasion ou retirer une contrainte.")
         else:
@@ -973,22 +1236,20 @@ def format_response(state: StylistState) -> str:
                          "contraintes.")
         return "\n".join(lines)
 
-    if state.get("dress_code_relaxed"):
-        lines.append("Aucune tenue de ta garde-robe ne respecte entièrement ce dress code : "
-                     "voici les plus proches.")
-    lines.append("Voici d'autres propositions :" if request["wants_another"]
-                 else "Voici mes propositions, à partir de ta garde-robe :")
+    if fallback == "replay_rejected":
+        lines.append("Tu as écarté toutes les tenues conformes ; voici celles que tu as le moins rejetées.")
+    else:
+        lines.append("Voici d'autres propositions :" if request["wants_another"]
+                     else "Voici mes propositions, à partir de ta garde-robe :")
     for rank, outfit in enumerate(outfits, 1):
         items = _outfit_items(outfit, wardrobe)
         names = " + ".join(f"{labels[str(item['id'])]} ({item['category']})" for item in items)
         formality = f", formalité {outfit['formality']}/5" if outfit.get("formality") is not None else ""
-        bonus = outfit.get("personal_bonus") or 0
-        personal = f", bonus perso {bonus:+.1f}" if bonus else ""
-        lines.append(f"{rank}. {names} - score {outfit['score']:.1f}/100{formality}{personal}")
-        for explanation in _explanations(outfit)[:2]:
+        lines.append(f"{rank}. {names} - {score_text(outfit)}{formality}")
+        for explanation in _explanations(outfit, items)[:2]:
             lines.append(f"   - {explanation}")
     if len(outfits) < 3 and not request["wants_another"]:
-        lines.append(f"Je ne propose que {len(outfits)} tenue(s) : les autres combinaisons possibles "
+        lines.append(f"Je ne propose {'qu' + chr(39) + 'une tenue' if len(outfits) == 1 else 'que ' + str(len(outfits)) + ' tenues'} : les autres combinaisons possibles "
                      "sont trop proches de celles-ci.")
     lines.append("Dis-moi si tu veux une autre tenue ou ajouter une contrainte (ex. « sans veste »).")
     advice = state.get("advice") or {}
@@ -1007,10 +1268,13 @@ def build_graph(llm: Optional[Callable[[str], Any]] = ollama_extract,
                 wardrobe_loader: Optional[Callable[[], tuple[list[dict], dict]]] = None,
                 engine: Any = None, today: Optional[Callable[[], dt.date]] = None,
                 checkpointer: Any = None,
-                weather: Optional[Callable[[str, dt.date], dict]] = open_meteo_forecast,
+                weather: Any = "default",
                 default_city: str = DEFAULT_CITY,
                 feedback_store: Optional[stylist_feedback.FeedbackStore] = None,
                 advice: Optional[Callable[[str], dict]] = None):
+    """weather : fournisseur météo (city, day) -> prévision ; « default » = default_weather() ; None = désactivée."""
+    if isinstance(weather, str) and weather == "default":
+        weather = default_weather()
     from langgraph.graph import END, START, StateGraph
     try:
         from langgraph.checkpoint.memory import InMemorySaver
@@ -1038,6 +1302,19 @@ def build_graph(llm: Optional[Callable[[str], Any]] = ollama_extract,
     return builder.compile(checkpointer=checkpointer or InMemorySaver())
 
 
+def sqlite_checkpointer(path: Any):
+    """Mémoire persistante des conversations (fils « <user_id>:<thread_id> ») dans un fichier SQLite local :
+    occasion, contraintes et tenues déjà montrées survivent au redémarrage. Le jeton n'y est jamais écrit : il
+    voyage dans la configuration du tour (clé __bo1_token, objet RequestToken), pas dans l'état."""
+    import sqlite3
+
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    # check_same_thread=False : FastAPI sert les requêtes depuis plusieurs fils ; SqliteSaver verrouille ses accès.
+    return SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
+
+
 def bo5_advice(base_url: Optional[str]) -> Optional[Callable[[str], dict]]:
     """Fonction de conseil branchée sur BO5, ou None (node désactivé) sans URL."""
     if not base_url:
@@ -1050,8 +1327,9 @@ def bo5_advice(base_url: Optional[str]) -> Optional[Callable[[str], dict]]:
 def new_turn(message: str) -> dict:
     """Entrée d'un tour : on remet à zéro ce qui ne doit pas survivre d'un tour à l'autre."""
     return {"user_message": message, "trace": [], "outfits": [], "response": "", "error": "",
-            "weather": {}, "dress_code_relaxed": False, "no_structured_jacket": False, "casual_tops_excluded": [],
-            "feedback_note": "", "advice": {}}
+            "weather": {}, "outfit_fallback": "", "no_structured_jacket": False, "casual_tops_excluded": [],
+            "short_cut_excluded": [], "feedback_proceed": True,
+            "feedback_note": "", "advice": {}, "rain_plan": {}}
 
 
 def chat(graph, message: str, thread_id: str, show_trace: bool = False) -> str:
@@ -1086,7 +1364,7 @@ def main() -> None:
         return bo1_api_adapter.load_wardrobe_from_bo1(args.bo1_url, fallback_file=args.fallback)
 
     graph = build_graph(llm=None if args.no_llm else ollama_extract, wardrobe_loader=loader,
-                        weather=None if args.no_weather else open_meteo_forecast, default_city=args.city,
+                        weather=None if args.no_weather else default_weather(), default_city=args.city,
                         feedback_store=stylist_feedback.FeedbackStore(args.feedback_file),
                         advice=bo5_advice(args.bo5_url))
     if args.graph:

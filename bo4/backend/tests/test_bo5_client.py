@@ -50,7 +50,7 @@ def test_success_returns_answer_and_source_titles(captured):
     result = bo5_client.ask_bo5("Quels conseils pour un entretien ?")
     assert result == {"answer": "Pour un entretien, privilégie des pièces sobres.",
                       "sources": ["Dress to Impress Guide 2020.pdf", "Career Closet"]}
-    assert calls["url"] == "http://localhost:8001/ask" and calls["method"] == "POST"
+    assert calls["url"] == "http://127.0.0.1:8001/ask" and calls["method"] == "POST"
     assert calls["body"] == {"question": "Quels conseils pour un entretien ?", "top_k": 3}
     assert calls["timeout"] == 20
     assert "x-api-key" not in calls["headers"]          # pas de clé : pas de header

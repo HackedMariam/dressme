@@ -19,7 +19,7 @@ $Bo1Dir    = "C:\Users\Win11\DressMe-team\backend"
 $Bo1Python = Join-Path $Bo1Dir ".venv-bo1\Scripts\python.exe"
 $Python    = Join-Path $Backend ".venv\Scripts\python.exe"
 $LlmModel  = "qwen2.5:3b"
-$Bo1Health = "http://localhost:8000/api/health"
+$Bo1Health = "http://127.0.0.1:8000/api/health"
 $Stylist   = "http://127.0.0.1:8061"
 $PlanB     = "cd `"$Backend`"; .\.venv\Scripts\python.exe stylist_web.py --port 8060 --fallback tests\fixtures\bo1_items_sample.json"
 
@@ -76,10 +76,10 @@ $ollamaOk = $false
 if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
     Write-Host "[Ollama] commande introuvable : l'agent utilisera ses règles (sans LLM)." -ForegroundColor Red
 } else {
-    if (-not (Test-Url "http://localhost:11434/api/version")) {
+    if (-not (Test-Url "http://127.0.0.1:11434/api/version")) {
         Write-Host "[Ollama] serveur arrêté : démarrage en arrière-plan..."
         Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden | Out-Null
-        [void](Wait-Url "http://localhost:11434/api/version" 20)
+        [void](Wait-Url "http://127.0.0.1:11434/api/version" 20)
     }
     $models = (& ollama list 2>$null) -join "`n"
     if ($models -notmatch [regex]::Escape($LlmModel)) {
@@ -111,7 +111,7 @@ if (Test-Url $Stylist) {
     $stylistOk = $true
 } else {
     Write-Host "[Stylist] démarrage dans une nouvelle fenêtre (port 8061, LLM + météo)..."
-    Start-Window "Stylist :8061" $Backend "& '.\.venv\Scripts\python.exe' stylist_web.py --port 8061 --bo1-url http://localhost:8000"
+    Start-Window "Stylist :8061" $Backend "& '.\.venv\Scripts\python.exe' stylist_web.py --port 8061 --bo1-url http://127.0.0.1:8000"
     $stylistOk = Wait-Url $Stylist 60
 }
 if ($stylistOk) {

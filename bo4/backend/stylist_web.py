@@ -20,6 +20,7 @@ import datetime as dt
 import os
 import uuid
 from html import escape
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, Header, HTTPException
@@ -32,6 +33,7 @@ import stylist_feedback
 
 NODE_ORDER = ("extract_intent", "record_feedback", "clarify", "get_weather", "fetch_wardrobe", "apply_constraints", "recommend", "style_advice", "respond")
 SUBSCORES = ("color_score", "style_score", "occasion_score", "season_score")
+DEFAULT_WEATHER = sa.default_weather()
 
 _settings: dict[str, Any] = {
     "bo1_url": os.environ.get("BO1_API_URL"),
@@ -39,23 +41,28 @@ _settings: dict[str, Any] = {
     "llm": None if os.environ.get("STYLIST_NO_LLM") == "1" else sa.ollama_extract,
     "loader": None,
     "today": None,
-    "weather": None if os.environ.get("STYLIST_NO_WEATHER") == "1" else sa.open_meteo_forecast,
+    # Open-Meteo, MET Norway, wttr.in, cache ; un seul fournisseur pour garder cache et sources en panne
+    "weather": None if os.environ.get("STYLIST_NO_WEATHER") == "1" else DEFAULT_WEATHER,
     "city": os.environ.get("STYLIST_CITY", sa.DEFAULT_CITY),
     "feedback": stylist_feedback.FeedbackStore(os.environ.get("STYLIST_FEEDBACK_FILE", "stylist_feedback.json")),
     "advice": None,  # BO5 (RAG) désactivé par défaut : activé par --bo5-url
     "require_auth": False,  # --require-auth : jeton Supabase obligatoire (mode production)
     "identity": None,       # fonction jeton -> user_id ; par défaut GET /api/me de BO1
+    "checkpointer": None,   # None = mémoire (tests) ; main() : SqliteSaver persistant (CHECKPOINT_DB)
 }
 _graph = None
+# Mémoire des conversations (fils « <user_id>:<thread_id> ») : bo4/data/ est ignoré par git.
+CHECKPOINT_DB = Path(os.environ.get("STYLIST_CHECKPOINT_DB")
+                     or Path(__file__).resolve().parent.parent / "data" / "stylist_checkpoints.sqlite")
 
 
 def configure(*, bo1_url: Optional[str] = None, fallback: Optional[str] = None,
               llm: Optional[Callable] = sa.ollama_extract, loader: Optional[Callable] = None,
               today: Optional[Callable[[], dt.date]] = None,
-              weather: Optional[Callable] = sa.open_meteo_forecast, city: str = sa.DEFAULT_CITY,
+              weather: Optional[Callable] = DEFAULT_WEATHER, city: str = sa.DEFAULT_CITY,
               feedback: Optional[stylist_feedback.FeedbackStore] = None,
               advice: Optional[Callable[[str], dict]] = None, require_auth: bool = False,
-              identity: Optional[Callable[[str], str]] = None) -> None:
+              identity: Optional[Callable[[str], str]] = None, checkpointer: Any = None) -> None:
     """(Re)configure l'agent : utilisé par main() et par les tests."""
     global _graph
     if require_auth and fallback:
@@ -63,7 +70,7 @@ def configure(*, bo1_url: Optional[str] = None, fallback: Optional[str] = None,
         raise ValueError("--require-auth est incompatible avec --fallback")
     _settings.update(bo1_url=bo1_url, fallback=fallback, llm=llm, loader=loader, today=today,
                      weather=weather, city=city, feedback=feedback or stylist_feedback.FeedbackStore(),
-                     advice=advice, require_auth=require_auth, identity=identity)
+                     advice=advice, require_auth=require_auth, identity=identity, checkpointer=checkpointer)
     _graph = None
 
 
@@ -125,7 +132,8 @@ def get_graph():
     if _graph is None:
         _graph = sa.build_graph(llm=_settings["llm"], wardrobe_loader=_loader, today=_settings["today"],
                                 weather=_settings["weather"], default_city=_settings["city"],
-                                feedback_store=_settings["feedback"], advice=_settings["advice"])
+                                feedback_store=_settings["feedback"], advice=_settings["advice"],
+                                checkpointer=_settings["checkpointer"])
     return _graph
 
 
@@ -156,7 +164,7 @@ def mermaid_for(visited: list[str]) -> str:
         "  style_advice -.->|question sur la tenue 1| bo5_rag",
         "  respond --> END",
         '  extract_intent["extract_intent<br/>LLM + règles"]',
-        '  get_weather["get_weather<br/>Open-Meteo"]',
+        '  get_weather["get_weather<br/>Open-Meteo · MET Norway · wttr.in"]',
         '  fetch_wardrobe["fetch_wardrobe<br/>BO1 : GET /api/items"]',
         '  apply_constraints["apply_constraints<br/>contraintes obligatoires"]',
         '  recommend["recommend<br/>moteur BO4 + profil"]',
@@ -182,7 +190,7 @@ ROW_Y = (50, 124, 198, 272, 346, 420, 494)          # haut de chaque boîte de l
 # node -> (x, y, largeur, sous-titre)
 GRAPH_NODES = {
     "extract_intent": (CENTER_X, ROW_Y[0], CENTER_W, "LLM + règles"),
-    "get_weather": (CENTER_X, ROW_Y[1], CENTER_W, "Open-Meteo"),
+    "get_weather": (CENTER_X, ROW_Y[1], CENTER_W, "3 sources météo + cache"),
     "fetch_wardrobe": (CENTER_X, ROW_Y[2], CENTER_W, "BO1 /api/items"),
     "apply_constraints": (CENTER_X, ROW_Y[3], CENTER_W, "contraintes"),
     "recommend": (CENTER_X, ROW_Y[4], CENTER_W, "moteur BO4 + profil"),
@@ -291,7 +299,9 @@ def turn_payload(state: dict, thread_id: str, user_id: str = sa.DEFAULT_USER) ->
             "rank": rank,
             "score": round(float(outfit.get("score", 0)), 1),
             "subscores": {k: round(float(outfit[k]), 1) for k in SUBSCORES if k in outfit},
-            "explanations": sa._explanations(outfit),
+            "explanations": sa._explanations(outfit, items),
+            "personal_score": round(float(outfit.get("personal_score", outfit.get("score", 0))), 1),
+            "score_text": sa.score_text(outfit),
             "formality": outfit.get("formality"),
             "personal_bonus": outfit.get("personal_bonus", 0),
             "dress_code_ok": outfit.get("dress_code_ok", True),
@@ -379,6 +389,18 @@ def api_feedback(body: FeedbackRequest, authorization: Optional[str] = Header(No
 def api_profile(authorization: Optional[str] = Header(None)) -> dict:
     user_id, _ = authenticate(authorization)
     return profile_summary(user_id)
+
+
+@app.post("/api/profile/reset")
+def api_profile_reset(authorization: Optional[str] = Header(None)) -> dict:
+    """Remet à zéro les retours (👍 / 👎) et donc le profil de goûts de l'utilisatrice du JETON, et d'elle seule.
+    Jeton obligatoire, même hors --require-auth : l'identité vient de BO1 (GET /api/me), jamais de la requête."""
+    user_id, token = authenticate(authorization)
+    if token is None:
+        raise HTTPException(401, "Connexion requise : jeton Supabase manquant",
+                            headers={"WWW-Authenticate": "Bearer"})
+    removed = _settings["feedback"].reset(user_id)
+    return {"removed": removed, "profile": profile_summary(user_id)}
 
 
 @app.get("/api/wardrobe")
@@ -691,7 +713,7 @@ PAGE = r"""<!doctype html>
       </div>
       <div class="block"><h3>Trace du dernier tour</h3><ol class="trace" id="trace"><li class="muted">Aucun tour pour l'instant.</li></ol></div>
       <div class="block"><h3>Demande comprise (mémoire de la conversation)</h3><pre id="request">{}</pre></div>
-      <div class="block"><h3>Météo utilisée (Open-Meteo)</h3><div id="weather" class="muted">-</div></div>
+      <div class="block"><h3>Météo utilisée</h3><div id="weather" class="muted">-</div></div>
       <div class="block"><h3>Profil de style (retours 👍 / 👎)</h3><div id="profile" class="muted">Aucun retour pour l'instant.</div></div>
       <div class="block"><h3>Garde-robe utilisée</h3><div id="wardrobe" class="muted">-</div></div>
     </div>
@@ -814,7 +836,7 @@ function compactCard(o) {
   const tag = [o.formality != null ? `formalité ${o.formality}/5` : "", o.dress_code_ok === false ? "hors dress code" : ""]
     .filter(Boolean).join(" · ");
   return `<article class="outfit-card" aria-label="Tenue n° ${o.rank}">
-    <header><h3>Tenue n° ${o.rank}</h3><span class="pill">${o.score}/100</span></header>
+    <header><h3>Tenue n° ${o.rank}</h3><span class="pill" title="${esc(o.score_text || "")}">${o.personal_score ?? o.score}/100</span></header>
     ${tag ? `<span class="muted">${esc(tag)}</span>` : ""}
     <div class="thumbs">${thumbs}</div>
     <div class="bars">${bars}</div>
@@ -927,15 +949,18 @@ function updateSide(data) {
   const m = data.weather || {};
   if (m.city) {
     const tmin = Math.round(m.t_min), tmax = Math.round(m.t_max);
-    $("weather").innerHTML = `${esc(m.city)}, ${esc(m.date)} : <b>${tmin} à ${tmax} °C</b>, pluie ${esc(m.rain_probability)} %`;
-    $("context").textContent = `${m.city} · ${tmin} à ${tmax} °C · pluie ${m.rain_probability} % (prévision du ${m.date})`;
+    const rain = m.rain_probability === null || m.rain_probability === undefined ? (m.rain_code ? "annoncée" : "?") : `${m.rain_probability} %`;
+    $("weather").innerHTML = `${esc(m.city)}, ${esc(m.date)} : <b>${tmin} à ${tmax} °C</b>, pluie ${esc(rain)}`
+      + `<br><span class="muted">Source : ${esc(m.source || "Open-Meteo")}${m.attribution ? " · " + esc(m.attribution) : ""}</span>`;
+    $("context").textContent = `${m.city} · ${tmin} à ${tmax} °C · pluie ${rain} (${m.source || "Open-Meteo"}, prévision du ${m.date})`;
   } else {
-    $("weather").textContent = "Non utilisée pour ce tour (saison demandée, météo désactivée ou indisponible).";
+    $("weather").textContent = m.unavailable ? "Météo indisponible (aucune source n'a répondu) : saison estimée d'après la date."
+      : "Non utilisée pour ce tour (saison demandée ou météo désactivée).";
   }
   const w = data.wardrobe || {};
   if (w.source) {
     const skipped = Object.entries(w.skipped || {}).map(([reason, names]) => `${reason} : ${names.join(", ")}`).join(" | ");
-    $("wardrobe").innerHTML = `Source : <b>${esc(w.source)}</b> · ${w.kept} vêtement(s) utilisable(s) sur ${w.received}`
+    $("wardrobe").innerHTML = `Source : <b>${esc(w.source)}</b> · ${w.kept} ${w.kept === 1 ? "vêtement utilisable" : "vêtements utilisables"} sur ${w.received}`
       + (skipped ? `<br>Écartés : ${esc(skipped)}` : "");
   }
 }
@@ -982,7 +1007,7 @@ async function loadWardrobe() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || res.statusText);
     const r = data.report || {};
-    $("wardrobe-info").textContent = `Source : ${r.source || "BO1"} · ${r.kept} vêtement(s) utilisable(s) sur ${r.received}`;
+    $("wardrobe-info").textContent = `Source : ${r.source || "BO1"} · ${r.kept} ${r.kept === 1 ? "vêtement utilisable" : "vêtements utilisables"} sur ${r.received}`;
     $("wardrobe-grid").innerHTML = data.items.map(wardrobeCard).join("");
     wardrobeLoaded = true;
   } catch (e) {
@@ -1063,9 +1088,10 @@ def main() -> None:
         parser.error("--require-auth est incompatible avec --fallback : une panne de BO1 ne doit jamais "
                      "basculer en silence sur une garde-robe d'exemple")
     configure(bo1_url=args.bo1_url, fallback=args.fallback, llm=None if args.no_llm else sa.ollama_extract,
-              weather=None if args.no_weather else sa.open_meteo_forecast, city=args.city,
+              weather=None if args.no_weather else DEFAULT_WEATHER, city=args.city,
               feedback=stylist_feedback.FeedbackStore(args.feedback_file),
-              advice=sa.bo5_advice(args.bo5_url), require_auth=args.require_auth)
+              advice=sa.bo5_advice(args.bo5_url), require_auth=args.require_auth,
+              checkpointer=sa.sqlite_checkpointer(CHECKPOINT_DB))
 
     import uvicorn
     print(f"Stylist web : http://127.0.0.1:{args.port}")

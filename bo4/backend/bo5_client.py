@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from typing import Optional
 
-DEFAULT_BO5_URL = "http://localhost:8001"
+DEFAULT_BO5_URL = "http://127.0.0.1:8001"
 API_KEY_HEADER = os.environ.get("BO5_API_KEY_HEADER", "X-API-Key")
 
 

@@ -23,7 +23,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-BO1_API_URL = os.environ.get("BO1_API_URL", "http://localhost:8000")
+# 127.0.0.1 et non localhost : sous Windows, localhost essaie d'abord IPv6 (::1), refusé au bout de ~2 s.
+BO1_API_URL = os.environ.get("BO1_API_URL", "http://127.0.0.1:8000")
 BO1_TOKEN = os.environ.get("BO1_TOKEN", "")  # vide en mode dev BO1 (utilisateur "local")
 
 

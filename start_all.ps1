@@ -108,7 +108,7 @@ Start-DressMeService "purchase" $purchase (Find-Python $purchase $env:DRESSME_PY
 
 $stylist = Join-Path $Root "bo4\backend"
 Start-DressMeService "stylist" $stylist (Find-Python $stylist $env:DRESSME_PY_STYLIST) `
-    @("-X", "utf8", "stylist_web.py", "--port", "8061", "--require-auth", "--bo1-url", "http://localhost:8000") 8061
+    @("-X", "utf8", "stylist_web.py", "--port", "8061", "--require-auth", "--bo1-url", "http://127.0.0.1:8000") 8061
 
 $orchestrator = Join-Path $Root "orchestrator"
 Start-DressMeService "orchestrator" $orchestrator (Find-Python $orchestrator $env:DRESSME_PY_ORCHESTRATOR) `

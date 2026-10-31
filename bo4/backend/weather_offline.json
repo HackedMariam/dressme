@@ -1,0 +1,7 @@
+{
+  "description": "Prévision FIXE pour une démo sans réseau (STYLIST_WEATHER_OFFLINE=1). Valeurs choisies, pas une mesure réelle : journée fraîche et pluvieuse, pour montrer la saison déduite de la météo et la contrainte de pluie.",
+  "t_min": 11,
+  "t_max": 17,
+  "rain_probability": 63,
+  "rain_code": true
+}

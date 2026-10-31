@@ -90,11 +90,11 @@ Services attendus (`services.yaml`, plan des ports d'`INTEGRATION.md`) :
 
 | Service | URL | Lancement |
 |---|---|---|
-| BO1 | http://localhost:8000 | `cd backend` puis `uvicorn app.main:app --port 8000` |
-| Stylist | http://127.0.0.1:8061 | `cd bo4\backend` puis `python stylist_web.py --port 8061 --bo1-url http://localhost:8000` |
+| BO1 | http://127.0.0.1:8000 | `cd backend` puis `uvicorn app.main:app --port 8000` |
+| Stylist | http://127.0.0.1:8061 | `cd bo4\backend` puis `python stylist_web.py --port 8061 --bo1-url http://127.0.0.1:8000` |
 | Purchase Redundancy | http://127.0.0.1:8040 | `cd purchase-redundancy-ai\backend` puis `$env:API_PORT="8040"; $env:CLIP_ENABLED="False"; python main.py` |
 | BO5 | http://127.0.0.1:8010 | **désactivé dans `main`** ; branche `rag/try1` : `cd rag_backend` puis `uvicorn app:app --port 8010`, et `enabled: true` |
-| Ollama | http://localhost:11434 | modèle `qwen2.5:3b` |
+| Ollama | http://127.0.0.1:11434 | modèle `qwen2.5:3b` |
 
 API : `POST /api/chat` `{message, thread_id}` (+ `Authorization: Bearer <jeton>`), `GET /api/graph?visited=…`
 (SVG, nodes visités en olive), `GET /` (page).
@@ -105,6 +105,55 @@ Tests (services simulés, aucun réseau) :
 cd orchestrator
 .\.venv\Scripts\python.exe -m pytest tests -q        # 101 tests (Node.js requis pour 8 d'entre eux)
 ```
+
+## Historique des conversations
+
+En mode connecté, chaque tour (question et réponse) est enregistré dans Supabase, tables `chat_threads` et
+`chat_messages` (script `docs/chat_history.sql`, à exécuter une fois dans le SQL Editor). L'orchestrateur appelle
+Supabase avec la **clé anon et le jeton de l'utilisatrice** : la RLS limite chacune à ses propres lignes ; la clé
+`service_role` n'est jamais utilisée. Un échec d'enregistrement ne bloque jamais la réponse (la carte l'indique).
+
+- À la connexion, la page recharge la dernière conversation et liste les conversations passées ; « Nouvelle
+  conversation » et « Effacer mon historique » (confirmation dans la page) sont au-dessus du fil.
+- À la déconnexion, la page se vide ; rien n'est supprimé en base.
+- Le `thread_id` est celui du fil enregistré : il est transmis au Stylist, dont le contexte suit la conversation.
+- Mémoire des graphes : `SqliteSaver` dans `orchestrator/data/checkpoints.sqlite` et
+  `bo4/data/stylist_checkpoints.sqlite` (ignorés par git ; autres chemins : `ORCHESTRATOR_CHECKPOINT_DB`,
+  `STYLIST_CHECKPOINT_DB`), clé `<user_id>:<thread_id>`. Le contexte survit au redémarrage ; le jeton n'y est
+  jamais écrit (il passe par la configuration du tour). « Effacer mon historique » efface aussi la mémoire de
+  l'orchestrateur pour ces fils.
+
+| Route | Rôle |
+|---|---|
+| `GET /api/history` | conversations de l'utilisatrice (plus récente d'abord) |
+| `GET /api/history/{thread_id}` | messages d'une conversation |
+| `DELETE /api/history` | efface toutes ses conversations |
+
+## Tests de bout en bout (compte de test)
+
+`tests_e2e/run_e2e.py` joue des scénarios contre le **vrai** orchestrateur, le vrai Stylist, le vrai BO1 (Supabase) et
+le vrai Purchase Redundancy, avec un compte de test dédié, puis la page dans un vrai navigateur (Playwright).
+
+```powershell
+.\start_all.ps1                                   # BO1 (8000) et Purchase (8040) doivent répondre
+python orchestrator	ests_e2eun_e2e.py --env-file .env      # --no-browser, --unseed, --skip-seed
+```
+
+- **Identifiants** : `orchestrator/.env.test` avec `TEST_EMAIL` et `TEST_PASSWORD` (ignoré par git, jamais affiché).
+  `SUPABASE_URL` et `SUPABASE_ANON_KEY` viennent de l'environnement, de `--env-file`, de `orchestrator/.env` ou du
+  `.env` de la racine. La connexion passe par l'API Auth de Supabase (clé anon) ; le jeton reste en mémoire.
+- **Garde-robe de test** (`wardrobe.py`) : BO1 ne crée un vêtement qu'à partir d'une photo détectée, le script écrit donc
+  15 pièces sans image dans la table `items` avec le jeton du compte de test (la règle RLS « own items » limite
+  l'écriture à ce compte ; aucune clé service_role). Chaque ligne porte le tag `e2e-test` ; `--unseed` les supprime.
+- **Piles isolées** : le script démarre ses propres Stylist et orchestrateur (ports 8161/8170, et 8162/8171 pour la pluie),
+  sans LLM pour des réponses reproductibles, avec leurs propres fichiers de goûts et de mémoire : vos services et vos
+  goûts ne sont pas touchés.
+- **Scénarios** : a entretien sans pièce interdite (O3, O4) ; b « j'aime pas » jusqu'à « plus aucune tenue » avec le
+  blazer ; c 👎 sur la tenue 2 seulement ; d tenue n° 5 inexistante ; e « top » après une clarification ; f achat puis
+  réaction courte ; g historique relu après une nouvelle connexion ; h pluie en météo hors ligne ; i réinitialisation des
+  goûts ; n1 à n11 la page (connexion, liste, bouton Effacer éloigné, confirmation cachée, déconnexion, reconnexion,
+  course de la réouverture lente). Captures dans `tests_e2e/screenshots/` (ignoré par git, adresse e-mail masquée).
+- **À la fin** : conversations et goûts du compte de test remis à zéro.
 
 ## Limites
 
