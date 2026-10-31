@@ -6,7 +6,7 @@ import json
 import logging
 import math
 import random
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, Callable
 
 import pandas as pd
@@ -37,7 +37,7 @@ from .schemas import (
     normalize_activity,
 )
 from .wardrobe import SyntheticWardrobeProvider, WardrobeProvider
-from .weather import DestinationResolutionError, fetch_weather
+from .weather import FORECAST_HORIZON_DAYS, DestinationResolutionError, fetch_weather
 
 logger = logging.getLogger(__name__)
 
@@ -689,8 +689,12 @@ class TripTools:
         if self.wardrobe_provider.name == "bo1" and (
             weather.source != "open-meteo" or not expected_dates.issubset(available_dates)
         ):
-            message = ("A real weather forecast is unavailable for these dates or destination. "
-                       "Try again when the trip is within the forecast window.")
+            today = date.today()
+            message = (
+                "A real weather forecast is unavailable for these dates or destination. "
+                f"Forecasts only cover {today - timedelta(days=1)} to {today + timedelta(days=FORECAST_HORIZON_DAYS)}: "
+                "choose trip dates inside that window, or check the destination name."
+            )
             self.state.status = "failed"
             self.state.errors.append(message)
             return {"ok": False, "error": message, "next_action": "ask_user"}

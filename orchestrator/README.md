@@ -74,7 +74,7 @@ python -m venv .venv
 
 Puis ouvrir http://127.0.0.1:8070.
 
-**Connexion** : copier `.env.example` en `.env` (ignoré par git) et y mettre `SUPABASE_URL` et la clé **anon**
+**Connexion** : mettre `SUPABASE_URL` et la clé **anon** dans le `.env` de la racine du dépôt (ou dans `orchestrator/.env`, prioritaire ; ignorés par git)
 (publique, prévue pour le navigateur ; jamais la clé service_role). La page affiche alors « Se connecter » :
 e-mail et mot de passe via supabase-js 2.45.4 (jsDelivr, version figée). Le jeton de session reste en mémoire
 de la page (stockage supabase-js en mémoire, `persistSession: false`), est envoyé en `Authorization: Bearer`, et

@@ -13,9 +13,13 @@ export default defineConfig(({ mode }) => {
   // The project uses SUPABASE_URL / SUPABASE_ANON_KEY. Vite only exposes
   // VITE_* variables by default, so expose just these two public values.
   // Never expose SUPABASE_SERVICE_ROLE_KEY to the browser.
-  const env = loadEnv(mode, process.cwd(), '')
+  // The single .env lives at the repository root; a local .env in this folder wins over it.
+  // Only VITE_* variables reach the client through envDir, so the service-role key stays server-side.
+  const rootDir = path.resolve(__dirname, '..')
+  const env = { ...loadEnv(mode, rootDir, ''), ...loadEnv(mode, process.cwd(), '') }
 
   return {
+    envDir: rootDir,
     define: {
       'import.meta.env.SUPABASE_URL': JSON.stringify(
         process.env.SUPABASE_URL || env.SUPABASE_URL || env.VITE_SUPABASE_URL || '',

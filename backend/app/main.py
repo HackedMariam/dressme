@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import agent, config
+from . import agent, config, quality
 from .auth import User, current_user
 from .colors import COLOR_NAMES
 from .detector import GarmentDetector
@@ -169,12 +169,17 @@ async def analyze(file: UploadFile = File(...),
                   fast: bool = Query(False, description="Skip the GPT-4 step for an instant save "
                                      "(category/colour only); call /reclassify afterwards to fill "
                                      "in the rest. Used by the live camera scan."),
+                  force: bool = Query(False, description="Save even if the photo looks poor or like an "
+                                     "item already in the wardrobe (the user confirmed)"),
+                  only: int | None = Query(None, description="With force: save only the detection with this "
+                                           "index (the one the user confirmed)"),
                   user: User = Depends(current_user)) -> dict[str, Any]:
     data = await _read_upload(file)
-    return await run_in_threadpool(_analyze_sync, data, all_items, save, fast, user)
+    return await run_in_threadpool(_analyze_sync, data, all_items, save, fast, user, force, only)
 
 
-def _analyze_sync(data: bytes, all_items: bool, save: bool, fast: bool, user: User) -> dict[str, Any]:
+def _analyze_sync(data: bytes, all_items: bool, save: bool, fast: bool, user: User,
+                  force: bool = False, only: int | None = None) -> dict[str, Any]:
     try:
         img = GarmentDetector.load_image(data)
     except Exception:
@@ -190,6 +195,40 @@ def _analyze_sync(data: bytes, all_items: bool, save: bool, fast: bool, user: Us
         raise HTTPException(422, "No clothing item detected. Try a photo of a single item on a plain background.")
 
     dets = [d.to_dict() for d in detections]
+    for det, d in zip(detections, dets):
+        d["signature"] = quality.signature(det.cutout_png) if det.cutout_png else None
+
+    skipped: list[dict] = []
+    if save:
+        indexes = list(range(len(detections)))
+        if only is not None:   # the user confirmed this one detection
+            indexes = [only] if 0 <= only < len(detections) else []
+        elif not force:
+            # Nothing is saved without a look: poor captures and items that look like one already
+            # owned come back with the reason, and the user decides ("Add anyway" = force + only).
+            owned = store.list_items(user.id)
+            kept = []
+            for n in indexes:
+                det = detections[n]
+                problem = quality.live_problem(category=det.category, confidence=det.confidence, box=det.box,
+                                               size=img.size, area_ratio=det.area_ratio, strict=fast)
+                twin = None if problem else quality.find_duplicate(store, user.id, owned, det.category,
+                                                                   dets[n]["signature"])
+                if problem or twin:
+                    skipped.append({"index": n, "category": det.category,
+                                    "reason": "quality" if problem else "duplicate", "similar_item": twin,
+                                    "note": problem or f"Looks like your {twin.get('name') or twin['category']}."})
+                else:
+                    kept.append(n)
+            indexes = kept
+        detections = [detections[n] for n in indexes]
+        dets = [dets[n] for n in indexes]
+        if skipped:
+            log.info("user=%s not saved without confirmation: %s", user.id,
+                     ", ".join(f"{k['category']}({k['reason']})" for k in skipped))
+        if not detections:
+            return {"items": [], "skipped": skipped[0] if skipped else None, "skipped_items": skipped}
+
     if fast:
         llms = [fallback_enrich(d) for d in dets]
     else:
@@ -223,7 +262,7 @@ def _analyze_sync(data: bytes, all_items: bool, save: bool, fast: bool, user: Us
         items.append(row)
     log.info("user=%s analysed %d item(s): %s", user.id, len(items),
              ", ".join(f"{i['category']}/{i['enrichment_source']}" for i in items))
-    return {"items": items}
+    return {"items": items, "skipped": skipped[0] if skipped else None, "skipped_items": skipped}
 
 
 @app.get("/api/items")
@@ -253,7 +292,9 @@ def _quick_detect_sync(data: bytes) -> dict[str, Any]:
         d = det.to_dict()
         primary = (d.get("colors") or [{}])[0]
         out.append({"category": d["category"], "group": d["group"], "confidence": d["confidence"],
-                    "box": d["box"], "color_name": primary.get("name")})
+                    "box": d["box"], "color_name": primary.get("name"),
+                    "problem": quality.live_problem(category=det.category, confidence=det.confidence,
+                                                    box=det.box, size=img.size, area_ratio=det.area_ratio)})
     return {"detections": out}
 
 
@@ -319,6 +360,7 @@ async def agent_search(body: AgentRequest, user: User = Depends(current_user)) -
 
 
 class DuplicateCheckRequest(BaseModel):
+    id: str | None = None   # the item just saved: left out of the comparison so it is not its own duplicate
     category: str
     color_name: str | None = None
     pattern: str | None = None
@@ -330,7 +372,7 @@ async def agent_check_duplicate(body: DuplicateCheckRequest, user: User = Depend
     """Run right after a live-scan capture: the agent decides whether to search the wardrobe for
     a near-duplicate of the item that was just saved, and flags it if it finds a confident match.
     """
-    items = store.list_items(user.id)
+    items = [i for i in store.list_items(user.id) if i["id"] != body.id]
     return await run_in_threadpool(agent.check_duplicate, items, body.model_dump())
 
 

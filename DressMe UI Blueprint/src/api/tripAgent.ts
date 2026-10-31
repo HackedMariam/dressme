@@ -250,8 +250,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         408,
       );
     }
+    // "Failed to fetch" means the browser could not reach the service at all.
     throw new TripApiError(
-      error instanceof Error ? error.message : "Network request failed",
+      error instanceof TypeError
+        ? `Cannot reach the Help Me Pack service at ${API_BASE}. Start it with "python -m uvicorn backend.main:app --port 8020" (or run start_all.ps1), then try again.`
+        : error instanceof Error
+          ? error.message
+          : "Network request failed",
       0,
     );
   } finally {

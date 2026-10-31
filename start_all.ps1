@@ -7,7 +7,7 @@
     Chaque service démarre dans son dossier avec le Python de son venv (.venv, venv ou .venv-*), sinon celui du
     PATH. Pour un autre interpréteur : DRESSME_PY_BO1, DRESSME_PY_PURCHASE, DRESSME_PY_STYLIST,
     DRESSME_PY_ORCHESTRATOR, DRESSME_PY_PACKING (chemin complet de python.exe).
-    Les secrets restent dans les fichiers .env de chaque service (voir « Lancer DressMe » dans README.md) :
+    Les secrets restent dans le .env unique de la racine (copie de .env.example ; voir « Lancer DressMe » dans README.md) :
     ce script n'en lit ni n'en affiche aucun.
     Un service dont le port répond déjà n'est pas relancé.
     Journaux et identifiants des processus : %TEMP%\dressme-run (hors du dépôt).

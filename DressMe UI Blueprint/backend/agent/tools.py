@@ -9,7 +9,7 @@ from typing import Any
 
 from xgboost_ranker import rank_gap_candidates
 
-from .coverage import GOALS, compute_coverage, get_requirement
+from .coverage import ALL_YEAR, GOALS, compute_coverage, get_requirement
 from .learning import DEMO_MODEL_PATH, active_model_path, model_metadata
 from .memory import AgentMemory
 from .wardrobe_source import load_wardrobe
@@ -69,6 +69,7 @@ def redundancy_scores(descriptions: list[str], wardrobe: list[dict[str, Any]]) -
             {
                 "redundancy_score": round(score, 4),
                 "closest_owned_item": wardrobe[best]["name"],
+                "closest_owned_item_id": wardrobe[best]["id"],
                 "raw_similarity": round(raw, 4),
                 "method": method,
             }
@@ -81,7 +82,7 @@ def score_candidates(
 ) -> list[dict[str, Any]]:
     """Fill the six ranker features for each uncovered requirement."""
     season = GOALS[goal_id]["season"]
-    in_season = [item for item in wardrobe if season in item.get("seasons", [])]
+    in_season = list(wardrobe) if season == ALL_YEAR else [item for item in wardrobe if season in item.get("seasons", [])]
     requirements = [get_requirement(goal_id, c["candidate_id"]) for c in candidates]
     redundancy = redundancy_scores([r["description"] for r in requirements], wardrobe)
     preferred_styles = set(profile.get("preferred_styles", []))
@@ -103,6 +104,7 @@ def score_candidates(
                 "preference_match": round(0.4 + 0.6 * style_overlap, 4),
                 "redundancy_score": closest["redundancy_score"],
                 "closest_owned_item": closest["closest_owned_item"],
+                "closest_owned_item_id": closest["closest_owned_item_id"],
                 "redundancy_method": closest["method"],
                 "pairable_owned_items": pairable,
             }
@@ -123,24 +125,26 @@ class GapAgentTools:
         self.user_id = user_id
         self.conversation_id = conversation_id
         self.last_ranking: dict[str, Any] | None = None
+        self.shown_items: list[dict[str, Any]] = []   # owned items the agent chose to show as photo cards
 
     def get_wardrobe(self) -> dict[str, Any]:
-        wardrobe, profile = load_wardrobe(), load_profile()
+        wardrobe, profile = load_wardrobe(self.user_id), load_profile()
         return {
             "profile": profile,
             "item_count": len(wardrobe),
             "items_by_category": dict(Counter(item["category"] for item in wardrobe)),
             "items": [
-                {"name": item["name"], "category": item["category"], "seasons": item["seasons"]}
+                {"id": item["id"], "name": item["name"], "category": item["category"],
+                 "subcategory": item.get("subcategory"), "colors": item.get("colors", []), "seasons": item["seasons"]}
                 for item in wardrobe
             ],
         }
 
     def compute_coverage(self, goal: str) -> dict[str, Any]:
-        return compute_coverage(load_wardrobe(), goal)
+        return compute_coverage(load_wardrobe(self.user_id), goal)
 
     def rank_gaps(self, goal: str) -> dict[str, Any]:
-        wardrobe, profile = load_wardrobe(), load_profile()
+        wardrobe, profile = load_wardrobe(self.user_id), load_profile()
         coverage = compute_coverage(wardrobe, goal)
         if not coverage["candidates"]:
             return {"goal": goal, "ranked_gaps": [], "covered": coverage["covered"],
@@ -170,6 +174,21 @@ class GapAgentTools:
         self.last_ranking = result
         return result
 
+    def show_items(self, item_ids: list[str]) -> dict[str, Any]:
+        """Queue owned items to be displayed to the user, with their photo, next to the answer."""
+        by_id = {item["id"]: item for item in load_wardrobe(self.user_id)}
+        shown, unknown = [], []
+        for item_id in item_ids:
+            item = by_id.get(item_id)
+            if item is None:
+                unknown.append(item_id)
+            elif all(entry["id"] != item_id for entry in self.shown_items) and len(self.shown_items) < MAX_SHOWN_ITEMS:
+                self.shown_items.append(
+                    {key: item.get(key) for key in ("id", "name", "category", "subcategory", "colors", "image_url")}
+                )
+                shown.append(item["name"])
+        return {"shown": shown, "unknown_ids": unknown}
+
     def get_past_analyses(self) -> dict[str, Any]:
         return {"past_analyses": self.memory.past_gap_analyses(self.user_id)}
 
@@ -179,6 +198,7 @@ class GapAgentTools:
             "compute_coverage": self.compute_coverage,
             "rank_gaps": self.rank_gaps,
             "get_past_analyses": self.get_past_analyses,
+            "show_items": self.show_items,
         }
         if name not in handlers:
             return {"error": f"Unknown tool {name!r}."}
@@ -189,6 +209,7 @@ class GapAgentTools:
 
 
 GOAL_ENUM = list(GOALS)
+MAX_SHOWN_ITEMS = 8
 
 TOOL_SCHEMAS = [
     {
@@ -233,6 +254,21 @@ TOOL_SCHEMAS = [
             "name": "get_past_analyses",
             "description": "Recall this user's previous gap analyses from long-term memory.",
             "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "show_items",
+            "description": (
+                "Display owned wardrobe items to the user as photo cards next to your answer. Call it whenever you "
+                "name owned items. Ids come from get_wardrobe, matched_item_ids or closest_owned_item_id. At most 8."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"item_ids": {"type": "array", "items": {"type": "string"}}},
+                "required": ["item_ids"],
+            },
         },
     },
 ]

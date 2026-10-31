@@ -29,10 +29,11 @@ if not MODEL_PATH.is_absolute():
     MODEL_PATH = BASE_DIR / MODEL_PATH
 DETECT_CONF = _float("DETECT_CONF", 0.25)        # min confidence to keep a detection
 REVIEW_THRESHOLD = _float("REVIEW_THRESHOLD", 0.60)  # below this -> "Needs review"
+LIVE_MIN_CONFIDENCE = _float("LIVE_MIN_CONFIDENCE", 0.50)  # live scan never saves a detection below this
 IMG_SIZE = int(os.getenv("IMG_SIZE", 640))
 
 # --- LLM (OpenAI GPT-4) -----------------------------------------------------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 LLM_SEND_IMAGE = _bool("LLM_SEND_IMAGE", True)
 LLM_IMAGE_DETAIL = os.getenv("LLM_IMAGE_DETAIL", "low")  # low | high | auto
@@ -40,7 +41,7 @@ LLM_TIMEOUT = _float("LLM_TIMEOUT", 45)
 
 # --- Supabase -------------------------------------------------------------
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY", "")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "wardrobe")
 USE_SUPABASE = bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
 

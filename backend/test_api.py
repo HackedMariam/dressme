@@ -65,6 +65,27 @@ def test_health_and_cors_preflight(client: TestClient) -> None:
     assert preflight.headers.get("access-control-allow-origin") == "http://localhost:8443"
 
 
+@pytest.mark.parametrize(
+    "origin, allowed",
+    [
+        ("http://localhost:3000", True),          # any local port
+        ("http://127.0.0.1:8443", True),
+        ("http://0.0.0.0:8443", True),            # Vite listens on 0.0.0.0
+        ("http://192.168.1.20:8443", True),       # this machine's LAN address
+        ("http://10.0.0.5:8443", True),
+        ("https://evil.example.com", False),
+        ("http://192.168.1.20.evil.com", False),  # look-alike host
+        ("http://8.8.8.8:8443", False),           # public address
+    ],
+)
+def test_cors_accepts_local_dev_origins_only(client: TestClient, origin: str, allowed: bool) -> None:
+    preflight = client.options(
+        "/api/trips", headers={"Origin": origin, "Access-control-request-method": "POST"}
+    )
+    assert (preflight.status_code == 200) is allowed
+    assert (preflight.headers.get("access-control-allow-origin") == origin) is allowed
+
+
 def test_text_trip_clarification_then_optimized_capsule(client: TestClient) -> None:
     created = client.post(
         "/api/trips",

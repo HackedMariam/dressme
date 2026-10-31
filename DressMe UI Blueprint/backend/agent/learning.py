@@ -15,9 +15,8 @@ from typing import Any
 
 import numpy as np
 from sklearn.metrics import ndcg_score
-from xgboost import XGBRanker
 
-from xgboost_ranker import FEATURES, MODEL_PATH, load_ranker
+from xgboost_ranker import FEATURES, MODEL_PATH, load_ranker, make_ranker
 
 from .coverage import compute_coverage
 from .memory import AgentMemory
@@ -62,7 +61,8 @@ def feedback_groups(memory: AgentMemory, user_id: str) -> list[dict[str, Any]]:
     for entry in memory.list_feedback(user_id):
         by_goal[entry["goal"]][entry["candidate_id"]] = entry
 
-    wardrobe, profile = load_wardrobe(), load_profile()
+    wardrobe, profile = load_wardrobe(user_id), load_profile()
+
     groups = []
     for goal, rated in by_goal.items():
         candidates = compute_coverage(wardrobe, goal)["candidates"]
@@ -118,19 +118,7 @@ def retrain(memory: AgentMemory, user_id: str) -> dict[str, Any]:
         query_ids += [query_id] * len(group_labels)
         group_weights.append(weight)
 
-    # Same hyperparameters as train_bo3_ranker.py, plus per-group weights.
-    ranker = XGBRanker(
-        objective="rank:ndcg",
-        eval_metric="ndcg@3",
-        n_estimators=150,
-        max_depth=4,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        tree_method="hist",
-        random_state=42,
-        n_jobs=4,
-    )
+    ranker = make_ranker()   # same hyperparameters as CSV training; here with per-group weights
     ranker.fit(np.array(features), labels, qid=query_ids, sample_weight=group_weights, verbose=False)
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     ranker.save_model(str(MODEL_PATH))
