@@ -1,6 +1,8 @@
 ﻿import { isSupabaseConfigured, supabase } from "./supabase"
 import type {
   AccuracyRow,
+  AvatarJob,
+  AvatarStatus,
   AgentReply,
   AnalyzeResponse,
   DuplicateResult,
@@ -68,6 +70,24 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
+}
+
+// Images of the avatar are private: they are fetched with the session token and shown as blob URLs.
+async function requestBlob(path: string): Promise<Blob> {
+  const headers = new Headers()
+  if (isSupabaseConfigured) {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+  }
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, { headers })
+  } catch {
+    throw new ApiError("Cannot reach the API server. Make sure the backend is running.", 0)
+  }
+  if (!response.ok) throw new ApiError(response.statusText || "Request failed", response.status)
+  return response.blob()
 }
 
 function fileBody(file: File | Blob, name = "file") {
@@ -169,5 +189,33 @@ export const api = {
   },
 
   accuracy: () => request<AccuracyRow[]>("/api/stats/accuracy"),
+
+  avatarStatus: () => request<AvatarStatus>("/api/avatar"),
+
+  // Starts a background job (one to two minutes); poll avatarJob until it is done.
+  avatarCreate: (file: File, consent: boolean) => {
+    const form = new FormData()
+    form.append("file", file, file.name)
+    form.append("consent", String(consent))
+    return request<{ job_id: string }>("/api/avatar", { method: "POST", body: form })
+  },
+
+  avatarJob: (jobId: string) => request<AvatarJob>(`/api/avatar/jobs/${encodeURIComponent(jobId)}`),
+
+  avatarDelete: () => request<AvatarStatus>("/api/avatar", { method: "DELETE" }),
+
+  avatarModel: () => requestBlob("/api/avatar/model"),
+
+  avatarPhoto: () => requestBlob("/api/avatar/photo"),
+
+  avatarTryOn: (itemId: string, refresh = false) =>
+    request<{ cached: boolean; job_id?: string }>("/api/avatar/tryon", {
+      method: "POST",
+      body: JSON.stringify({ item_id: itemId, refresh }),
+    }),
+
+  avatarTryOnModel: (itemId: string) => requestBlob(`/api/avatar/tryon/${encodeURIComponent(itemId)}/model`),
+
+  avatarTryOnImage: (itemId: string) => requestBlob(`/api/avatar/tryon/${encodeURIComponent(itemId)}/image`),
 }
 

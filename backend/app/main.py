@@ -16,14 +16,14 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import agent, config, quality
+from . import agent, avatar, config, quality
 from .auth import User, current_user
 from .colors import COLOR_NAMES
 from .detector import GarmentDetector
@@ -89,7 +89,8 @@ def health() -> dict:
         model_ok = False
     return {"ok": model_ok, "model_loaded": model_ok, "model": config.MODEL_PATH.name,
             "store": store.kind, "auth": config.AUTH_ENABLED,
-            "llm": bool(config.OPENAI_API_KEY), "llm_model": config.LLM_MODEL}
+            "llm": bool(config.OPENAI_API_KEY), "llm_model": config.LLM_MODEL,
+            "avatar": avatar.is_configured()}
 
 
 @app.get("/api/taxonomy")
@@ -374,6 +375,115 @@ async def agent_check_duplicate(body: DuplicateCheckRequest, user: User = Depend
     """
     items = [i for i in store.list_items(user.id) if i["id"] != body.id]
     return await run_in_threadpool(agent.check_duplicate, items, body.model_dump())
+
+
+# ---------------------------------------------------------------------------
+# 3D avatar and virtual try-on (fal.ai). Everything is scoped to the signed-in user.
+# Generations take 1-2 minutes: they run as background jobs that the browser polls.
+def _avatar_errors(fn):
+    try:
+        return fn()
+    except avatar.AvatarError as error:
+        raise HTTPException(error.status_code, error.message) from error
+
+
+def _file(data: bytes | None, media_type: str, what: str) -> Response:
+    if data is None:
+        raise HTTPException(404, f"No {what} yet")
+    return Response(content=data, media_type=media_type, headers={"Cache-Control": "private, max-age=300"})
+
+
+@app.get("/api/avatar")
+def avatar_status(user: User = Depends(current_user)) -> dict:
+    return avatar.status(store, user.id)
+
+
+@app.post("/api/avatar")
+async def avatar_create(file: UploadFile = File(...), consent: bool = Form(False),
+                        user: User = Depends(current_user)) -> dict:
+    """Full-body photo -> 3D avatar (background job). The photo is kept privately for later try-ons."""
+    if not consent:
+        raise HTTPException(400, "Consent is required: the photo is sent to fal.ai to create the 3D avatar.")
+    data = await _read_upload(file)
+
+    def create() -> dict:
+        photo = avatar.normalize_photo(data)
+        avatar.check_quota(user.id, "avatars", config.AVATAR_CREATIONS_PER_DAY, 24 * 3600)
+
+        def work() -> None:
+            avatar.save_avatar(store, user.id, photo, avatar.image_to_3d(photo))
+
+        return {"job_id": avatar.start_job(user.id, "avatar", work)}
+
+    return await run_in_threadpool(lambda: _avatar_errors(create))
+
+
+@app.get("/api/avatar/jobs/{job_id}")
+def avatar_job(job_id: str, user: User = Depends(current_user)) -> dict:
+    return _avatar_errors(lambda: avatar.get_job(user.id, job_id))
+
+
+@app.delete("/api/avatar")
+def avatar_delete(user: User = Depends(current_user)) -> dict:
+    avatar.delete_all(store, user.id)
+    return avatar.status(store, user.id)
+
+
+@app.get("/api/avatar/model")
+def avatar_model(user: User = Depends(current_user)) -> Response:
+    return _file(avatar.load_model(store, user.id), "model/gltf-binary", "avatar")
+
+
+@app.get("/api/avatar/photo")
+def avatar_photo(user: User = Depends(current_user)) -> Response:
+    return _file(avatar.load_photo(store, user.id), "image/jpeg", "photo")
+
+
+class TryOnRequest(BaseModel):
+    item_id: str
+    refresh: bool = False   # redo it (costs money) instead of returning the saved result
+
+
+@app.post("/api/avatar/tryon")
+def avatar_tryon(body: TryOnRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+    """Put a wardrobe piece on the user, in 3D (background job). A finished result is returned for free."""
+    item = _get_or_404(user, body.item_id)
+    category = avatar.tryon_category(item)
+    if category is None:
+        raise HTTPException(422, "Try-on works for tops, jackets, bottoms and dresses (not shoes, bags or accessories).")
+
+    def start() -> dict:
+        has_png = avatar.load_tryon(store, user.id, item["id"], "png") is not None
+        has_glb = avatar.load_tryon(store, user.id, item["id"], "glb") is not None
+        if has_glb and not body.refresh:
+            return {"cached": True}
+        photo = avatar.load_photo(store, user.id)
+        if photo is None:
+            raise avatar.AvatarError(409, "Create your 3D avatar first.")
+        avatar.check_quota(user.id, "try-ons", config.AVATAR_TRYONS_PER_HOUR, 3600)
+
+        def work() -> None:
+            if has_png and not body.refresh:   # the 2D step already worked: only the 3D conversion is left
+                dressed = avatar.load_tryon(store, user.id, item["id"], "png")
+            else:
+                garment = store.download(f"{item_folder(user.id, item['id'])}/cutout.png")
+                dressed = avatar.try_on_image(photo, garment, category)
+                avatar.save_tryon(store, user.id, item["id"], dressed, "png")
+            avatar.save_tryon(store, user.id, item["id"], avatar.image_to_3d(dressed), "glb")
+
+        return {"cached": False, "job_id": avatar.start_job(user.id, "tryon", work)}
+
+    return _avatar_errors(start)
+
+
+@app.get("/api/avatar/tryon/{item_id}/model")
+def avatar_tryon_model(item_id: str, user: User = Depends(current_user)) -> Response:
+    return _avatar_errors(lambda: _file(avatar.load_tryon(store, user.id, item_id, "glb"), "model/gltf-binary", "try-on"))
+
+
+@app.get("/api/avatar/tryon/{item_id}/image")
+def avatar_tryon_image(item_id: str, user: User = Depends(current_user)) -> Response:
+    return _avatar_errors(lambda: _file(avatar.load_tryon(store, user.id, item_id, "png"), "image/png", "try-on"))
 
 
 def _get_or_404(user: User, item_id: str) -> dict:

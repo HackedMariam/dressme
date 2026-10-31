@@ -60,6 +60,23 @@ export interface AgentReply {
   filters?: Record<string, string | number>[]
 }
 
+export interface AvatarJob {
+  id: string
+  kind: "avatar" | "tryon"
+  status: "running" | "done" | "failed"
+  error?: string | null
+}
+
+export interface AvatarStatus {
+  configured: boolean
+  exists: boolean
+  created_at?: string | null
+  /** pieces already tried on; has_3d is false when only the 2D photo step worked */
+  tryons: { item_id: string; has_3d: boolean }[]
+  /** a generation still running (it survives a page reload) */
+  job?: AvatarJob | null
+}
+
 export interface DuplicateResult {
   duplicate: boolean
   similar_item_id: string | null

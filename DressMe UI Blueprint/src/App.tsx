@@ -12,6 +12,7 @@ import DashboardPage from "./features/dashboard/DashboardPage";
 import FindSimilarPage from "./features/purchase/FindSimilarPage";
 import ShouldIBuyPage from "./features/purchase/ShouldIBuyPage";
 import StylistPage from "./features/stylist/StylistPage";
+import AvatarPage from "./features/avatar/AvatarPage";
 import WardrobePage from "./features/wardrobe/WardrobePage";
 import { WardrobeProvider } from "./features/wardrobe/WardrobeProvider";
 import { getSupabaseConfigMessage } from "./lib/supabase";
@@ -27,6 +28,7 @@ type Page =
   | "should-i-buy"
   | "find-similar"
   | "ai-stylist"
+  | "avatar"
   | "weather"
   | "settings";
 
@@ -57,6 +59,7 @@ const navItems: { label: string; page: Page; icon: string }[] = [
   { label: "Should I Buy?", page: "should-i-buy", icon: "◇" },
   { label: "Find Similar", page: "find-similar", icon: "◎" },
   { label: "AI Stylist", page: "ai-stylist", icon: "◆" },
+  { label: "My 3D Avatar", page: "avatar", icon: "☺" },
   { label: "Weather", page: "weather", icon: "◌" },
   { label: "Settings", page: "settings", icon: "⊙" },
 ];
@@ -880,6 +883,7 @@ function AuthenticatedApp() {
       case "weather": return <WeatherPage />;
       case "should-i-buy": return <ShouldIBuyPage />;
       case "ai-stylist": return <StylistPage />;
+      case "avatar": return <AvatarPage />;
       case "style-profile": return <StyleProfile />;
       case "find-similar": return <FindSimilarPage />;
       case "settings": return <Settings />;
