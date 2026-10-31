@@ -37,6 +37,7 @@ class FakeServices:
         self.calls = []
         self.down = set()
         self.purchase_reply = None      # réponse de /analyze à la place de celle par défaut
+        self.stylist_extra = {}         # champs ajoutés à la réponse du Stylist (ex. « weather »)
 
     def __call__(self, request, timeout):
         host = request.full_url.split("//", 1)[1].split(".test", 1)[0]
@@ -54,7 +55,8 @@ class FakeServices:
             return 200, json.dumps(WARDROBE).encode()
         if host == "stylist":
             payload = {"response": "1. Black Ribbed Turtleneck + Chocolate Trousers", "visited": ["recommend"],
-                       "outfits": [{"rank": 1, "score": 96.3, "items": [{"name": "Black Ribbed Turtleneck"}]}]}
+                       "outfits": [{"rank": 1, "score": 96.3, "items": [{"name": "Black Ribbed Turtleneck"}]}],
+                       **self.stylist_extra}
             return 200, json.dumps(payload).encode()
         if host == "purchase":
             payload = self.purchase_reply or {
@@ -430,3 +432,19 @@ def test_ollama_calls_keep_the_model_loaded(fake):
     run(make(fake, llm="ollama"), "Quels conseils pour une tenue de soirée ?")
     body = fake.to("ollama")[0]["body"]
     assert body["keep_alive"] == "30m"
+
+
+@pytest.mark.parametrize("weather, line", [
+    ({"source": "MET Norway", "t_min": 11, "t_max": 17}, "stylist -> météo : MET Norway"),
+    ({"unavailable": True, "reason": "aucune source"}, "stylist -> météo indisponible : saison estimée d'après la date"),
+])
+def test_stylist_weather_source_is_shown_in_the_trace(fake, weather, line):
+    fake.stylist_extra = {"weather": weather}
+    state = run(make(fake), "J'ai un entretien demain, que porter ?", token=TOKEN)
+    assert line in state["trace"]
+    assert state["result"]["details"]["weather_source"] == weather.get("source")
+
+
+def test_stylist_without_weather_adds_no_weather_line(fake):
+    state = run(make(fake), "J'ai un entretien demain, que porter ?", token=TOKEN)
+    assert not any("météo" in t for t in state["trace"])

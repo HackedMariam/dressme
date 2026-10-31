@@ -204,3 +204,6 @@ Fichiers `.env` (ignorés par git ; ne jamais les commiter). Seuls les **noms** 
 | `frontend/.env` | `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
 
 Le Stylist n'a pas de `.env` : avec `--require-auth`, il vérifie le jeton de l'utilisateur auprès de BO1.
+
+Démo sans réseau : `$env:STYLIST_WEATHER_OFFLINE = "1"` avant `.\start_all.ps1` ; le Stylist utilise alors une
+prévision fixe enregistrée (`bo4/backend/weather_offline.json`) au lieu d'Open-Meteo, MET Norway et wttr.in.

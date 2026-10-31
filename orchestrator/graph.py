@@ -633,13 +633,22 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         if call.ok and isinstance(call.data, dict):
             outfits = [{"rank": o.get("rank"), "score": o.get("score"),
                         "items": [i.get("name") for i in o.get("items") or []]} for o in call.data.get("outfits") or []]
+            weather = call.data.get("weather") if isinstance(call.data.get("weather"), dict) else {}
             result = {"service": "stylist", "label": label, "ok": True, "text": call.data.get("response") or "",
-                      "details": {"outfits": outfits, "visited": call.data.get("visited") or []}}
+                      "details": {"outfits": outfits, "visited": call.data.get("visited") or [],
+                                  "weather_source": weather.get("source")}}
         else:
+            weather = {}
             result = {"service": "stylist", "label": label, "ok": False,
                       "text": _failure(label, call, bool(token), "le Stylist"),
                       "details": {"login_required": _needs_login(call, bool(token))}}
-        return {"result": result, "last_route": "stylist", "trace": _line(state, "stylist", call.trace())}
+        trace = _line(state, "stylist", call.trace())
+        # panneau « coulisses » : quelle source météo a répondu au Stylist
+        if weather.get("source"):
+            trace.append(f"stylist -> météo : {weather['source']}")
+        elif weather.get("unavailable"):
+            trace.append("stylist -> météo indisponible : saison estimée d'après la date")
+        return {"result": result, "last_route": "stylist", "trace": trace}
 
     def wardrobe(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
         if off := switched_off("wardrobe", "bo1", state):
