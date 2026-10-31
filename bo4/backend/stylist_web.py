@@ -32,6 +32,7 @@ import stylist_feedback
 
 NODE_ORDER = ("extract_intent", "record_feedback", "clarify", "get_weather", "fetch_wardrobe", "apply_constraints", "recommend", "style_advice", "respond")
 SUBSCORES = ("color_score", "style_score", "occasion_score", "season_score")
+DEFAULT_WEATHER = sa.default_weather()
 
 _settings: dict[str, Any] = {
     "bo1_url": os.environ.get("BO1_API_URL"),
@@ -39,7 +40,8 @@ _settings: dict[str, Any] = {
     "llm": None if os.environ.get("STYLIST_NO_LLM") == "1" else sa.ollama_extract,
     "loader": None,
     "today": None,
-    "weather": None if os.environ.get("STYLIST_NO_WEATHER") == "1" else sa.open_meteo_forecast,
+    # Open-Meteo, MET Norway, wttr.in, cache ; un seul fournisseur pour garder cache et sources en panne
+    "weather": None if os.environ.get("STYLIST_NO_WEATHER") == "1" else DEFAULT_WEATHER,
     "city": os.environ.get("STYLIST_CITY", sa.DEFAULT_CITY),
     "feedback": stylist_feedback.FeedbackStore(os.environ.get("STYLIST_FEEDBACK_FILE", "stylist_feedback.json")),
     "advice": None,  # BO5 (RAG) désactivé par défaut : activé par --bo5-url
@@ -52,7 +54,7 @@ _graph = None
 def configure(*, bo1_url: Optional[str] = None, fallback: Optional[str] = None,
               llm: Optional[Callable] = sa.ollama_extract, loader: Optional[Callable] = None,
               today: Optional[Callable[[], dt.date]] = None,
-              weather: Optional[Callable] = sa.open_meteo_forecast, city: str = sa.DEFAULT_CITY,
+              weather: Optional[Callable] = DEFAULT_WEATHER, city: str = sa.DEFAULT_CITY,
               feedback: Optional[stylist_feedback.FeedbackStore] = None,
               advice: Optional[Callable[[str], dict]] = None, require_auth: bool = False,
               identity: Optional[Callable[[str], str]] = None) -> None:
@@ -156,7 +158,7 @@ def mermaid_for(visited: list[str]) -> str:
         "  style_advice -.->|question sur la tenue 1| bo5_rag",
         "  respond --> END",
         '  extract_intent["extract_intent<br/>LLM + règles"]',
-        '  get_weather["get_weather<br/>Open-Meteo"]',
+        '  get_weather["get_weather<br/>Open-Meteo · MET Norway · wttr.in"]',
         '  fetch_wardrobe["fetch_wardrobe<br/>BO1 : GET /api/items"]',
         '  apply_constraints["apply_constraints<br/>contraintes obligatoires"]',
         '  recommend["recommend<br/>moteur BO4 + profil"]',
@@ -182,7 +184,7 @@ ROW_Y = (50, 124, 198, 272, 346, 420, 494)          # haut de chaque boîte de l
 # node -> (x, y, largeur, sous-titre)
 GRAPH_NODES = {
     "extract_intent": (CENTER_X, ROW_Y[0], CENTER_W, "LLM + règles"),
-    "get_weather": (CENTER_X, ROW_Y[1], CENTER_W, "Open-Meteo"),
+    "get_weather": (CENTER_X, ROW_Y[1], CENTER_W, "3 sources météo + cache"),
     "fetch_wardrobe": (CENTER_X, ROW_Y[2], CENTER_W, "BO1 /api/items"),
     "apply_constraints": (CENTER_X, ROW_Y[3], CENTER_W, "contraintes"),
     "recommend": (CENTER_X, ROW_Y[4], CENTER_W, "moteur BO4 + profil"),
@@ -691,7 +693,7 @@ PAGE = r"""<!doctype html>
       </div>
       <div class="block"><h3>Trace du dernier tour</h3><ol class="trace" id="trace"><li class="muted">Aucun tour pour l'instant.</li></ol></div>
       <div class="block"><h3>Demande comprise (mémoire de la conversation)</h3><pre id="request">{}</pre></div>
-      <div class="block"><h3>Météo utilisée (Open-Meteo)</h3><div id="weather" class="muted">-</div></div>
+      <div class="block"><h3>Météo utilisée</h3><div id="weather" class="muted">-</div></div>
       <div class="block"><h3>Profil de style (retours 👍 / 👎)</h3><div id="profile" class="muted">Aucun retour pour l'instant.</div></div>
       <div class="block"><h3>Garde-robe utilisée</h3><div id="wardrobe" class="muted">-</div></div>
     </div>
@@ -927,10 +929,13 @@ function updateSide(data) {
   const m = data.weather || {};
   if (m.city) {
     const tmin = Math.round(m.t_min), tmax = Math.round(m.t_max);
-    $("weather").innerHTML = `${esc(m.city)}, ${esc(m.date)} : <b>${tmin} à ${tmax} °C</b>, pluie ${esc(m.rain_probability)} %`;
-    $("context").textContent = `${m.city} · ${tmin} à ${tmax} °C · pluie ${m.rain_probability} % (prévision du ${m.date})`;
+    const rain = m.rain_probability === null || m.rain_probability === undefined ? (m.rain_code ? "annoncée" : "?") : `${m.rain_probability} %`;
+    $("weather").innerHTML = `${esc(m.city)}, ${esc(m.date)} : <b>${tmin} à ${tmax} °C</b>, pluie ${esc(rain)}`
+      + `<br><span class="muted">Source : ${esc(m.source || "Open-Meteo")}${m.attribution ? " · " + esc(m.attribution) : ""}</span>`;
+    $("context").textContent = `${m.city} · ${tmin} à ${tmax} °C · pluie ${rain} (${m.source || "Open-Meteo"}, prévision du ${m.date})`;
   } else {
-    $("weather").textContent = "Non utilisée pour ce tour (saison demandée, météo désactivée ou indisponible).";
+    $("weather").textContent = m.unavailable ? "Météo indisponible (aucune source n'a répondu) : saison estimée d'après la date."
+      : "Non utilisée pour ce tour (saison demandée ou météo désactivée).";
   }
   const w = data.wardrobe || {};
   if (w.source) {
@@ -1063,7 +1068,7 @@ def main() -> None:
         parser.error("--require-auth est incompatible avec --fallback : une panne de BO1 ne doit jamais "
                      "basculer en silence sur une garde-robe d'exemple")
     configure(bo1_url=args.bo1_url, fallback=args.fallback, llm=None if args.no_llm else sa.ollama_extract,
-              weather=None if args.no_weather else sa.open_meteo_forecast, city=args.city,
+              weather=None if args.no_weather else DEFAULT_WEATHER, city=args.city,
               feedback=stylist_feedback.FeedbackStore(args.feedback_file),
               advice=sa.bo5_advice(args.bo5_url), require_auth=args.require_auth)
 

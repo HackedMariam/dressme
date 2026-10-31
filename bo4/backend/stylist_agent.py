@@ -6,7 +6,7 @@ Graphe :
                     |      +--(retour « j'aime la 2 »)--> record_feedback (I76) --> END
                     |                                       +--(« je n'aime pas la 1 »)--> get_weather
                     v
-             get_weather (I71 : Open-Meteo, prévision de la ville et du jour demandés)
+             get_weather (I71 : Open-Meteo, MET Norway, wttr.in, cache ; voir weather_sources.py)
                     |
                     v
              fetch_wardrobe (BO1, GET /api/items) --(BO1 indisponible)--> respond
@@ -53,6 +53,8 @@ from typing import Any, Callable, Optional, TypedDict
 
 import bo1_api_adapter
 import stylist_feedback
+import weather_sources
+from weather_sources import WeatherError, season_from_temperature  # noqa: F401 (API du module)
 
 try:  # LangGraph n'injecte la configuration du tour que dans un paramètre typé RunnableConfig.
     from langchain_core.runnables import RunnableConfig
@@ -73,7 +75,11 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 # « à Paris », « in London »… sur le message d'origine (majuscule obligatoire).
 CITY_PATTERN = r"(?:^|\s)(?:à|a|au|in)\s+([A-ZÀ-Ý][\w'-]+(?:[\s-][A-ZÀ-Ý][\w'-]+)?)"
 CITY_STOPWORDS = {"esprit", "demain", "midi", "minuit"}
-RAIN_ALERT = 60  # probabilité de pluie (%) à partir de laquelle on prévient
+RAIN_ALERT = 50  # probabilité de pluie (%) à partir de laquelle la contrainte de pluie s'applique
+# Pièces de dessus contre la pluie : veste (blazer compris), manteau, trench ; le cardigan ne protège pas.
+RAIN_OUTERWEAR_CATEGORIES = {"jacket", "coat", "blazer"}
+RAIN_OUTERWEAR_NAMES = r"\b(trench|parka|raincoat|imperm[eé]able|anorak|k-?way)\b"
+RAIN_FRAGILE_MATERIALS = r"\b(suede|silk|daim|soie)\b"   # écartés sous la pluie si la matière est connue
 
 # Groupes de vêtements qu'on peut exclure, exprimés en catégories BO4.
 EXCLUDABLE_CATEGORIES = {
@@ -196,6 +202,7 @@ class StylistState(TypedDict, total=False):
     no_structured_jacket: bool        # business ou formal sans veste structurée dans la garde-robe
     casual_tops_excluded: list[str]   # O4 : hauts écartés pour le dress code (« nom (raison) »)
     weather: dict                     # prévision utilisée au dernier tour (si disponible)
+    rain_plan: dict                   # pluie : pièce de dessus exigée, matières écartées (apply_constraints)
     advice: dict                      # conseil BO5 du tour : {"question", "answer", "sources"}
     error: str
     response: str
@@ -442,10 +449,6 @@ def dress_code_check(items: list[dict], code: Optional[str],
     return ok, shown
 
 
-class WeatherError(RuntimeError):
-    """Prévision météo indisponible (réseau, ville inconnue, jour hors prévision)."""
-
-
 def _get_json(url: str, params: dict, timeout: float) -> dict:
     query = urllib.parse.urlencode(params)
     with urllib.request.urlopen(f"{url}?{query}", timeout=timeout) as response:
@@ -465,27 +468,43 @@ def open_meteo_forecast(city: str, day: dt.date, timeout: float = 6.0) -> dict:
             "daily": "temperature_2m_min,temperature_2m_max,precipitation_probability_max",
             "forecast_days": 7}, timeout)["daily"]
         index = daily["time"].index(day.isoformat())
+        rain = (daily.get("precipitation_probability_max") or [None] * len(daily["time"]))[index]
+        t_min, t_max = daily["temperature_2m_min"][index], daily["temperature_2m_max"][index]
     except WeatherError:
         raise
+    except json.JSONDecodeError as exc:  # page HTML d'un portail captif ou d'un proxy
+        raise WeatherError(f"Open-Meteo : réponse non JSON ({exc})") from exc
     except ValueError as exc:
         raise WeatherError(f"pas de prévision pour le {day.isoformat()}") from exc
     except Exception as exc:  # réseau, JSON inattendu...
         raise WeatherError(f"Open-Meteo injoignable : {exc}") from exc
-    rain = (daily.get("precipitation_probability_max") or [None] * len(daily["time"]))[index]
-    return {"city": place.get("name", city), "date": day.isoformat(),
-            "t_min": daily["temperature_2m_min"][index], "t_max": daily["temperature_2m_max"][index],
+    # Open-Meteo peut renvoyer null : sans ce contrôle, season_from_temperature levait un TypeError
+    # hors de tout try, et /api/chat répondait 500.
+    if any(isinstance(t, bool) or not isinstance(t, (int, float)) for t in (t_min, t_max)):
+        raise WeatherError(f"Open-Meteo : température absente pour le {day.isoformat()}")
+    return {"city": place.get("name", city), "date": day.isoformat(), "t_min": t_min, "t_max": t_max,
             "rain_probability": rain}
 
 
-def season_from_temperature(t_min: float, t_max: float, month: int) -> str:
-    """Traduit la température prévue en « saison » comprise par le moteur BO4.
-    Moyenne <= 10 °C : hiver ; >= 22 °C : été ; sinon mi-saison (printemps ou automne selon le mois)."""
-    mean = (t_min + t_max) / 2
-    if mean <= 10:
-        return "winter"
-    if mean >= 22:
-        return "summer"
-    return "spring" if 3 <= month <= 8 else "autumn"
+def default_weather() -> "weather_sources.RobustWeather":
+    """Météo de production : Open-Meteo, puis MET Norway, puis wttr.in (3 s chacune), puis cache, sinon
+    WeatherError (saison déduite de la date). STYLIST_WEATHER_OFFLINE=1 : prévision fixe, sans réseau."""
+    return weather_sources.RobustWeather([("Open-Meteo", open_meteo_forecast),
+                                          ("MET Norway", weather_sources.met_norway_forecast),
+                                          ("wttr.in", weather_sources.wttr_forecast)])
+
+
+def wants_rain_protection(weather: Optional[dict]) -> bool:
+    """Pluie probable (>= RAIN_ALERT %) ou annoncée par le code météo (pluie, averses, orage)."""
+    weather = weather or {}
+    rain = weather.get("rain_probability")
+    return bool(weather.get("rain_code")) or (isinstance(rain, (int, float)) and not isinstance(rain, bool)
+                                              and rain >= RAIN_ALERT)
+
+
+def is_rain_outerwear(item: dict) -> bool:
+    return (str(item.get("category") or "").lower() in RAIN_OUTERWEAR_CATEGORIES
+            or bool(re.search(RAIN_OUTERWEAR_NAMES, _plain(f"{item.get('name') or ''} {item.get('subcategory') or ''}"))))
 
 
 def merge_occasion(rules: dict, llm_occasion: Optional[str]) -> Optional[str]:
@@ -630,21 +649,27 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             return {"weather": {}, "trace": trace + ["get_weather -> saison demandée explicitement : pas d'appel"]}
         if weather is None:
             return {"weather": {}, "trace": trace + ["get_weather -> météo désactivée : saison déduite de la date"]}
-        day = today() + dt.timedelta(days=1 if request.get("when") == "tomorrow" else 0)
-        city = request.get("city") or default_city
-        key = (city.lower(), day.isoformat())
+        # Tout est dans le try : aucune erreur météo (réseau, valeurs nulles, format) ne fait échouer le tour.
         try:
-            forecast = weather_cache.get(key) or weather(city, day)
+            day = today() + dt.timedelta(days=1 if request.get("when") == "tomorrow" else 0)
+            city = request.get("city") or default_city
+            key = (city.lower(), day.isoformat())
+            forecast = dict(weather_cache.get(key) or weather(city, day))
+            checked = weather_sources.normalize(forecast, city, day, forecast.get("source") or "Open-Meteo")
+            forecast = {**forecast, **checked, "attribution": forecast.get("attribution") or checked["attribution"]}
         except Exception as exc:  # WeatherError ou erreur inattendue : on garde la saison de la date
-            return {"weather": {}, "trace": trace + [f"get_weather -> indisponible ({exc}) : saison déduite de la date"]}
+            unavailable = {"unavailable": True, "reason": str(exc)[:300]}
+            return {"weather": unavailable,
+                    "trace": trace + [f"get_weather -> indisponible ({exc}) : saison déduite de la date"]}
         weather_cache[key] = forecast
-        season = season_from_temperature(forecast["t_min"], forecast["t_max"], day.month)
+        season = forecast["season"]
         request["season"] = season
         request["season_source"] = (f"météo {forecast['city']} le {day:%d/%m} : "
                                     f"{forecast['t_min']:.0f} à {forecast['t_max']:.0f} °C")
-        line = (f"get_weather -> Open-Meteo {forecast['city']} {day.isoformat()} : "
+        failed = f" (après : {' ; '.join(forecast['failures'])})" if forecast.get("failures") else ""
+        line = (f"get_weather -> {forecast['source']} {forecast['city']} {day.isoformat()} : "
                 f"{forecast['t_min']}-{forecast['t_max']} °C, pluie {forecast.get('rain_probability')} % "
-                f"=> saison {season}")
+                f"{'(pluie annoncée) ' if forecast.get('rain_code') else ''}=> saison {season}{failed}")
         return {"request": request, "weather": forecast, "trace": trace + [line]}
 
     def fetch_wardrobe(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
@@ -674,17 +699,34 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             else:
                 candidates.append(item)
         line = f"apply_constraints -> {len(candidates)} gardés, {len(excluded)} exclus {excluded}"
-        return {"candidates": candidates, "excluded": excluded,
+        # Pluie : contrainte (pas de score) ; daim et soie écartés si la matière est connue, et une pièce de
+        # dessus exigée dans la tenue si la garde-robe en garde une après les contraintes.
+        rain_plan: dict = {}
+        weather = state.get("weather") or {}
+        if wants_rain_protection(weather):
+            fragile = [item for item in candidates
+                       if re.search(RAIN_FRAGILE_MATERIALS, _plain(str(item.get("material") or "")))]
+            candidates = [item for item in candidates if item not in fragile]
+            outerwear = [item["name"] for item in candidates if is_rain_outerwear(item)]
+            rain_plan = {"probability": weather.get("rain_probability"), "rain_code": bool(weather.get("rain_code")),
+                         "require_outerwear": bool(outerwear), "fragile_excluded": [i["name"] for i in fragile]}
+            line += (f" ; pluie : pièce de dessus {'exigée' if outerwear else 'absente'}"
+                     f"{f' ({len(outerwear)} disponible(s))' if outerwear else ''}, "
+                     f"daim/soie écartés {rain_plan['fragile_excluded']}")
+        return {"candidates": candidates, "excluded": excluded, "rain_plan": rain_plan,
                 "trace": state.get("trace", []) + [line]}
 
     def recommend(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
         request = state["request"]
         shown = [list(ids) for ids in (state.get("shown") or [])] if request["wants_another"] else []
         already = {frozenset(ids) for ids in shown}
+        rain_plan = dict(state.get("rain_plan") or {})
+        # Sous la pluie, on lit plus loin dans le classement BO4 pour y trouver les tenues avec pièce de dessus
+        # (scores et ordre du moteur inchangés).
         try:
             ranked = engine.recommend_outfits(state.get("candidates") or [],
-                                              occasion=request["occasion"],
-                                              season=request["season"], top_k=30)
+                                              occasion=request["occasion"], season=request["season"],
+                                              top_k=200 if rain_plan.get("require_outerwear") else 30)
         except ValueError as exc:
             ranked = []
             state_trace = f"recommend -> ERREUR moteur : {exc}"
@@ -713,6 +755,11 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
                               "personal_score": round(float(outfit["score"]) + bonus, 1)})
         # Tri stable : à score personnalisé égal, l'ordre du moteur BO4 est conservé.
         annotated.sort(key=lambda o: -o["personal_score"])
+        if rain_plan.get("require_outerwear"):
+            covered = [o for o in annotated
+                       if any(is_rain_outerwear(item) for item in _outfit_items(o, candidates))]
+            rain_plan["satisfied"] = bool(covered)
+            annotated = covered or annotated
         compliant = [o for o in annotated if o["dress_code_ok"]]
         relaxed = bool(annotated) and not compliant
         fresh = diversify(compliant or annotated, k=3)
@@ -723,7 +770,9 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
                                f"(déjà montrées : {len(already)}, rejetées : {len(rejected)}, "
                                f"profil : {profile['likes'] if profile else 0} like / "
                                f"{profile['dislikes'] if profile else 0} dislike)")
-        return {"outfits": fresh, "shown": shown, "dress_code_relaxed": relaxed,
+        if rain_plan.get("require_outerwear"):
+            line += f" ; pluie : {'tenues avec pièce de dessus' if rain_plan['satisfied'] else 'aucune tenue avec pièce de dessus'}"
+        return {"outfits": fresh, "shown": shown, "dress_code_relaxed": relaxed, "rain_plan": rain_plan,
                 "no_structured_jacket": no_jacket, "casual_tops_excluded": casual_tops,
                 "last_outfits": [_outfit_ids(o) for o in fresh] or state.get("last_outfits", []),
                 "trace": state.get("trace", []) + [line]}
@@ -942,10 +991,19 @@ def format_response(state: StylistState) -> str:
     lines = [state["feedback_note"]] if state.get("feedback_note") else []
     lines += [f"Contexte : {OCCASION_FR[request['occasion']]}, "
              f"{SEASON_FR[request['season']]} ({request['season_source']})."]
-    rain = (state.get("weather") or {}).get("rain_probability")
-    if rain is not None and rain >= RAIN_ALERT:
-        lines.append(f"Pluie probable ({rain} %) : prévois une veste imperméable ou un parapluie "
-                     "(le moteur BO4 ne tient pas encore compte de la pluie).")
+    weather = state.get("weather") or {}
+    if weather.get("unavailable"):
+        lines.append("Météo indisponible, saison estimée d'après la date.")
+    if wants_rain_protection(weather):
+        rain = weather.get("rain_probability")
+        label = f"Pluie probable ({rain} %)" if isinstance(rain, (int, float)) else "Pluie annoncée"
+        plan = state.get("rain_plan") or {}
+        if plan.get("satisfied"):
+            lines.append(f"{label} : chaque tenue comprend une veste ou un manteau.")
+        else:
+            lines.append(f"{label} : prévois un parapluie (aucune veste, aucun manteau ni trench disponible).")
+        if plan.get("fragile_excluded"):
+            lines.append(f"Écarté à cause de la pluie (daim, soie) : {', '.join(plan['fragile_excluded'])}.")
     if request.get("dress_code"):
         lines.append(f"Dress code : {DRESS_CODE_FR[request['dress_code']]} "
                      f"({request['dress_code_source']}).")
@@ -1007,10 +1065,13 @@ def build_graph(llm: Optional[Callable[[str], Any]] = ollama_extract,
                 wardrobe_loader: Optional[Callable[[], tuple[list[dict], dict]]] = None,
                 engine: Any = None, today: Optional[Callable[[], dt.date]] = None,
                 checkpointer: Any = None,
-                weather: Optional[Callable[[str, dt.date], dict]] = open_meteo_forecast,
+                weather: Any = "default",
                 default_city: str = DEFAULT_CITY,
                 feedback_store: Optional[stylist_feedback.FeedbackStore] = None,
                 advice: Optional[Callable[[str], dict]] = None):
+    """weather : fournisseur météo (city, day) -> prévision ; « default » = default_weather() ; None = désactivée."""
+    if isinstance(weather, str) and weather == "default":
+        weather = default_weather()
     from langgraph.graph import END, START, StateGraph
     try:
         from langgraph.checkpoint.memory import InMemorySaver
@@ -1051,7 +1112,7 @@ def new_turn(message: str) -> dict:
     """Entrée d'un tour : on remet à zéro ce qui ne doit pas survivre d'un tour à l'autre."""
     return {"user_message": message, "trace": [], "outfits": [], "response": "", "error": "",
             "weather": {}, "dress_code_relaxed": False, "no_structured_jacket": False, "casual_tops_excluded": [],
-            "feedback_note": "", "advice": {}}
+            "feedback_note": "", "advice": {}, "rain_plan": {}}
 
 
 def chat(graph, message: str, thread_id: str, show_trace: bool = False) -> str:
@@ -1086,7 +1147,7 @@ def main() -> None:
         return bo1_api_adapter.load_wardrobe_from_bo1(args.bo1_url, fallback_file=args.fallback)
 
     graph = build_graph(llm=None if args.no_llm else ollama_extract, wardrobe_loader=loader,
-                        weather=None if args.no_weather else open_meteo_forecast, default_city=args.city,
+                        weather=None if args.no_weather else default_weather(), default_city=args.city,
                         feedback_store=stylist_feedback.FeedbackStore(args.feedback_file),
                         advice=bo5_advice(args.bo5_url))
     if args.graph:

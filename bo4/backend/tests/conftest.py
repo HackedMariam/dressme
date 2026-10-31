@@ -20,6 +20,13 @@ def pytest_runtest_setup(item):
         pytest.skip(f"images H&M absentes ({HM_IMAGES_DIR} ; dataset non fourni, voir bo4/README.md)")
 
 
+@pytest.fixture(autouse=True)
+def weather_without_network(monkeypatch):
+    """Aucun test n'appelle les vrais services météo : la météo par défaut (stylist_web) passe en mode
+    démo hors ligne. Les tests de weather_sources fixent offline=False et simulent chaque source."""
+    monkeypatch.setenv("STYLIST_WEATHER_OFFLINE", "1")
+
+
 @pytest.fixture
 def reference_wardrobe():
     return [dict(item) for item in REFERENCE_WARDROBE]

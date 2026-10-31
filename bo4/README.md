@@ -30,9 +30,9 @@ START → extract_intent ─┬─ occasion manquante ──→ clarify ──�
 | `extract_intent` | occasion, saison, dress code, contraintes, retour sur une tenue ; **règles + LLM local** (Ollama `qwen2.5:3b`) avec un garde-fou qui rejette les contraintes que le LLM invente |
 | `clarify` | demande l'occasion quand elle manque |
 | `record_feedback` | enregistre un 👍 / 👎 (fichier JSON local) et met à jour le profil de style |
-| `get_weather` | prévision Open-Meteo (ville par défaut : Tunis) pour déduire la saison |
+| `get_weather` | prévision météo (ville par défaut : Tunis) pour déduire la saison : Open-Meteo, puis MET Norway, puis wttr.in, puis cache ; sinon saison de la date (voir « Météo ») |
 | `fetch_wardrobe` | lit la garde-robe dans BO1 : `GET /api/items` |
-| `apply_constraints` | retire les vêtements refusés (« sans veste », « pas de noir », « évite les jupes »…) |
+| `apply_constraints` | retire les vêtements refusés (« sans veste », « pas de noir », « évite les jupes »…) ; sous la pluie, écarte le daim et la soie et exige une pièce de dessus |
 | `recommend` | appelle `outfit_engine.recommend_outfits`, applique le dress code, le profil et la diversité ; en business ou formal : pas de short ni de pièce « mini », et veste structurée exigée si l'utilisateur en possède une |
 | `style_advice` | conseil de style BO5 (RAG), **désactivé par défaut** |
 | `respond` | réponse construite uniquement à partir des tenues classées par le moteur |
@@ -159,15 +159,45 @@ Depuis `bo4/backend` :
 | `--bo1-url` | URL de BO1 (défaut : `$BO1_API_URL`, sinon `http://localhost:8000`) |
 | `--fallback <fichier.json>` | garde-robe d'exemple au format `/api/items` si BO1 est injoignable |
 | `--no-llm` | extraction d'intention par règles uniquement (sans Ollama) |
-| `--no-weather` | saison déduite de la date, sans Open-Meteo |
+| `--no-weather` | saison déduite de la date, sans aucun appel météo |
 | `--city` | ville par défaut pour la météo (Tunis) |
 | `--feedback-file` | fichier des 👍 / 👎 (`stylist_feedback.json`, ignoré par git) |
 | `--bo5-url` | active le conseil de style BO5 (RAG, `POST /ask`) ; clé facultative dans `BO5_API_KEY` |
 | `--require-auth` | mode production : jeton Supabase obligatoire (voir « Multi-utilisateur ») ; incompatible avec `--fallback` |
 
 Variables d'environnement utiles : `BO1_API_URL`, `BO5_API_URL`, `BO5_API_KEY`, `OLLAMA_URL`, `STYLIST_LLM_MODEL`,
-`STYLIST_CITY`. La même logique existe en ligne de commande : `stylist_agent.py --trace` (mêmes options, sans
+`STYLIST_CITY`, `STYLIST_WEATHER_OFFLINE`, `STYLIST_WEATHER_CACHE`. La même logique existe en ligne de commande : `stylist_agent.py --trace` (mêmes options, sans
 `--port` ; `--graph` affiche le graphe au format Mermaid).
+
+### Météo (`backend/weather_sources.py`)
+
+Une panne de météo ne fait jamais échouer `/api/chat`. Pour chaque message, dans l'ordre :
+
+| # | Source | Remarque |
+|---|---|---|
+| 1 | cache frais | dernière prévision réussie pour la ville et le jour, valable 30 min |
+| 2 | Open-Meteo | géocodage + prévision journalière, sans clé |
+| 3 | MET Norway Locationforecast 2.0 (`api.met.no`) | sans clé ; User-Agent `DressMe/0.1 (…)` obligatoire ; données MET Norway sous CC BY 4.0, citées dans le panneau |
+| 4 | wttr.in (`?format=j1`) | sans clé |
+| 5 | cache de secours | même prévision, gardée 24 h |
+| 6 | saison de la date | l'agent l'écrit : « Météo indisponible, saison estimée d'après la date. » |
+
+Chaque source a **3 s au plus** (délai tenu même pendant la résolution DNS) ; une source en panne est ignorée
+60 s. Toutes sont converties au même format : températures min et max, probabilité de pluie, pluie ou orage
+annoncés, saison. Le cache est écrit dans `bo4/data/weather_cache.json` (ignoré par git ; autre chemin :
+`STYLIST_WEATHER_CACHE`). Le panneau du Stylist et celui de l'orchestrateur indiquent la source qui a répondu.
+
+**Pluie** (probabilité ≥ 50 %, ou pluie ou orage annoncés) : contrainte de `apply_constraints`, sans toucher au
+score du moteur. Le daim et la soie sont écartés quand la matière est connue, et chaque tenue proposée comprend
+une veste, un blazer, un manteau ou un trench si la garde-robe en a un ; sinon l'agent conseille un parapluie.
+
+**Mode démo hors ligne** : `STYLIST_WEATHER_OFFLINE=1` utilise la prévision fixe de
+`backend/weather_offline.json` (valeurs choisies, pas une mesure : 11 à 17 °C, pluie 63 %), sans aucun appel réseau.
+
+```powershell
+$env:STYLIST_WEATHER_OFFLINE = "1"
+.\.venv\Scripts\python.exe stylist_web.py --port 8061 --require-auth
+```
 
 ### Script de démo `start_demo.ps1`
 
