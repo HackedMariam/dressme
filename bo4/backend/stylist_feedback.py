@@ -47,17 +47,42 @@ class FeedbackStore:
         }
         with self._lock:
             self._records.append(record)
-            if self.path:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-                self.path.write_text(json.dumps({"records": self._records}, ensure_ascii=False, indent=2),
-                                     encoding="utf-8")
+            self._save()
         return record
+
+    def _save(self) -> None:
+        if self.path:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps({"records": self._records}, ensure_ascii=False, indent=2),
+                                 encoding="utf-8")
+
+    def reset(self, user: str) -> int:
+        """Supprime les retours (et donc le profil de goûts) de CET utilisateur ; ceux des autres ne sont jamais
+        touchés. Renvoie le nombre de retours supprimés."""
+        if not user:
+            raise ValueError("utilisateur obligatoire : une réinitialisation vise un seul compte")
+        with self._lock:
+            kept = [r for r in self._records if r.get("user") != user]
+            removed = len(self._records) - len(kept)
+            if removed:
+                self._records = kept
+                self._save()
+        return removed
 
     def records(self, user: str = "local") -> list[dict]:
         return [r for r in self._records if r.get("user") == user]
 
     def disliked_outfits(self, user: str = "local") -> set[frozenset]:
         return {frozenset(r["item_ids"]) for r in self.records(user) if r["verdict"] == "dislike"}
+
+    def dislike_counts(self, user: str = "local") -> dict[frozenset, int]:
+        """Nombre de 👎 reçus par chaque tenue (même ensemble de vêtements) : sert à reproposer les moins rejetées."""
+        counts: dict[frozenset, int] = {}
+        for record in self.records(user):
+            if record["verdict"] == "dislike":
+                key = frozenset(record["item_ids"])
+                counts[key] = counts.get(key, 0) + 1
+        return counts
 
     def profile(self, user: str = "local") -> dict:
         item_affinity: dict[str, float] = {}

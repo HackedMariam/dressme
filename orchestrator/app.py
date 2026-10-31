@@ -257,9 +257,29 @@ def api_history_thread(thread_id: str, authorization: Optional[str] = Header(Non
         raise HTTPException(502, f"Historique illisible : {exc}") from exc
 
 
+def _reset_taste_profile(token: str) -> dict:
+    """Demande au Stylist de remettre à zéro les goûts de l'utilisatrice du jeton (lui seul tient ce profil). Le jeton
+    est transmis tel quel : le Stylist identifie l'utilisatrice auprès de BO1, jamais d'après la requête."""
+    call = settings()["gateway"].call("stylist", "POST", "/api/profile/reset", token=token)
+    if not call.ok or not isinstance(call.data, dict):
+        raise HTTPException(502, f"Réinitialisation des goûts impossible : {call.error or 'réponse du Stylist inattendue'}.")
+    return call.data
+
+
+@app.post("/api/profile/reset")
+def api_profile_reset(authorization: Optional[str] = Header(None)) -> dict:
+    """Remet à zéro les goûts (👍 / 👎) de l'utilisatrice connectée, et d'elle seule. Jeton obligatoire."""
+    _, token = authenticate(authorization)
+    if not token:
+        raise HTTPException(401, "Connexion requise pour réinitialiser les goûts.")
+    return {"removed": _reset_taste_profile(token).get("removed", 0)}
+
+
 @app.delete("/api/history")
-def api_history_clear(authorization: Optional[str] = Header(None)) -> dict:
-    """Efface les conversations de l'utilisatrice dans Supabase et la mémoire correspondante de l'orchestrateur."""
+def api_history_clear(reset_profile: bool = False, authorization: Optional[str] = Header(None)) -> dict:
+    """Efface les conversations de l'utilisatrice dans Supabase et la mémoire correspondante de l'orchestrateur ;
+    avec reset_profile=true, remet aussi à zéro ses goûts (Stylist). Les conversations sont effacées d'abord : si le
+    Stylist est injoignable, la réponse le dit (profile_reset: false) sans annuler l'effacement."""
     user_id, token, history = _history_for(authorization)
     try:
         threads = history.list_threads(token, limit=1000)
@@ -272,7 +292,13 @@ def api_history_clear(authorization: Optional[str] = Header(None)) -> dict:
             checkpointer.delete_thread(f"{user_id}:{thread['id']}")
         except Exception:  # mémoire déjà absente : rien à faire
             pass
-    return {"deleted": len(threads)}
+    result: dict = {"deleted": len(threads)}
+    if reset_profile:
+        try:
+            result.update(profile_reset=True, profile_removed=_reset_taste_profile(token).get("removed", 0))
+        except HTTPException as exc:
+            result.update(profile_reset=False, profile_error=str(exc.detail))
+    return result
 
 
 @app.get("/api/graph")
@@ -315,6 +341,8 @@ PAGE = r"""<!doctype html>
     :root:not([data-theme="light"]) .gsvg .n:not(.v) rect, :root:not([data-theme="light"]) .gsvg .pill:not(.v) rect { stroke:#34332E; }
   }
   * { box-sizing:border-box; }
+  /* Sans cette règle, un display:flex de classe (.confirm, .history) annule l'attribut hidden du navigateur. */
+  [hidden] { display:none !important; }
   body { margin:0; background:var(--offwhite); color:var(--ink); font:14px/1.5 Inter, system-ui, sans-serif; }
   button { font:inherit; }
   .app { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,440px); height:100vh; }
@@ -387,6 +415,8 @@ PAGE = r"""<!doctype html>
              align-items:center; flex-wrap:wrap; }
   .confirm p { margin:0; flex:1; min-width:200px; }
   .btn.danger { border-color:var(--danger); color:var(--danger); }
+  .history .danger-zone { justify-content:flex-end; border-top:1px dashed var(--border); padding-top:8px; margin-top:6px; }
+  .confirm label { display:flex; align-items:center; gap:8px; flex-basis:100%; cursor:pointer; }
   .btn.danger.solid { background:var(--danger); color:#fff; }
   .saved-note { font-size:12px; color:var(--amber); }
   @media (max-width: 860px) { .app { grid-template-columns:1fr; height:auto; } aside { border-left:0; border-top:1px solid var(--border); }
@@ -416,11 +446,15 @@ PAGE = r"""<!doctype html>
       <div class="row">
         <h3>Mes conversations</h3>
         <button class="btn" id="new-thread" type="button">Nouvelle conversation</button>
-        <button class="btn danger" id="clear-history" type="button">Effacer mon historique</button>
       </div>
       <div id="threads" role="list" aria-label="Conversations passées"></div>
+      <div class="row danger-zone">
+        <button class="btn danger" id="clear-history" type="button">Effacer mon historique</button>
+      </div>
       <div class="confirm" id="confirm-clear" role="alertdialog" aria-labelledby="confirm-text" hidden>
         <p id="confirm-text">Effacer toutes tes conversations enregistrées ? Cette action est définitive.</p>
+        <label for="reset-profile"><input type="checkbox" id="reset-profile">
+          Réinitialiser aussi mes goûts (les 👍 / 👎 appris par le Stylist)</label>
         <button class="btn" id="cancel-clear" type="button">Annuler</button>
         <button class="btn danger solid" id="do-clear" type="button">Oui, tout effacer</button>
       </div>
@@ -579,17 +613,23 @@ PAGE = r"""<!doctype html>
     document.querySelectorAll(".thread").forEach((b) => b.classList.remove("active"));
     newThreadNote = note("Nouvelle conversation : elle sera enregistrée dès ton premier message."); q.focus();
   });
+  function closeClearConfirm() { $("confirm-clear").hidden = true; $("reset-profile").checked = false; }
   $("clear-history").addEventListener("click", () => { $("confirm-clear").hidden = false; $("cancel-clear").focus(); });
-  $("cancel-clear").addEventListener("click", () => { $("confirm-clear").hidden = true; });
+  $("cancel-clear").addEventListener("click", closeClearConfirm);
   $("do-clear").addEventListener("click", async () => {
     $("do-clear").disabled = true;
+    const resetProfile = $("reset-profile").checked;
     try {
-      const r = await fetch("/api/history", { method: "DELETE", headers: authHeaders() });
+      const r = await fetch("/api/history" + (resetProfile ? "?reset_profile=true" : ""),
+                            { method: "DELETE", headers: authHeaders() });
       if (!r.ok) { note("L'historique n'a pas pu être effacé."); return; }
+      const data = await r.json().catch(() => ({}));
       threadId = null; log.replaceChildren(); renderThreads([]);
-      note("Ton historique a été effacé.");
+      note("Ton historique a été effacé."
+           + (!resetProfile ? "" : data.profile_reset ? " Tes goûts ont été réinitialisés."
+              : " Tes goûts n'ont pas pu être réinitialisés (le Stylist ne répond pas)."));
     } catch (e) { note("L'historique n'a pas pu être effacé : l'orchestrateur ne répond pas."); }
-    finally { $("do-clear").disabled = false; $("confirm-clear").hidden = true; }
+    finally { $("do-clear").disabled = false; closeClearConfirm(); }
   });
 
   // ---------------------------------------------------------------- conversation

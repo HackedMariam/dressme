@@ -391,6 +391,18 @@ def api_profile(authorization: Optional[str] = Header(None)) -> dict:
     return profile_summary(user_id)
 
 
+@app.post("/api/profile/reset")
+def api_profile_reset(authorization: Optional[str] = Header(None)) -> dict:
+    """Remet à zéro les retours (👍 / 👎) et donc le profil de goûts de l'utilisatrice du JETON, et d'elle seule.
+    Jeton obligatoire, même hors --require-auth : l'identité vient de BO1 (GET /api/me), jamais de la requête."""
+    user_id, token = authenticate(authorization)
+    if token is None:
+        raise HTTPException(401, "Connexion requise : jeton Supabase manquant",
+                            headers={"WWW-Authenticate": "Bearer"})
+    removed = _settings["feedback"].reset(user_id)
+    return {"removed": removed, "profile": profile_summary(user_id)}
+
+
 @app.get("/api/wardrobe")
 def api_wardrobe(authorization: Optional[str] = Header(None)) -> dict:
     _, token = authenticate(authorization)
