@@ -101,6 +101,39 @@ GREETING = r"^\s*(bonjour|salut|hello|hi|hey|coucou|bonsoir|merci|thanks?)\s*[!.
 FOLLOW_UP = (r"\b(une autre|un autre|autre chose|another|something else|j'aime|je n'aime|n'aime pas|"
              r"i like|i don't like|la (premiere|deuxieme|troisieme|1|2|3)|number [123])\b")
 CHOICE = {"1": "stylist", "2": "wardrobe", "3": "purchase", "4": "knowledge"}
+# Réactions courtes à la réponse précédente (le message ENTIER, texte sans accents) : envoyées au dernier module
+# du fil, avant toute règle et avant le LLM. « j'aime pas » est testé avant « j'aime ».
+REACTIONS = {
+    "dislike": r"(j'aime pas|je n'aime pas|j'aime pas (ca|trop|beaucoup|du tout)|je n'aime pas (ca|trop|beaucoup|du tout)|"
+               r"non|nan|bof|bof bof|pas terrible|pas top|pas fan|pas convaincue?|nul|moche|"
+               r"i don't like( it| them)?|i do not like( it| them)?|don't like( it| them)?|not for me|no|nope|meh|"
+               r"not great|not really)",
+    "like": r"(j'aime( bien| beaucoup| ca)?|j'adore|top|super|genial|parfait|pas mal|tres bien|cool|joli|"
+            r"i like( it| them)?|i love( it| them)?|love it|nice|great|perfect|looks good)",
+    "thanks": r"(merci( beaucoup)?|ok|okay|d'accord|ca marche|thanks?( you)?|thank you)",
+    "why": r"(pourquoi|pourquoi ca|why|why that one|why this one)",
+    "color": r"((et )?en|(and )?in|what about( in)?) (bleue?|rouge|noire?|blanche?|verte?|grise?|beige|marron|rose|"
+             r"jaune|violette?|marine|blue|red|black|white|green|gr[ae]y|brown|pink|yellow|purple|navy)",
+}
+# Choix proposés par la clarification : route, service de services.yaml, libellé
+CLARIFY_OPTIONS = (("stylist", "stylist", "une tenue pour une occasion (BO4 Stylist)"),
+                   ("wardrobe", "bo1", "savoir ce que tu as dans ta garde-robe"),
+                   ("purchase", "purchase", "un avis avant d'acheter un vêtement"),
+                   ("knowledge", "bo5", "un conseil de style général"))
+# Libellé français des modules externes dans la clarification (leur description de services.yaml, en anglais,
+# est destinée au LLM) ; module absent de cette table : son label.
+CLARIFY_MODULE_TEXT = {"helpmepack": "préparer ta valise pour un voyage (HelpMePack)",
+                       "smart_purchasing": "un avis sur la photo d'un vêtement avant de l'acheter (Smart Purchasing)",
+                       "bo3": "savoir ce qui manque à ta garde-robe (BO3 Wardrobe Gaps)"}
+
+
+def reaction_kind(message: str) -> Optional[str]:
+    """dislike, like, thanks, why, color, ou None si le message n'est pas une réaction courte."""
+    text = plain(message).strip()
+    for kind, pattern in REACTIONS.items():
+        if re.fullmatch(rf"\s*{pattern}\s*[!.?…]*\s*", text):
+            return kind
+    return None
 
 
 def rule_candidates(message: str, modules: Optional[dict] = None) -> list[str]:
@@ -207,8 +240,14 @@ def decide_route(message: str, state: dict, llm: Optional[LLM],
     """(route, source, indices). Règles, puis suite de conversation, puis LLM avec garde-fou."""
     text = plain(message)
     pending = state.get("pending_question")
-    if pending and (choice := re.match(r"^\s*([1-4])\b", text)):
-        return CHOICE[choice.group(1)], "réponse à la question de clarification", []
+    choices = state.get("pending_choices") or list(CHOICE.values())
+    if pending and (choice := re.match(r"^\s*([1-9])\b", text)) and int(choice.group(1)) <= len(choices):
+        return choices[int(choice.group(1)) - 1], "réponse à la question de clarification", []
+    if reaction_kind(message):
+        # Réaction courte : elle porte sur la réponse précédente, quel que soit le mot employé.
+        if state.get("last_route"):
+            return state["last_route"], "réaction à la réponse précédente", []
+        return "clarify", "réaction sans réponse précédente", []
     candidates = rule_candidates(message, modules)
     if not candidates and state.get("packing_pending") and state.get("packing_session_id"):
         return "external:helpmepack", "packing clarification", []
@@ -544,7 +583,10 @@ class OrchestratorState(TypedDict, total=False):
     route_source: str              # règles, LLM, suite de conversation...
     candidates: list[str]          # routes indiquées par les règles
     pending_question: str          # question en attente d'une clarification
-    last_route: str                # dernière route de service (pour « une autre »)
+    last_route: str                # dernière route de service (pour « une autre » et les réactions courtes)
+    reaction: str                  # réaction courte de ce tour (dislike, like, thanks, why, color) ou ""
+    last_item: str                 # dernier article analysé par Purchase Redundancy (« col roulé noir »)
+    pending_choices: list[str]     # routes proposées par la dernière clarification (1, 2, 3…)
     result: dict                   # carte du service : {service, label, ok, text, details}
     response: str
     trace: list[str]
@@ -554,7 +596,7 @@ class OrchestratorState(TypedDict, total=False):
 
 def new_turn(message: str) -> dict:
     return {"user_message": message, "route": "", "route_source": "", "candidates": [], "result": {},
-            "response": "", "trace": []}
+            "response": "", "trace": [], "reaction": ""}
 
 
 def _line(state: dict, node: str, text: str) -> list[str]:
@@ -606,11 +648,39 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         if route != "clarify" and source == "réponse à la question de clarification":
             message = state.get("pending_question") or message
         text = f"{route} [{source}" + (f", indices : {', '.join(candidates)}" if candidates else "") + "]"
+        reaction = reaction_kind(message) if source == "réaction à la réponse précédente" else None
         update = {"route": route, "route_source": source, "candidates": candidates, "user_message": message,
-                  "trace": list(state.get("trace") or []) + llm_trace + [f"route_intent -> {text}"]}
+                  "reaction": reaction or "",
+                  "trace": list(state.get("trace") or []) + llm_trace + [f"route_intent -> {text}"]
+                  + ([f"route_intent -> réaction « {reaction} »"] if reaction else [])}
         if route != "clarify":
             update["pending_question"] = ""
         return update
+
+    def react(state: OrchestratorState, route: str, label: str) -> dict:
+        """Réaction courte après garde-robe, achat ou conseil : réponse en une ou deux phrases, sans rappeler le
+        service (le Stylist, lui, reçoit la réaction et l'enregistre comme 👍 / 👎)."""
+        kind = state.get("reaction") or "dislike"
+        color = plain(state["user_message"]).rstrip(" ?!.").split()[-1]
+        item = f"« {state['last_item']} »" if state.get("last_item") else "cette pièce"
+        if route == "purchase":
+            offer = f"Tu veux que je compare avec une autre pièce, ou que je te propose des tenues avec {item} ?"
+            text = {"dislike": f"Noté. {offer}", "like": f"Noté ! {offer}",
+                    "thanks": "Avec plaisir ! Tu veux un avis sur une autre pièce ?",
+                    "why": (f"Le score compare {item} à ta garde-robe : catégorie, couleur, matière et ressemblance "
+                            f"des noms ; plus il est haut, plus tu as déjà l'équivalent. {offer}"),
+                    "color": (f"Pour un avis sur la même pièce en {color}, redonne-la avec la couleur, par exemple "
+                              f"« Est-ce que je devrais acheter une veste {color} ? »")}[kind]
+        elif route == "wardrobe":
+            text = ("Avec plaisir ! " if kind == "thanks" else "") + (
+                "Tu veux que je précise la recherche ? Donne une catégorie, une couleur ou une saison, par exemple "
+                "« Est-ce que j'ai une veste noire ? ».")
+        else:
+            text = ("Avec plaisir ! " if kind == "thanks" else "Noté. ") + (
+                "Tu veux un autre conseil, ou une tenue pour une occasion (BO4 Stylist) ?")
+        result = {"service": route, "label": label, "ok": True, "text": text, "details": {"reaction": kind}}
+        return {"result": result, "last_route": route,
+                "trace": _line(state, route, f"réaction « {kind} » : réponse sans rappeler {label}")}
 
     def switched_off(route: str, service: str, state: OrchestratorState) -> Optional[dict]:
         """Service de base désactivé dans services.yaml (enabled: false) : message clair, aucun appel."""
@@ -651,6 +721,8 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         return {"result": result, "last_route": "stylist", "trace": trace}
 
     def wardrobe(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
+        if state.get("reaction"):
+            return react(state, "wardrobe", gateway.services["bo1"].label)
         if off := switched_off("wardrobe", "bo1", state):
             return off
         label = gateway.services["bo1"].label
@@ -690,6 +762,8 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         return {"result": result, "last_route": "wardrobe", "trace": _line(state, "wardrobe", call.trace())}
 
     def purchase(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
+        if state.get("reaction"):
+            return react(state, "purchase", gateway.services["purchase"].label)
         if off := switched_off("purchase", "purchase", state):
             return off
         label = gateway.services["purchase"].label
@@ -743,9 +817,11 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
                    "recommendation": data.get("recommendation"), "similar_items": similar,
                    "wardrobe_sent": len(wardrobe_items)}
         result = {"service": "purchase", "label": label, "ok": True, "text": "\n".join(lines), "details": details}
-        return {"result": result, "last_route": "purchase", "trace": trace}
+        return {"result": result, "last_route": "purchase", "last_item": item_label, "trace": trace}
 
     def knowledge(state: OrchestratorState) -> dict:
+        if state.get("reaction"):
+            return react(state, "knowledge", gateway.services["bo5"].label)
         if off := switched_off("knowledge", "bo5", state):
             return off
         label = gateway.services["bo5"].label
@@ -783,15 +859,20 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         return {"result": result, "last_route": "knowledge", "trace": trace}
 
     def clarify(state: OrchestratorState) -> dict:
-        text = ("Je n'ai pas bien compris ta demande. Tu veux :\n"
-                "1. une tenue pour une occasion (BO4 Stylist) ;\n"
-                "2. savoir ce que tu as dans ta garde-robe ;\n"
-                "3. un avis avant d'acheter un vêtement ;\n"
-                "4. un conseil de style général ?\n"
-                "Réponds par 1, 2, 3 ou 4, ou reformule.")
-        result = {"service": "clarify", "label": "Clarification", "ok": True, "text": text, "details": {}}
+        # Seulement les routes réellement actives (services.yaml) : un service désactivé n'est pas proposé.
+        options = [(route, text) for route, service, text in CLARIFY_OPTIONS
+                   if gateway.services[service].extra.get("enabled", True) is not False]
+        options += [(m.route, CLARIFY_MODULE_TEXT.get(m.name, m.label)) for m in modules.values() if m.enabled]
+        lines = [f"{i}. {text} ;" for i, (_, text) in enumerate(options, 1)]
+        lines[-1] = lines[-1][:-2] + " ?"
+        numbers = ", ".join(str(i) for i in range(1, len(options))) + f" ou {len(options)}"
+        text = ("Je n'ai pas bien compris ta demande. Tu veux :\n" + "\n".join(lines)
+                + f"\nRéponds par {numbers}, ou reformule.")
+        result = {"service": "clarify", "label": "Clarification", "ok": True, "text": text,
+                  "details": {"choices": [route for route, _ in options]}}
         return {"result": result, "pending_question": state["user_message"],
-                "trace": _line(state, "clarify", "question posée à l'utilisateur")}
+                "pending_choices": [route for route, _ in options],
+                "trace": _line(state, "clarify", f"question posée à l'utilisateur ({len(options)} choix actifs)")}
 
     def external(state: OrchestratorState, config: Optional[RunnableConfig] = None) -> dict:
         """Module externe générique : vérifie qu'il est activé et répond, lui envoie la garde-robe BO1 de

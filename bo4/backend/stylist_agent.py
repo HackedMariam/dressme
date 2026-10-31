@@ -147,6 +147,21 @@ DISLIKE_AFTER_RANK = rf"\b({RANK_WORDS})\b\D{{0,15}}?\b({DISLIKE_WORDS})\b"
 LIKE_AFTER_RANK = rf"\b({RANK_WORDS})\b\D{{0,15}}?\b({LIKE_WORDS})\b"
 ANOTHER_PATTERN = (r"\b(une autre|un autre|autre tenue|autre chose|autres propositions|"
                    r"another|something else|je n'aime pas|pas celle|change|tu as mieux)\b")
+# Réaction courte (le message ENTIER, sans numéro de tenue) sur les dernières propositions. Négative : 👎 sur
+# toutes les tenues montrées et nouvelles propositions ; positive : 👍 ; les autres : réponse courte, sans
+# nouvelle recommandation. « j'aime pas » est testé avant « j'aime ».
+REACTION_PATTERNS = {
+    "dislike": r"(j'aime pas|je n'aime pas|j'aime pas (ca|trop|beaucoup|du tout)|je n'aime pas (ca|trop|beaucoup|du tout)|"
+               r"non|nan|bof|bof bof|pas terrible|pas top|pas fan|pas convaincue?|nul|moche|"
+               r"i don't like( it| them)?|i do not like( it| them)?|don't like( it| them)?|not for me|no|nope|meh|"
+               r"not great|not really)",
+    "like": r"(j'aime( bien| beaucoup| ca)?|j'adore|top|super|genial|parfait|pas mal|tres bien|cool|joli|"
+            r"i like( it| them)?|i love( it| them)?|love it|nice|great|perfect|looks good)",
+    "thanks": r"(merci( beaucoup)?|ok|okay|d'accord|ca marche|thanks?( you)?|thank you)",
+    "why": r"(pourquoi|pourquoi ca|why|why that one|why this one)",
+    "color": r"((et )?en|(and )?in|what about( in)?) (bleue?|rouge|noire?|blanche?|verte?|grise?|beige|marron|rose|"
+             r"jaune|violette?|marine|blue|red|black|white|green|gr[ae]y|brown|pink|yellow|purple|navy)",
+}
 # Dress code (I83) : niveau exigé, déduit du message ou de l'occasion.
 DRESS_CODE_PATTERNS = {
     "formal": r"\b(formel\w*|tres habille\w*|habille\w*|gala|mariage|ceremonie|black tie|formal|wedding)\b",
@@ -248,6 +263,14 @@ def extract_feedback(text: str, last_count: Optional[int] = None) -> Optional[di
     return None
 
 
+def extract_reaction(text: str) -> Optional[str]:
+    """dislike, like, thanks, why ou color si le message entier est une réaction courte (texte normalisé)."""
+    for kind, pattern in REACTION_PATTERNS.items():
+        if re.fullmatch(rf"\s*{pattern}\s*[!.?…]*\s*", text.strip()):
+            return kind
+    return None
+
+
 def _occasion_matches(text: str) -> list[tuple[int, str, str]]:
     """Tous les mots-clés d'occasion trouvés : (position, occasion, mot)."""
     found = []
@@ -286,6 +309,9 @@ def extract_with_rules(message: str, last_count: Optional[int] = None) -> dict:
         "city": extract_city(message),
         "feedback": extract_feedback(text, last_count),
     }
+    result["reaction"] = None if result["feedback"] else extract_reaction(text)
+    if result["reaction"] in ("dislike", "like"):       # retour sur les dernières tenues, sans numéro
+        result["feedback"] = {"verdict": result["reaction"], "rank": None}
     if result["feedback"] and result["feedback"]["verdict"] == "dislike":
         result["wants_another"] = True
     for match in re.finditer(NEGATION_PATTERN, text):
@@ -599,8 +625,10 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
                                      llm_result.get("exclude_colors")),
             "unsupported": _union(previous.get("unsupported"), rules["unsupported"]),
             "unsupported_now": rules["unsupported"],
-            "wants_another": wants_another,
+            # merci, pourquoi, « et en bleu ? » : réponse courte, jamais de nouvelle recommandation
+            "wants_another": wants_another and rules["reaction"] not in ("thanks", "why", "color"),
             "feedback": rules["feedback"],
+            "reaction": rules["reaction"],
         }
         history = list(state.get("history") or []) + [{"role": "user", "content": message}]
         summary = {k: request[k] for k in ("occasion", "season", "dress_code", "exclude_categories",
@@ -610,10 +638,34 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
 
     def record_feedback(state: StylistState, config: Optional[RunnableConfig] = None) -> dict:
         request = state["request"]
-        feedback = request["feedback"]
+        feedback = request.get("feedback")
         last = state.get("last_outfits") or []
-        rank, verdict = feedback["rank"], feedback["verdict"]
         trace = state.get("trace", [])
+        if not feedback:                                 # merci, pourquoi, couleur : aucun enregistrement
+            note, line = reaction_reply(request.get("reaction"), request, bool(last))
+            history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
+            return {"feedback_note": note, "response": note, "history": history, "outfits": [],
+                    "trace": trace + [f"record_feedback -> {line}"]}
+        rank, verdict = feedback["rank"], feedback["verdict"]
+        if rank is None:                                 # « j'aime pas », « top » : sur les dernières tenues
+            if not last:
+                note = ("Je n'ai pas encore proposé de tenue dans cette conversation : pour quelle occasion "
+                        "veux-tu une tenue ?")
+                history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
+                return {"feedback_note": note, "response": note, "history": history, "outfits": [],
+                        "trace": trace + ["record_feedback -> réaction sans tenue proposée"]}
+            if verdict == "dislike" and feedback_store is not None:
+                by_id = {str(item["id"]): item for item in state.get("wardrobe") or []}
+                for ids in last:
+                    feedback_store.add("dislike", [by_id[i] for i in ids if i in by_id], request.get("occasion"),
+                                       user=request_user(config))
+                count = len(last)
+                note = (f"C'est noté : {'ces ' + str(count) + ' tenues ne te plaisent' if count > 1 else 'cette tenue ne te plaît'}"
+                        " pas, je ne les proposerai plus.")
+                history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
+                return {"feedback_note": note, "response": note, "history": history, "outfits": [],
+                        "trace": trace + [f"record_feedback -> dislike enregistré pour les {count} dernière(s) tenue(s)"]}
+            rank = 1                                      # « j'aime » sans numéro : la première proposition
         verb = "aimes" if verdict == "like" else "n'aimes pas"
         if not 1 <= rank <= len(last):
             note = f"Je ne trouve pas de tenue n° {rank} dans mes dernières propositions."
@@ -630,6 +682,8 @@ def make_nodes(llm: Optional[Callable[[str], Any]] = ollama_extract,
             note = f"C'est noté : tu {verb} la tenue {rank} ({names})."
             if verdict == "like":
                 note += " Tes prochaines propositions en tiendront compte."
+                if feedback["rank"] is None and len(last) > 1:
+                    note += " Si tu parlais d'une autre tenue, dis par exemple « j'aime la 2 »."
             line = f"record_feedback -> {verdict} enregistré pour la tenue {rank} : {names}"
         history = list(state.get("history") or []) + [{"role": "assistant", "content": note}]
         return {"feedback_note": note, "response": note, "history": history, "outfits": [],
@@ -860,9 +914,26 @@ def turn_config(thread_id: str, user_id: str = DEFAULT_USER, token: Optional[str
     return {"configurable": configurable}
 
 
+def reaction_reply(kind: Optional[str], request: dict, has_outfits: bool) -> tuple[str, str]:
+    """(réponse, trace) pour une réaction courte qui n'est ni un 👍 ni un 👎."""
+    if kind == "why" and has_outfits and request.get("occasion"):
+        return (f"Je les ai choisies pour l'occasion « {OCCASION_FR.get(request['occasion'], request['occasion'])} » "
+                f"et la saison ({SEASON_FR.get(request.get('season'), request.get('season'))}) : le moteur BO4 note l'harmonie "
+                "des couleurs, la cohérence des styles, l'occasion et la saison ; les raisons sont sous chaque tenue. "
+                "Dis-moi « j'aime la 2 » ou « une autre ».", "pourquoi : explication des tenues")
+    if kind == "color":
+        return ("Je ne sais pas encore chercher une couleur précise. Je peux écarter une couleur (« pas de noir ») "
+                "ou te proposer d'autres tenues (« une autre »).", "couleur demandée : non prise en charge, dit")
+    if kind == "why":
+        return ("Je n'ai pas encore proposé de tenue : pour quelle occasion veux-tu une tenue ?",
+                "pourquoi : aucune tenue à expliquer")
+    return ("Avec plaisir ! Dis-moi si tu veux une autre tenue, ou une tenue pour une autre occasion.",
+            "remerciement : pas de nouvelle recommandation")
+
+
 def route_after_intent(state: StylistState) -> str:
     request = state["request"]
-    if request.get("feedback"):
+    if request.get("feedback") or request.get("reaction"):
         return "record_feedback"
     return "clarify" if not request.get("occasion") else "get_weather"
 

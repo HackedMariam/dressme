@@ -134,8 +134,8 @@ def test_graph_follows_each_route(fake, message, route):
 
 # ------------------------------------------------------------------ clarification
 def test_greeting_asks_for_clarification(fake):
-    state = run(make(fake), "Bonjour !")
-    assert state["route"] == "clarify" and "Réponds par 1, 2, 3 ou 4" in state["response"]
+    state = run(og.build_graph(gateway=Gateway(SERVICES, transport=fake), llm=None, modules={}), "Bonjour !")
+    assert state["route"] == "clarify" and "Réponds par 1, 2, 3 ou 4" in state["response"]   # 4 routes actives
     assert fake.calls == []                               # aucun service appelé
 
 
