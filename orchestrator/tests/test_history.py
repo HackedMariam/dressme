@@ -40,6 +40,7 @@ class FakeSupabase:
     def __init__(self):
         self.threads, self.messages, self.requests = [], [], []
         self.down = False
+        self.fail_with = None       # (statut HTTP, code PostgREST) renvoyé à toutes les requêtes
         self.clock = 0
 
     def tick(self):
@@ -51,6 +52,9 @@ class FakeSupabase:
         self.requests.append({"method": request.get_method(), "url": request.full_url, "headers": headers})
         if self.down:
             raise ConnectionError("Supabase injoignable")
+        if self.fail_with:
+            status, code = self.fail_with
+            return status, json.dumps({"code": code, "message": f"erreur simulée {code}"}).encode()
         if headers.get("apikey") != ANON:
             return 401, b'{"message": "Invalid API key"}'
         uid = USERS.get(headers.get("authorization", "").removeprefix("Bearer "))
@@ -79,6 +83,8 @@ class FakeSupabase:
             rows = [m for m in self.messages if m["thread_id"] == thread and m["user_id"] == uid]
             return 200, json.dumps([{k: m[k] for k in ("role", "content", "route", "created_at")} for m in rows]).encode()
         if table == "chat_messages" and method == "POST":
+            if len({frozenset(row) for row in body}) > 1:      # règle réelle de PostgREST sur les envois groupés
+                return 400, b'{"code": "PGRST102", "message": "All object keys must match"}'
             for row in body:   # clé étrangère composite (thread_id, user_id) : seulement ses propres fils
                 owner = next((t for t in self.threads if t["id"] == row["thread_id"]), None)
                 if owner is None or owner["user_id"] != uid:
@@ -119,7 +125,7 @@ def test_turn_is_saved_and_the_stylist_gets_the_saved_thread_id(env):
     start, services, supabase = env
     http = start()
     data = chat(http, "J'ai un entretien demain, que porter ?")
-    assert data["history"] == {"enabled": True, "saved": True, "error": None}
+    assert data["history"] == {"enabled": True, "saved": True, "error": None, "kind": None}
     thread = supabase.threads[0]
     assert data["thread_id"] == thread["id"] and thread["title"] == "J'ai un entretien demain, que porter ?"
     assert [m["role"] for m in supabase.messages] == ["user", "assistant"]
@@ -190,6 +196,7 @@ def test_history_failure_never_blocks_the_answer(env):
     data = chat(http, "J'ai un entretien demain, que porter ?")
     assert data["response"] and data["route"] == "stylist"
     assert data["history"]["saved"] is False and "injoignable" in data["history"]["error"]
+    assert data["history"]["kind"] == "réseau"
     supabase.down = False
     first = chat(http, "Est-ce que j'ai une jupe noire ?")
     supabase.down = True                                          # panne après la création du fil
@@ -213,7 +220,8 @@ def test_demo_mode_has_no_history(env):
     start, _, supabase = env
     http = start()
     data = chat(http, "Est-ce que j'ai une jupe noire ?", token=None)
-    assert data["history"] == {"enabled": False, "saved": False, "error": None} and supabase.requests == []
+    assert data["history"] == {"enabled": False, "saved": False, "error": None, "kind": None}
+    assert supabase.requests == []
     assert http.get("/api/history").status_code == 401
     assert http.delete("/api/history").status_code == 401
 
@@ -240,3 +248,51 @@ def test_page_has_history_controls_with_in_page_confirmation(env):
     for element in ('id="history"', 'id="new-thread"', 'id="clear-history"', 'id="confirm-clear"', 'id="do-clear"'):
         assert element in html
     assert "confirm(" not in html and "alert(" not in html       # aucune boîte de dialogue du navigateur
+
+
+def test_question_and_answer_rows_have_identical_keys(env):
+    """Panne réelle du 31/10 : la ligne de la question n'avait pas « route » -> 400 PGRST102 sur chat_messages."""
+    start, _, supabase = env
+    data = chat(start(), "J'ai un entretien demain, que porter ?")
+    assert data["history"]["saved"] is True
+    post = next(r for r in supabase.requests if r["method"] == "POST" and r["url"].endswith("/chat_messages"))
+    assert "/rest/v1/chat_messages" in post["url"] and post["headers"]["prefer"] == "return=minimal"
+    create = next(r for r in supabase.requests if r["method"] == "POST" and "/chat_threads" in r["url"])
+    assert create["headers"]["prefer"] == "return=representation"
+    assert supabase.requests.index(create) < supabase.requests.index(post)     # le fil avant les messages
+    rows = supabase.messages
+    assert set(rows[0]) == set(rows[1]) and rows[0]["route"] is None
+
+
+@pytest.mark.parametrize("status, code, kind", [
+    (401, "42501", "droits"), (403, "42501", "droits"), (404, "PGRST205", "table"), (400, "PGRST102", "requête"),
+    (401, "PGRST301", "session"),
+])
+def test_history_error_kinds(env, status, code, kind):
+    start, _, supabase = env
+    http = start()
+    supabase.fail_with = (status, code)
+    data = chat(http, "J'ai un entretien demain, que porter ?")
+    assert data["response"] and data["history"]["saved"] is False
+    assert data["history"]["kind"] == kind and code in data["history"]["error"]
+
+
+def test_tls_failure_is_reported_as_tls(env):
+    import ssl
+    import urllib.error
+    start, _, supabase = env
+    http = start()
+
+    def refuse(request, timeout):
+        raise urllib.error.URLError(ssl.SSLCertVerificationError("[SSL: CERTIFICATE_VERIFY_FAILED]"))
+    orch_app.settings()["history"].transport = refuse
+    data = chat(http, "J'ai un entretien demain, que porter ?")
+    assert data["history"]["kind"] == "tls" and "certificat TLS refusé" in data["history"]["error"]
+
+
+def test_page_explains_each_failure_kind(env):
+    start, _, _ = env
+    html = start().get("/").text
+    for text in ("droits refusés par Supabase", "table d'historique introuvable", "réseau : Supabase injoignable",
+                 "certificat TLS refusé"):
+        assert text in html

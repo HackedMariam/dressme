@@ -189,13 +189,13 @@ def api_chat(body: ChatRequest, authorization: Optional[str] = Header(None)) -> 
     if body.thread_id and ":" in body.thread_id:
         raise HTTPException(422, "thread_id ne doit pas contenir « : ».")
     history = settings()["history"] if token else None
-    thread_id, saved, history_error = body.thread_id, False, None
+    thread_id, saved, history_error, history_kind = body.thread_id, False, None, None
     if history is not None and not thread_id:
         # Nouvelle conversation : le fil Supabase donne le thread_id, transmis tel quel au Stylist.
         try:
             thread_id = history.create_thread(token, body.message)
         except Exception as exc:  # l'historique ne bloque jamais la réponse
-            history_error = str(exc) if isinstance(exc, HistoryError) else f"erreur inattendue : {type(exc).__name__}"
+            history_error, history_kind = _history_failure(exc)
     thread_id = thread_id or uuid.uuid4().hex[:12]
     config = og.turn_config(thread_id, user_id, token)
     graph = settings()["graph"]
@@ -206,16 +206,24 @@ def api_chat(body: ChatRequest, authorization: Optional[str] = Header(None)) -> 
             history.append_turn(token, thread_id, body.message, state.get("response", ""), state.get("route"))
             saved = True
         except Exception as exc:  # Supabase en panne, table absente, fil d'une autre session...
-            history_error = str(exc) if isinstance(exc, HistoryError) else f"erreur inattendue : {type(exc).__name__}"
+            history_error, history_kind = _history_failure(exc)
     if history_error:
-        logger.warning("historique non enregistré : %s", history_error)
+        logger.warning("historique non enregistré [%s] : %s", history_kind, history_error)
     visited = og.visited_nodes(state.get("trace") or [])
     return {"thread_id": thread_id, "mode": "connecté" if token else "démo",
             "response": state.get("response", ""), "route": state.get("route"),
             "route_source": state.get("route_source"), "candidates": state.get("candidates") or [],
             "result": state.get("result") or {}, "trace": state.get("trace") or [], "visited": visited,
             "svg": graph_svg(visited),
-            "history": {"enabled": history is not None, "saved": saved, "error": history_error}}
+            "history": {"enabled": history is not None, "saved": saved, "error": history_error,
+                        "kind": history_kind}}
+
+
+def _history_failure(exc: Exception) -> tuple[str, str]:
+    """(message, catégorie) d'un échec d'historique ; catégorie : droits, session, table, requête, tls, réseau."""
+    if isinstance(exc, HistoryError):
+        return str(exc), exc.kind
+    return f"erreur inattendue : {type(exc).__name__}", "requête"
 
 
 def _history_for(authorization: Optional[str]) -> tuple[str, str, ChatHistory]:
@@ -685,7 +693,10 @@ PAGE = r"""<!doctype html>
       addCard(data);
       if (data.history && data.history.enabled && !data.history.saved) {
         const warn = document.createElement("div"); warn.className = "saved-note";
-        warn.textContent = "Réponse non enregistrée dans ton historique (Supabase indisponible).";
+        const why = { droits: "droits refusés par Supabase", session: "session expirée, reconnecte-toi",
+                      table: "table d'historique introuvable", "requête": "requête refusée par Supabase",
+                      tls: "certificat TLS refusé (antivirus ou proxy ?)", "réseau": "réseau : Supabase injoignable" };
+        warn.textContent = "Réponse non enregistrée dans ton historique : " + (why[data.history.kind] || "erreur inconnue") + ".";
         log.lastChild.appendChild(warn);
       }
       if (created) loadHistory(false);
