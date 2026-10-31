@@ -187,7 +187,7 @@ Tout DressMe en local, depuis la racine du dépôt (Windows PowerShell) :
 | HelpMePack (`packing_backend/`) | 8020 | `uvicorn backend.main:app --port 8020` |
 | Purchase Redundancy (`purchase-redundancy-ai/backend/`) | 8040 | `API_PORT=8040 python main.py` (son port par défaut, 8000, est celui de BO1) |
 | Ollama `qwen2.5:3b` | 11434 | `ollama serve` avec `OLLAMA_KEEP_ALIVE=30m` |
-| BO4 Stylist (`bo4/backend/`) | 8061 | `stylist_web.py --require-auth --bo1-url http://localhost:8000` |
+| BO4 Stylist (`bo4/backend/`) | 8061 | `stylist_web.py --require-auth --bo1-url http://127.0.0.1:8000` |
 | Orchestrateur (`orchestrator/`) | 8070 | `app.py` : page de conversation sur http://127.0.0.1:8070/ |
 
 Chaque service utilise le Python de son dossier (`.venv`, `venv` ou `.venv-*`) ; sinon, indiquer le chemin de

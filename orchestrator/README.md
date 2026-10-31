@@ -90,11 +90,11 @@ Services attendus (`services.yaml`, plan des ports d'`INTEGRATION.md`) :
 
 | Service | URL | Lancement |
 |---|---|---|
-| BO1 | http://localhost:8000 | `cd backend` puis `uvicorn app.main:app --port 8000` |
-| Stylist | http://127.0.0.1:8061 | `cd bo4\backend` puis `python stylist_web.py --port 8061 --bo1-url http://localhost:8000` |
+| BO1 | http://127.0.0.1:8000 | `cd backend` puis `uvicorn app.main:app --port 8000` |
+| Stylist | http://127.0.0.1:8061 | `cd bo4\backend` puis `python stylist_web.py --port 8061 --bo1-url http://127.0.0.1:8000` |
 | Purchase Redundancy | http://127.0.0.1:8040 | `cd purchase-redundancy-ai\backend` puis `$env:API_PORT="8040"; $env:CLIP_ENABLED="False"; python main.py` |
 | BO5 | http://127.0.0.1:8010 | **désactivé dans `main`** ; branche `rag/try1` : `cd rag_backend` puis `uvicorn app:app --port 8010`, et `enabled: true` |
-| Ollama | http://localhost:11434 | modèle `qwen2.5:3b` |
+| Ollama | http://127.0.0.1:11434 | modèle `qwen2.5:3b` |
 
 API : `POST /api/chat` `{message, thread_id}` (+ `Authorization: Bearer <jeton>`), `GET /api/graph?visited=…`
 (SVG, nodes visités en olive), `GET /` (page).

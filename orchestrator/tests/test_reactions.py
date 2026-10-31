@@ -120,3 +120,47 @@ def test_clarification_adds_active_modules_in_french(fake):
     assert "pack a suitcase" not in state["response"] and "BO3" not in state["response"]   # module éteint : absent
     assert "Réponds par 1, 2, 3, 4 ou 5, ou reformule." in state["response"]
     assert run(graph, "5", token=TOKEN, user="uuid-alice")["route"] == "external:helpmepack"
+
+
+# ---------------------------------------------------------------- réaction + demande, réponse sans résultat
+@pytest.mark.parametrize("message", ["j'aime pas, donne moi un autre", "bof, autre chose", "non, donne-moi autre chose"])
+def test_reaction_plus_request_goes_to_the_stylist(fake, message):
+    llm = RecordingLLM()
+    state = turns(make(fake, llm=llm), "J'ai un entretien demain, que porter ?", message)
+    assert state["route"] == "stylist" and og.asks_for_more(message) and llm.calls == []
+    assert fake.to("stylist")[-1]["body"]["message"] == message
+
+
+def test_like_after_a_clarification_records_nothing(fake):
+    graph = make(fake)
+    turns(graph, "J'ai un entretien demain, que porter ?", "Que penses-tu de tout ça ?")    # clarification
+    state = turns(graph, "top")
+    assert state["route"] == "clarify" and state["response"] == "Il n'y a pas de tenue à noter dans ma dernière réponse."
+    assert len(fake.to("stylist")) == 1          # le Stylist n'est pas rappelé ; la question 1/2/3… reste valable
+
+
+def test_like_after_a_failed_stylist_call_records_nothing(fake):
+    graph = make(fake)
+    turns(graph, "J'ai un entretien demain, que porter ?")
+    fake.down = {"stylist"}
+    failed = turns(graph, "J'ai un entretien demain, que porter ?")
+    assert failed["result"]["ok"] is False
+    state = turns(graph, "j'aime")
+    assert state["response"] == "Il n'y a pas de tenue à noter dans ma dernière réponse."
+    fake.down = set()
+    again = turns(graph, "j'aime pas, une autre")                    # une demande de suite repart au Stylist
+    assert again["route"] == "stylist"
+
+
+def test_like_after_a_failed_purchase_says_nothing_to_note(fake):
+    graph = make(fake)
+    fake.down = {"purchase"}
+    turns(graph, "Est-ce que je devrais acheter un col roulé noir ?")
+    assert turns(graph, "top")["response"] == "Il n'y a rien à noter dans ma dernière réponse."
+
+
+def test_services_use_ipv4_loopback():
+    from services import load_services
+    services = load_services()
+    assert services["bo1"].url == "http://127.0.0.1:8000" and services["ollama"].url == "http://127.0.0.1:11434"
+    assert all("localhost" not in s.url for s in services.values())

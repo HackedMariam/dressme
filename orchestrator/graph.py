@@ -115,6 +115,11 @@ REACTIONS = {
     "color": r"((et )?en|(and )?in|what about( in)?) (bleue?|rouge|noire?|blanche?|verte?|grise?|beige|marron|rose|"
              r"jaune|violette?|marine|blue|red|black|white|green|gr[ae]y|brown|pink|yellow|purple|navy)",
 }
+# Réaction suivie d'une demande de suite : « j'aime pas, une autre », « bof, autre chose », « non, donne-moi autre
+# chose » (même liste que le Stylist, qui enregistre le 👎 PUIS propose d'autres tenues).
+CONTINUE_REQUEST = (r"((donne|propose|montre)[- ]?moi |tu as |t'as |je veux )?"
+                    r"(une autre|un autre|autre chose|une autre tenue|d'autres tenues|another( one)?|something else)"
+                    r"( (tenue|stp|s'il te plait|please))?")
 # Choix proposés par la clarification : route, service de services.yaml, libellé
 CLARIFY_OPTIONS = (("stylist", "stylist", "une tenue pour une occasion (BO4 Stylist)"),
                    ("wardrobe", "bo1", "savoir ce que tu as dans ta garde-robe"),
@@ -133,7 +138,14 @@ def reaction_kind(message: str) -> Optional[str]:
     for kind, pattern in REACTIONS.items():
         if re.fullmatch(rf"\s*{pattern}\s*[!.?…]*\s*", text):
             return kind
-    return None
+    return "dislike" if asks_for_more(message, "dislike") else "like" if asks_for_more(message, "like") else None
+
+
+def asks_for_more(message: str, kind: Optional[str] = None) -> bool:
+    """Réaction (dislike ou like) suivie d'une demande de suite : « j'aime pas, une autre »."""
+    text = plain(message).strip()
+    return any(re.fullmatch(rf"\s*{REACTIONS[k]}\s*[,;.!…-]*\s+{CONTINUE_REQUEST}\s*[!.?…]*\s*", text)
+               for k in ((kind,) if kind else ("dislike", "like")))
 
 
 def rule_candidates(message: str, modules: Optional[dict] = None) -> list[str]:
@@ -243,11 +255,16 @@ def decide_route(message: str, state: dict, llm: Optional[LLM],
     choices = state.get("pending_choices") or list(CHOICE.values())
     if pending and (choice := re.match(r"^\s*([1-9])\b", text)) and int(choice.group(1)) <= len(choices):
         return choices[int(choice.group(1)) - 1], "réponse à la question de clarification", []
-    if reaction_kind(message):
+    if kind := reaction_kind(message):
         # Réaction courte : elle porte sur la réponse précédente, quel que soit le mot employé.
-        if state.get("last_route"):
-            return state["last_route"], "réaction à la réponse précédente", []
-        return "clarify", "réaction sans réponse précédente", []
+        if not state.get("last_route"):
+            return "clarify", "réaction sans réponse précédente", []
+        last = state.get("last_turn") or {}
+        if (kind in ("like", "dislike") and not asks_for_more(message) and last
+                and (last.get("route") == "clarify" or not last.get("ok", True))):
+            # 👍 / 👎 sur une question ou une erreur : rien à noter (une demande de suite, elle, repart au module)
+            return "clarify", "réaction après une réponse sans résultat", []
+        return state["last_route"], "réaction à la réponse précédente", []
     candidates = rule_candidates(message, modules)
     if not candidates and state.get("packing_pending") and state.get("packing_session_id"):
         return "external:helpmepack", "packing clarification", []
@@ -587,6 +604,7 @@ class OrchestratorState(TypedDict, total=False):
     reaction: str                  # réaction courte de ce tour (dislike, like, thanks, why, color) ou ""
     last_item: str                 # dernier article analysé par Purchase Redundancy (« col roulé noir »)
     pending_choices: list[str]     # routes proposées par la dernière clarification (1, 2, 3…)
+    last_turn: dict                # dernière réponse : {"route", "ok"} (une réaction porte sur elle)
     result: dict                   # carte du service : {service, label, ok, text, details}
     response: str
     trace: list[str]
@@ -648,7 +666,8 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         if route != "clarify" and source == "réponse à la question de clarification":
             message = state.get("pending_question") or message
         text = f"{route} [{source}" + (f", indices : {', '.join(candidates)}" if candidates else "") + "]"
-        reaction = reaction_kind(message) if source == "réaction à la réponse précédente" else None
+        reaction = reaction_kind(message) if source in ("réaction à la réponse précédente",
+                                                        "réaction après une réponse sans résultat") else None
         update = {"route": route, "route_source": source, "candidates": candidates, "user_message": message,
                   "reaction": reaction or "",
                   "trace": list(state.get("trace") or []) + llm_trace + [f"route_intent -> {text}"]
@@ -859,6 +878,13 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         return {"result": result, "last_route": "knowledge", "trace": trace}
 
     def clarify(state: OrchestratorState) -> dict:
+        if state.get("route_source") == "réaction après une réponse sans résultat":
+            what = "de tenue" if state.get("last_route") == "stylist" else "rien"
+            text = (f"Il n'y a pas {what} à noter dans ma dernière réponse." if what == "de tenue"
+                    else "Il n'y a rien à noter dans ma dernière réponse.")
+            result = {"service": "clarify", "label": "Clarification", "ok": True, "text": text,
+                      "details": {"reaction": state.get("reaction")}}
+            return {"result": result, "trace": _line(state, "clarify", "réaction sans résultat à noter, rien enregistré")}
         # Seulement les routes réellement actives (services.yaml) : un service désactivé n'est pas proposé.
         options = [(route, text) for route, service, text in CLARIFY_OPTIONS
                    if gateway.services[service].extra.get("enabled", True) is not False]
@@ -937,7 +963,8 @@ def make_nodes(gateway: Gateway, llm: Any, use_llm_for_purchase: bool = False,
         history = list(state.get("history") or []) + [
             {"role": "user", "content": state["user_message"]},
             {"role": "assistant", "content": text, "route": state.get("route")}]
-        return {"response": text, "history": history[-40:],
+        last_turn = {"route": state.get("route"), "ok": result.get("ok", True) is not False}
+        return {"response": text, "history": history[-40:], "last_turn": last_turn,
                 "trace": _line(state, "respond", f"réponse de {result.get('label', 'l’orchestrateur')}")}
 
     return {"route_intent": route_intent, "stylist": stylist, "wardrobe": wardrobe, "purchase": purchase,

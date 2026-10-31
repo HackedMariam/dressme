@@ -642,7 +642,7 @@ def test_rain_warning(make_graph):
     ("J'adore la tenue 1 !", {"verdict": "like", "rank": 1}),
     ("je n'aime pas la 3", {"verdict": "dislike", "rank": 3}),
     ("j'aime pas la tenue 1", {"verdict": "dislike", "rank": 1}),
-    ("Je n'aime pas, une autre ?", None),
+    ("Je n'aime pas, une autre ?", {"verdict": "dislike", "rank": None}),   # réaction + suite : 👎 sans numéro
     ("Une tenue pour le 2 novembre", None),
 ])
 def test_extract_feedback(message, expected):
@@ -677,7 +677,7 @@ def test_liked_outfit_gets_a_bonus_next_time(make_graph):
     # Les pièces aimées remontent : au moins une tenue proposée les contient et reçoit un bonus.
     boosted = [o for o in again["outfits"] if o["personal_bonus"] > 0]
     assert boosted and all(liked & set(sa._outfit_ids(o)) for o in boosted)
-    assert "bonus perso" in again["response"]
+    assert "selon tes goûts)" in again["response"]          # score final affiché : « 89,8/100 (96,3 + … ) »
 
 
 def test_dislike_records_regenerates_and_never_shows_again(make_graph):

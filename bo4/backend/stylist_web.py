@@ -299,7 +299,9 @@ def turn_payload(state: dict, thread_id: str, user_id: str = sa.DEFAULT_USER) ->
             "rank": rank,
             "score": round(float(outfit.get("score", 0)), 1),
             "subscores": {k: round(float(outfit[k]), 1) for k in SUBSCORES if k in outfit},
-            "explanations": sa._explanations(outfit),
+            "explanations": sa._explanations(outfit, items),
+            "personal_score": round(float(outfit.get("personal_score", outfit.get("score", 0))), 1),
+            "score_text": sa.score_text(outfit),
             "formality": outfit.get("formality"),
             "personal_bonus": outfit.get("personal_bonus", 0),
             "dress_code_ok": outfit.get("dress_code_ok", True),
@@ -822,7 +824,7 @@ function compactCard(o) {
   const tag = [o.formality != null ? `formalité ${o.formality}/5` : "", o.dress_code_ok === false ? "hors dress code" : ""]
     .filter(Boolean).join(" · ");
   return `<article class="outfit-card" aria-label="Tenue n° ${o.rank}">
-    <header><h3>Tenue n° ${o.rank}</h3><span class="pill">${o.score}/100</span></header>
+    <header><h3>Tenue n° ${o.rank}</h3><span class="pill" title="${esc(o.score_text || "")}">${o.personal_score ?? o.score}/100</span></header>
     ${tag ? `<span class="muted">${esc(tag)}</span>` : ""}
     <div class="thumbs">${thumbs}</div>
     <div class="bars">${bars}</div>
@@ -946,7 +948,7 @@ function updateSide(data) {
   const w = data.wardrobe || {};
   if (w.source) {
     const skipped = Object.entries(w.skipped || {}).map(([reason, names]) => `${reason} : ${names.join(", ")}`).join(" | ");
-    $("wardrobe").innerHTML = `Source : <b>${esc(w.source)}</b> · ${w.kept} vêtement(s) utilisable(s) sur ${w.received}`
+    $("wardrobe").innerHTML = `Source : <b>${esc(w.source)}</b> · ${w.kept} ${w.kept === 1 ? "vêtement utilisable" : "vêtements utilisables"} sur ${w.received}`
       + (skipped ? `<br>Écartés : ${esc(skipped)}` : "");
   }
 }
@@ -993,7 +995,7 @@ async function loadWardrobe() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || res.statusText);
     const r = data.report || {};
-    $("wardrobe-info").textContent = `Source : ${r.source || "BO1"} · ${r.kept} vêtement(s) utilisable(s) sur ${r.received}`;
+    $("wardrobe-info").textContent = `Source : ${r.source || "BO1"} · ${r.kept} ${r.kept === 1 ? "vêtement utilisable" : "vêtements utilisables"} sur ${r.received}`;
     $("wardrobe-grid").innerHTML = data.items.map(wardrobeCard).join("");
     wardrobeLoaded = true;
   } catch (e) {

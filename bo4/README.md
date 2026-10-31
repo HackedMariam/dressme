@@ -150,7 +150,7 @@ Depuis `bo4/backend` :
 
 ```powershell
 # Avec le vrai BO1, le LLM et la météo
-.\.venv\Scripts\python.exe stylist_web.py --port 8061 --bo1-url http://localhost:8000
+.\.venv\Scripts\python.exe stylist_web.py --port 8061 --bo1-url http://127.0.0.1:8000
 # Plan B, sans BO1 : garde-robe d'exemple
 .\.venv\Scripts\python.exe stylist_web.py --port 8060 --fallback tests\fixtures\bo1_items_sample.json
 ```
@@ -158,7 +158,7 @@ Depuis `bo4/backend` :
 | Option | Effet |
 |---|---|
 | `--port` | port de la page (8060 par défaut) |
-| `--bo1-url` | URL de BO1 (défaut : `$BO1_API_URL`, sinon `http://localhost:8000`) |
+| `--bo1-url` | URL de BO1 (défaut : `$BO1_API_URL`, sinon `http://127.0.0.1:8000`) |
 | `--fallback <fichier.json>` | garde-robe d'exemple au format `/api/items` si BO1 est injoignable |
 | `--no-llm` | extraction d'intention par règles uniquement (sans Ollama) |
 | `--no-weather` | saison déduite de la date, sans aucun appel météo |
