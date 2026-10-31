@@ -104,6 +104,7 @@ function humanize(value: string) {
 
 function weatherSourceLabel(source: string | null | undefined) {
   if (source === "open-meteo") return "Open-Meteo";
+  if (source === "met-no") return "MET Norway";
   if (source === "user_provided") return "Your assumptions";
   if (source === "synthetic_fallback") return "Synthetic fallback";
   return "Unavailable";

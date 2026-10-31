@@ -222,7 +222,7 @@ class WeatherData(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     days: list[WeatherDay] = Field(default_factory=list)
-    source: Literal["open-meteo", "synthetic_fallback", "user_provided"] = "open-meteo"
+    source: Literal["open-meteo", "met-no", "synthetic_fallback", "user_provided"] = "open-meteo"
     warning: str | None = None
     resolved_name: str | None = None
     resolved_country: str | None = None

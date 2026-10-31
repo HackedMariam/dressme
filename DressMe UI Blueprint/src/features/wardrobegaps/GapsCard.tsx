@@ -30,7 +30,7 @@ export default function GapsCard({ onOpen }: { onOpen: () => void }) {
         </button>
       </div>
 
-      {error && <p className="text-xs text-[#8C8A82]">Gap agent unavailable: {error}</p>}
+      {error && <p className="text-xs text-[#8C8A82]">Built-in wardrobe rules are still available while the conversational AI takes a short break.</p>}
       {!ranking && !error && <p className="text-xs text-[#8C8A82]">Analysing your wardrobe…</p>}
 
       {ranking?.ranked_gaps.slice(0, 4).map((gap) => {

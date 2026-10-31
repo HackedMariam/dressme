@@ -4,8 +4,10 @@ import { TAXONOMY, cap } from "../../lib/taxonomy"
 import type { AccuracyRow } from "../../lib/types"
 import { useUserData } from "../profile/UserDataProvider"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
+import { parseLocation } from "../profile/types"
 import RecommendationCard from "./RecommendationCard"
 import { wardrobeStats } from "./wardrobeStats"
+import { fetchWeather, weatherIcon, weatherLabel, type WeatherResponse } from "../../api/weather"
 
 function Bar({ label, value, total }: { label: string; value: number; total: number }) {
   const width = total ? Math.round((value / total) * 100) : 0
@@ -27,6 +29,22 @@ export default function DashboardPage({ onOpenGaps, onOpenWardrobe }: { onOpenGa
   const { profile } = useUserData()
   const [accuracy, setAccuracy] = useState<AccuracyRow[] | null>(null)
   const [accuracyError, setAccuracyError] = useState(false)
+  const [weather, setWeather] = useState<WeatherResponse | null>(null)
+  const [weatherError, setWeatherError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const location = parseLocation(profile?.location ?? null)
+    const city = location.city.trim()
+    if (!city) {
+      setWeatherError("Add your city in Settings for live weather.")
+      return
+    }
+    let active = true
+    fetchWeather(city, location.country)
+      .then((result) => active && setWeather(result))
+      .catch((caught: Error) => active && setWeatherError(caught.message))
+    return () => { active = false }
+  }, [profile?.location])
 
   useEffect(() => {
     let active = true
@@ -117,6 +135,30 @@ export default function DashboardPage({ onOpenGaps, onOpenWardrobe }: { onOpenGa
           <button type="button" onClick={() => void reload()} className="ml-3 font-semibold underline">Try again</button>
         </div>
       )}
+
+      <section className="rounded-2xl bg-[#1C1C1C] p-6 text-white">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-white/40">Live weather</p>
+            <h2 className="mt-1 font-display text-xl font-medium">
+              {weather ? `${weather.location.name}${weather.location.country ? `, ${weather.location.country}` : ""}` : "Your location"}
+            </h2>
+          </div>
+          {weather && <span className="text-4xl">{weatherIcon(weather.current.weather_code)}</span>}
+        </div>
+        {weather ? (
+          <div className="mt-4 flex items-end gap-4">
+            <span className="font-display text-5xl font-light">{Math.round(weather.current.temperature_c ?? weather.days[0]?.temperature_max_c ?? 0)}°</span>
+            <div className="pb-1 text-sm text-white/60">
+              <p>{weatherLabel(weather.current.weather_code)}</p>
+              <p>{Math.round(weather.days[0]?.temperature_min_c ?? 0)}° / {Math.round(weather.days[0]?.temperature_max_c ?? 0)}° today</p>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-white/60">{weatherError ?? "Loading live forecast..."}</p>
+        )}
+        {weather?.warning && <p className="mt-3 text-xs text-amber-200">{weather.warning}</p>}
+      </section>
 
       {loading && !items.length ? (
         <div className="flex min-h-[240px] items-center justify-center text-sm text-[#8C8A82]">

@@ -29,6 +29,7 @@ from .colors import COLOR_NAMES
 from .detector import GarmentDetector
 from .enricher import color_family_of, enrich, fallback_enrich
 from .storage import LocalStore, get_store, item_folder
+from .weather import forecast
 from .taxonomy import (CLASS_TO_GROUP, COLOR_FAMILIES, GROUP_TO_ZONE, GROUPS, MODEL_CLASSES,
                        OCCASIONS, PATTERNS, SEASONS, STYLES)
 
@@ -97,6 +98,17 @@ def taxonomy() -> dict:
     return {"classes": MODEL_CLASSES, "class_to_group": CLASS_TO_GROUP, "groups": GROUPS,
             "patterns": PATTERNS, "seasons": SEASONS, "styles": STYLES, "occasions": OCCASIONS,
             "colors": COLOR_NAMES, "color_families": COLOR_FAMILIES}
+
+
+@app.get("/api/weather")
+def weather(city: str, country: str | None = None, user: User = Depends(current_user)) -> dict:
+    del user
+    try:
+        return forecast(city, country)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.get("/api/me")

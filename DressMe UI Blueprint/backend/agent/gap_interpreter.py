@@ -72,7 +72,8 @@ def interpret_gaps_with_gpt(gaps_data: dict[str, Any]) -> Optional[str]:
             except Exception as error:
                 last_error = error
         if response is None:
-            raise RuntimeError("All configured LLM providers failed.") from last_error
+            logger.info("Gap interpretation unavailable; showing the structured wardrobe analysis.")
+            return None
         return response.choices[0].message.content.strip()
     except Exception as exc:
         logger.warning("[BO3 Interpreter] OpenAI call failed: %s", exc)

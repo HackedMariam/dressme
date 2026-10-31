@@ -13,6 +13,7 @@ import json
 import logging
 
 from . import config
+from .messages import LLM_TEMPORARILY_UNAVAILABLE, LLM_UNAVAILABLE
 from .taxonomy import GROUPS, MODEL_CLASSES, OCCASIONS, PATTERNS, SEASONS, STYLES
 
 log = logging.getLogger("dressme.agent")
@@ -97,7 +98,7 @@ def chat(items: list[dict], message: str) -> dict:
     if not message:
         return {"reply": "Ask me something like \"a warm jacket for work\".", "items": []}
     if not config.OPENAI_API_KEY and not config.GROQ_API_KEY:
-        return {"reply": "The AI stylist needs an LLM API key configured on the server.", "items": []}
+        return {"reply": LLM_UNAVAILABLE, "items": []}
     messages: list[dict] = [{"role": "system", "content": SYSTEM},
                             {"role": "user", "content": message[:1000]}]
     found: dict[str, dict] = {}
@@ -111,7 +112,7 @@ def chat(items: list[dict], message: str) -> dict:
                     messages=messages, tools=TOOLS))
         except Exception:
             log.exception("agent LLM call failed")
-            return {"reply": "The AI stylist is having trouble right now, try again in a moment.",
+            return {"reply": LLM_TEMPORARILY_UNAVAILABLE,
                     "items": list(found.values())}
 
         msg = resp.choices[0].message

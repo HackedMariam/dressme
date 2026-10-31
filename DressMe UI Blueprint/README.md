@@ -48,7 +48,7 @@ browser bundle.
 | Settings | Live | Supabase |
 | Outfit Studio | Design preview | not wired yet |
 | Help Me Pack | Design preview | not wired yet |
-| Weather | Design preview | not wired yet |
+| Weather | Live | `/api/weather` with Open-Meteo and MET Norway fallback |
 
 ## Verify
 

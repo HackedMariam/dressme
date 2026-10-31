@@ -73,8 +73,11 @@ pip install -r requirements.txt
 Set the LLM configuration in the existing root `.env`:
 
 ```dotenv
-OPENAI_API_KEY=your_key_here
-LLM_MODEL=gpt-4o
+OPENAI_API_KEY=your_openai_key
+LLM_MODEL=gpt-4o            # OpenAI provider model only
+GROQ_API_KEY=your_groq_key
+GROQ_MODEL=openai/gpt-oss-120b  # Groq provider model
+AI_MODEL=openai/gpt-oss-120b    # generic fallback for any provider
 ```
 
 The standalone CLI works without an LLM or network using synthetic demo data.
@@ -175,8 +178,11 @@ frontend only use `npm run dev:frontend`.
 Root `.env`:
 
 ```dotenv
-OPENAI_API_KEY=your_key_here
-LLM_MODEL=gpt-4o
+OPENAI_API_KEY=your_openai_key
+LLM_MODEL=gpt-4o            # OpenAI only
+GROQ_API_KEY=your_groq_key
+GROQ_MODEL=openai/gpt-oss-120b  # Groq only
+AI_MODEL=openai/gpt-oss-120b    # fallback for any provider
 CORS_ORIGINS=http://localhost:8443,http://localhost:5173
 ```
 
@@ -255,9 +261,12 @@ constraints. Changing the destination or dates invalidates the assumptions.
 ## Notes and limitations
 
 - The integrated API uses BO1 wardrobe items; weights and compatibility are estimates.
-- Open-Meteo forecasts are limited to roughly the next 15 days. The integrated API
-  reports unavailable forecasts instead of planning with synthetic weather;
-  user-provided assumptions can be used explicitly instead.
+- Open-Meteo forecasts cover roughly the previous 92 days through the next 15
+  days; MET Norway is used as a second real provider. Trips outside that window
+  still plan with clearly labeled synthetic weather (never presented as a real
+  forecast), partial real coverage is accepted with a warning, and
+  user-provided assumptions can be used explicitly instead. Transient provider
+  failures still ask for a retry instead of silently using synthetic data.
 - Destination geocoding is confidence-checked. Fuzzy/fictional names are
   refused instead of silently using an unrelated real town; the agent asks for a
   valid destination. Country requests use a representative city where available

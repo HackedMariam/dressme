@@ -41,7 +41,7 @@ The Blueprint `App.tsx` is a monolith. Its mock pages are defined in `src/App.ts
 | 237 | `MyWardrobe` | `features/wardrobe/WardrobePage.tsx` |
 | 335 | `OutfitStudio` | not wired yet (preview) |
 | 467 | `HelpMePack` | not wired yet (preview) |
-| 620 | `WeatherPage` | not wired yet (preview) |
+| 620 | `WeatherPage` | live location forecast with Open-Meteo and MET Norway fallback |
 | 703 | `ShouldIBuy` | `features/purchase/ShouldIBuyPage.tsx` |
 | 819 | `AIStylist` | `features/stylist/StylistPage.tsx` |
 | 944 | `FindSimilar` | `features/purchase/FindSimilarPage.tsx` |

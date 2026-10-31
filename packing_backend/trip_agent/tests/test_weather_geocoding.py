@@ -312,3 +312,83 @@ def test_network_weather_keeps_resolved_location_metadata(monkeypatch) -> None:
     assert result.resolved_country == "France"
     assert result.requested_country is True
     assert result.geocoding_note == "Country request resolved to Paris."
+
+
+def test_past_dates_inside_provider_range_use_real_forecast(monkeypatch) -> None:
+    start = date.today() - timedelta(days=7)
+    end = start + timedelta(days=2)
+    called = {}
+
+    monkeypatch.setattr(
+        weather,
+        "resolve_destination",
+        lambda _destination: GeocodeResolution(
+            latitude=48.85, longitude=2.35, name="Paris", country="France"
+        ),
+    )
+
+    def fake_forecast(destination, _latitude, _longitude, _start, _end):
+        called["start"], called["end"] = _start, _end
+        return WeatherData(
+            destination=destination,
+            days=[
+                WeatherDay(
+                    date=_start + timedelta(days=i),
+                    weather="cloudy",
+                    temperature_c=15,
+                    source="open-meteo",
+                )
+                for i in range((_end - _start).days + 1)
+            ],
+            source="open-meteo",
+        )
+
+    monkeypatch.setattr(weather, "_forecast", fake_forecast)
+
+    result = weather.fetch_weather("Paris", start, end, allow_network=True)
+
+    assert result.source == "open-meteo"
+    assert called == {"start": start, "end": end}
+
+
+def test_met_fallback_sends_identifying_user_agent(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "properties": {
+                    "timeseries": [
+                        {
+                            "time": "2026-10-30T12:00:00Z",
+                            "data": {
+                                "instant": {"details": {"air_temperature": 15.0}},
+                                "next_1_hours": {"details": {"precipitation_amount": 0.0}},
+                            },
+                        }
+                    ]
+                }
+            }
+
+    def request(url, params, timeout, headers=None):
+        captured["headers"] = headers
+        return Response()
+
+    monkeypatch.setattr(weather.requests, "get", request)
+
+    result = weather._forecast_met(
+        "Paris",
+        48.85,
+        2.35,
+        date(2026, 10, 30),
+        date(2026, 10, 31),
+    )
+
+    assert result.source == "met-no"
+    assert captured["headers"]["User-Agent"] == weather.WEATHER_USER_AGENT
+    assert "python-requests" not in captured["headers"]["User-Agent"]

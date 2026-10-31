@@ -83,7 +83,10 @@ class GapAgent:
                     if provider != self.providers[-1][0]:
                         continue
             if response is None:
-                raise RuntimeError("All configured LLM providers failed.") from last_error
+                raise RuntimeError(
+                    "I can still analyse your wardrobe with DressMe's built-in rules, "
+                    "but the conversational AI is taking a short break. Please try again soon."
+                ) from last_error
             message = response.choices[0].message
             if not message.tool_calls:
                 return AgentResult(message.content or "", trace, self.tools.last_ranking)

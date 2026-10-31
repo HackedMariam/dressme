@@ -641,7 +641,7 @@ function WardrobeGapsContent({ userId }: { userId: string }) {
           </span>
         </div>
 
-        {error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">Gap agent unavailable: {error}</div>}
+        {error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">I can still show your wardrobe gaps using built-in rules. The conversational AI is taking a short break, so try again shortly.</div>}
         {!ranking && !error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">Analysing your wardrobe…</div>}
 
         <div className="grid grid-cols-2 gap-3.5 items-start">

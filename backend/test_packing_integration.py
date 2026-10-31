@@ -143,6 +143,68 @@ def test_retry_live_weather_after_failure(setup, monkeypatch):
     assert not any("forecast is unavailable" in error for error in retried["errors"])
 
 
+def test_outside_window_uses_labeled_synthetic_instead_of_failing(setup, monkeypatch):
+    client, _ = setup
+    from packing_backend.trip_agent.weather import _synthetic_weather
+    reason = (
+        "Requested dates 2027-06-01 to 2027-06-02 are outside the Open-Meteo "
+        "forecast window (2026-07-30 to 2026-11-14)."
+    )
+    monkeypatch.setattr("packing_backend.trip_agent.tools.fetch_weather",
+                        lambda destination, start, end, allow_network:
+                        _synthetic_weather(destination, start, end, reason))
+    headers = {"Authorization": "Bearer alice"}
+    created = client.post("/api/trips", headers=headers, json={
+        "mode": "structured", "trip": {"destination": "Rome", "start_date": "2027-06-01",
+        "end_date": "2027-06-02", "activities": ["sightseeing"], "max_luggage_weight_kg": 8}}).json()
+
+    assert created["status"] in {"optimized", "infeasible"}
+    assert created["weather"]["source"] == "synthetic_fallback"
+    assert "outside the Open-Meteo forecast window" in created["weather"]["warning"]
+    assert not any("forecast is unavailable" in error for error in created["errors"])
+
+
+def test_partial_real_forecast_is_accepted_with_warning(setup, monkeypatch):
+    client, _ = setup
+
+    def partial_forecast(destination, start, end, allow_network):
+        return WeatherData(destination=destination, source="open-meteo", days=[
+            WeatherDay(date=start, weather="cloudy", temperature_c=20,
+                       precipitation_mm=0, source="open-meteo", synthetic=False)
+        ])
+
+    monkeypatch.setattr("packing_backend.trip_agent.tools.fetch_weather", partial_forecast)
+    headers = {"Authorization": "Bearer alice"}
+    created = client.post("/api/trips", headers=headers, json={
+        "mode": "structured", "trip": {"destination": "Rome", "start_date": "2027-06-01",
+        "end_date": "2027-06-02", "activities": ["sightseeing"], "max_luggage_weight_kg": 8}}).json()
+
+    assert created["status"] in {"optimized", "infeasible"}
+    assert "Partial real forecast" in created["weather"]["warning"]
+    assert not any("forecast is unavailable" in error for error in created["errors"])
+
+
+def test_met_no_forecast_is_accepted_as_real(setup, monkeypatch):
+    client, _ = setup
+
+    def met_forecast(destination, start, end, allow_network):
+        days = [WeatherDay(date=start + timedelta(days=i), weather="cloudy",
+                           temperature_c=20, precipitation_mm=0,
+                           source="met-no", synthetic=False)
+                for i in range((end - start).days + 1)]
+        return WeatherData(destination=destination, days=days, source="met-no")
+
+    monkeypatch.setattr("packing_backend.trip_agent.tools.fetch_weather", met_forecast)
+    headers = {"Authorization": "Bearer alice"}
+    created = client.post("/api/trips", headers=headers, json={
+        "mode": "structured", "trip": {"destination": "Rome", "start_date": "2027-06-01",
+        "end_date": "2027-06-02", "activities": ["sightseeing"], "max_luggage_weight_kg": 8}}).json()
+
+    assert created["status"] in {"optimized", "infeasible"}
+    assert created["weather"]["source"] == "met-no"
+    assert not any("forecast is unavailable" in error for error in created["errors"])
+
+
 def test_manual_rain_still_requires_rain_protection(setup, monkeypatch):
     client, items = setup
     from packing_backend.trip_agent.weather import _synthetic_weather

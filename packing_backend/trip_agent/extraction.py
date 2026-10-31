@@ -6,7 +6,7 @@ import calendar
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from .llm import LLMClient
@@ -125,8 +125,63 @@ def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _add_months(start: date, months: int) -> date:
+    month_index = start.month - 1 + months
+    year = start.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _add_years(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        return value.replace(year=value.year + years, day=28)
+
+
+def _relative_start_date(text: str) -> date | None:
+    today = date.today()
+    if re.search(r"\btoday\b", text):
+        return today
+    if re.search(r"\btomorrow\b", text):
+        return today + timedelta(days=1)
+
+    number = r"(\d+|" + "|".join(WORD_NUMBERS) + r")"
+    match = re.search(rf"\bin\s+{number}\s*(day|week|month)s?\b", text)
+    if match is None:
+        match = re.search(rf"\b{number}\s*(day|week|month)s?\s+from\s+now\b", text)
+    if match:
+        raw, unit = match.group(1), match.group(2)
+        amount = int(raw) if raw.isdigit() else WORD_NUMBERS[raw]
+        if unit == "day":
+            return today + timedelta(days=amount)
+        if unit == "week":
+            return today + timedelta(weeks=amount)
+        return _add_months(today, amount)
+
+    weekend = re.search(r"\b(this|next)\s+weekend\b", text)
+    if weekend:
+        saturday = today + timedelta(days=(5 - today.weekday()) % 7)
+        if weekend.group(1) == "next" or saturday == today:
+            saturday += timedelta(weeks=1)
+        return saturday
+
+    next_period = re.search(r"\bnext\s+(week|month)\b", text)
+    if next_period:
+        if next_period.group(1) == "week":
+            return today + timedelta(weeks=1)
+        return _add_months(today, 1)
+
+    return None
+
+
 def _date_range_from_text(text: str) -> tuple[date | None, date | None]:
     lowered = text.lower()
+
+    relative_start = _relative_start_date(lowered)
+    if relative_start is not None:
+        return relative_start, None
 
     # ISO range: 2027-06-03 to 2027-06-07
     iso_dates = re.findall(r"\b(\d{4}-\d{2}-\d{2})\b", lowered)
@@ -143,21 +198,28 @@ def _date_range_from_text(text: str) -> tuple[date | None, date | None]:
 
     month_names = "|".join(sorted(MONTHS, key=len, reverse=True))
 
-    # June 3-7, 2027
+    # June 3-7, 2027  /  June 3-7 (year inferred, rolled to the next future year)
     match = re.search(
         rf"\b({month_names})\s+(\d{{1,2}})(?:st|nd|rd|th)?\s*"
-        rf"(?:-|to|through|until)\s*(\d{{1,2}})(?:st|nd|rd|th)?,?\s*(\d{{4}})",
+        rf"(?:-|to|through|until)\s*(\d{{1,2}})(?:st|nd|rd|th)?,?\s*(\d{{4}})?",
         lowered,
     )
     if match:
         month = MONTHS[match.group(1)]
-        year = int(match.group(4))
+        explicit_year = match.group(4)
         try:
-            return date(year, month, int(match.group(2))), date(year, month, int(match.group(3)))
+            year = int(explicit_year or date.today().year)
+            start = date(year, month, int(match.group(2)))
+            end = date(year, month, int(match.group(3)))
+            if explicit_year is None and start < date.today():
+                start = _add_years(start, 1)
+                end = _add_years(end, 1)
         except ValueError:
             pass
+        else:
+            return start, end
 
-    # June 3 to June 7, 2027  /  June 3, 2027 to June 7, 2027
+    # June 3 to June 7, 2027  /  June 3 to June 7 (year inferred)
     match = re.search(
         rf"\b({month_names})\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s*(\d{{4}}))?\s*"
         rf"(?:-|to|through|until)\s*"
@@ -165,17 +227,30 @@ def _date_range_from_text(text: str) -> tuple[date | None, date | None]:
         lowered,
     )
     if match:
-        start_year = int(match.group(3) or match.group(6) or date.today().year)
-        end_year = int(match.group(6) or match.group(3) or date.today().year)
+        explicit_start_year = match.group(3)
+        explicit_end_year = match.group(6)
         try:
-            return (
-                date(start_year, MONTHS[match.group(1)], int(match.group(2))),
-                date(end_year, MONTHS[match.group(4)], int(match.group(5))),
+            start = date(
+                int(explicit_start_year or explicit_end_year or date.today().year),
+                MONTHS[match.group(1)],
+                int(match.group(2)),
             )
+            end = date(
+                int(explicit_end_year or explicit_start_year or date.today().year),
+                MONTHS[match.group(4)],
+                int(match.group(5)),
+            )
+            if not (explicit_start_year or explicit_end_year) and start < date.today():
+                start = _add_years(start, 1)
+                end = _add_years(end, 1)
+            if end < start:
+                end = _add_years(end, 1)
         except ValueError:
             pass
+        else:
+            return start, end
 
-    # 3 June to 7 June 2027
+    # 3 June to 7 June 2027  /  3 June to 7 June (year inferred)
     match = re.search(
         rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({month_names})\s*(\d{{4}})?\s*"
         rf"(?:-|to|through|until)\s*"
@@ -183,31 +258,63 @@ def _date_range_from_text(text: str) -> tuple[date | None, date | None]:
         lowered,
     )
     if match:
-        year = int(match.group(3) or match.group(6) or date.today().year)
+        explicit_start_year = match.group(3)
+        explicit_end_year = match.group(6)
         try:
-            return (
-                date(year, MONTHS[match.group(2)], int(match.group(1))),
-                date(year, MONTHS[match.group(5)], int(match.group(4))),
+            start = date(
+                int(explicit_start_year or explicit_end_year or date.today().year),
+                MONTHS[match.group(2)],
+                int(match.group(1)),
             )
+            end = date(
+                int(explicit_end_year or explicit_start_year or date.today().year),
+                MONTHS[match.group(5)],
+                int(match.group(4)),
+            )
+            if not (explicit_start_year or explicit_end_year) and start < date.today():
+                start = _add_years(start, 1)
+                end = _add_years(end, 1)
+            if end < start:
+                end = _add_years(end, 1)
         except ValueError:
             pass
+        else:
+            return start, end
 
-    # Single date: "on June 3, 2027"
+    # Single date: "June 3, 2027" or "June 3" (year inferred)
     match = re.search(
-        rf"\b({month_names})\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s*(\d{{4}})\b",
+        rf"\b({month_names})\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s*(\d{{4}})?\b",
         lowered,
     )
     if match:
+        explicit_year = match.group(3)
         try:
-            return date(
-                int(match.group(3)),
+            value = date(
+                int(explicit_year or date.today().year),
                 MONTHS[match.group(1)],
                 int(match.group(2)),
-            ), None
+            )
+            if explicit_year is None and value < date.today():
+                value = _add_years(value, 1)
         except ValueError:
             pass
+        else:
+            return value, None
 
     return None, None
+
+
+def _clean_destination_name(candidate: str) -> str:
+    tokens: list[str] = []
+    for token in candidate.replace(",", " ").split():
+        lowered = token.lower()
+        if lowered in MONTHS or lowered in {
+            "for", "with", "from", "on", "at", "to", "and", "the", "a", "an",
+            "next", "this", "in", "by", "during", "of", "my",
+        }:
+            break
+        tokens.append(token)
+    return " ".join(tokens).strip()
 
 
 def _destination_from_text(text: str) -> str | None:
@@ -223,7 +330,9 @@ def _destination_from_text(text: str) -> str | None:
     ]
     for pattern in patterns:
         for match in re.finditer(pattern, text):
-            candidate = match.group(1).strip()
+            candidate = _clean_destination_name(match.group(1).strip())
+            if not candidate:
+                continue
             if re.fullmatch(month_names, candidate.lower()):
                 continue
             if candidate.lower() in {"for", "and", "the", "my", "a", "an"}:
@@ -254,6 +363,15 @@ def parse_trip_text(text: str) -> dict[str, Any]:
     if duration_match:
         raw = duration_match.group(1)
         data["duration_days"] = int(raw) if raw.isdigit() else WORD_NUMBERS[raw]
+    else:
+        weeks_match = re.search(
+            r"\bfor\s+(\d+|" + "|".join(WORD_NUMBERS) + r"|a)\s*[- ]?\s*(week|weeks)\b",
+            lowered,
+        )
+        if weeks_match:
+            raw = weeks_match.group(1)
+            weeks = 1 if raw == "a" else (int(raw) if raw.isdigit() else WORD_NUMBERS[raw])
+            data["duration_days"] = weeks * 7
 
     activity_matches: list[tuple[int, str]] = []
     for pattern, activity in ACTIVITY_PATTERNS:
@@ -360,7 +478,10 @@ def extract_trip_details(
             )
             meta = {"extractor": "llm_structured_output", "warning": None}
         except Exception as exc:
-            meta["warning"] = f"LLM extraction unavailable; used fallback parser: {exc}"
+            meta["warning"] = (
+                "I could not reach the AI trip planner, so I used DressMe's built-in trip parser instead. "
+                "Your trip can still be planned normally."
+            )
             log_event(logger, "trip_extraction_fallback", error=str(exc))
             incoming = {}
 

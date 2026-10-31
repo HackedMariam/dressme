@@ -9,7 +9,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PACKAGE_ROOT / "data"
 
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_OPENAI_MODEL = "gpt-4o"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 DEFAULT_LLM_TIMEOUT_SECONDS = 45
 DEFAULT_WEATHER_TIMEOUT = (5.0, 12.0)
 MAX_AGENT_ITERATIONS = 12
@@ -51,21 +52,46 @@ def get_api_key() -> str | None:
     return os.environ.get("OPENAI_API_KEY") or None
 
 
+def _clean_model(value: str | None) -> str | None:
+    model = (value or "").strip()
+    return model or None
+
+
+def get_ai_model() -> str | None:
+    """Generic model used by any provider without a specific override."""
+    return _clean_model(os.environ.get("AI_MODEL"))
+
+
+def get_openai_model() -> str:
+    """Model for the OpenAI provider (``LLM_MODEL``)."""
+    return (
+        _clean_model(os.environ.get("LLM_MODEL"))
+        or get_ai_model()
+        or DEFAULT_OPENAI_MODEL
+    )
+
+
+def get_groq_model() -> str:
+    """Model for the Groq provider (``GROQ_MODEL``, then ``AI_MODEL``)."""
+    return (
+        _clean_model(os.environ.get("GROQ_MODEL"))
+        or get_ai_model()
+        or DEFAULT_GROQ_MODEL
+    )
+
+
 def get_llm_providers() -> list[tuple[str, str, str]]:
     providers = []
     if os.environ.get("OPENAI_API_KEY"):
-        providers.append(("openai", os.environ["OPENAI_API_KEY"], get_model()))
+        providers.append(("openai", os.environ["OPENAI_API_KEY"], get_openai_model()))
     if os.environ.get("GROQ_API_KEY"):
-        providers.append((
-            "groq",
-            os.environ["GROQ_API_KEY"],
-            os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        ))
+        providers.append(("groq", os.environ["GROQ_API_KEY"], get_groq_model()))
     return providers
 
 
 def get_model() -> str:
-    return os.environ.get("LLM_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    """Backwards-compatible default model (OpenAI provider)."""
+    return get_openai_model()
 
 
 def llm_enabled() -> bool:

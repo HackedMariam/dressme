@@ -9,7 +9,7 @@ import random
 import re
 import unicodedata
 from dataclasses import dataclass, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
 import requests
@@ -27,7 +27,12 @@ class DestinationResolutionError(ValueError):
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+MET_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+# Open-Meteo serves roughly the last 92 days through the next 15 days.
 FORECAST_HORIZON_DAYS = 15
+FORECAST_PAST_DAYS = 92
+# MET Norway rejects the default requests User-Agent and requires a unique one.
+WEATHER_USER_AGENT = "DressMe-TripAgent/1.0 (weather-integration)"
 
 
 def _normalize_text(value: object) -> str:
@@ -368,11 +373,18 @@ def _fetch_geocode_results(query: str) -> list[dict]:
     return list(payload.get("results") or [])
 
 
-def _weather_request(url: str, params: dict) -> requests.Response:
+def _weather_request(
+    url: str,
+    params: dict,
+    headers: dict[str, str] | None = None,
+) -> requests.Response:
     """Retry transient network failures once without retrying invalid requests."""
     for attempt in range(2):
         try:
-            response = requests.get(url, params=params, timeout=DEFAULT_WEATHER_TIMEOUT)
+            request_kwargs: dict = {"params": params, "timeout": DEFAULT_WEATHER_TIMEOUT}
+            if headers:
+                request_kwargs["headers"] = headers
+            response = requests.get(url, **request_kwargs)
             response.raise_for_status()
             return response
         except (requests.Timeout, requests.ConnectionError):
@@ -671,6 +683,75 @@ def _forecast(
     )
 
 
+def _forecast_met(
+    destination: str,
+    latitude: float,
+    longitude: float,
+    start: date,
+    end: date,
+) -> WeatherData:
+    response = _weather_request(
+        MET_FORECAST_URL,
+        params={"lat": f"{latitude:.6f}", "lon": f"{longitude:.6f}"},
+        headers={"User-Agent": WEATHER_USER_AGENT},
+    )
+    payload = response.json()
+    grouped: dict[date, list[dict]] = {}
+    for entry in payload.get("properties", {}).get("timeseries", []):
+        timestamp = entry.get("time")
+        if not timestamp:
+            continue
+        current_date = date.fromisoformat(timestamp[:10])
+        if not start <= current_date <= end:
+            continue
+        grouped.setdefault(current_date, []).append(entry)
+
+    days: list[WeatherDay] = []
+    for current_date, entries in sorted(grouped.items()):
+        temperatures = []
+        winds = []
+        precipitation = 0.0
+        rain_signal = False
+        for entry in entries:
+            data = entry.get("data") or {}
+            details = (data.get("instant") or {}).get("details") or {}
+            if details.get("air_temperature") is not None:
+                temperatures.append(float(details["air_temperature"]))
+            if details.get("wind_speed") is not None:
+                winds.append(float(details["wind_speed"]) * 3.6)
+            hour = (data.get("next_1_hours") or {}).get("details") or {}
+            precipitation += float(hour.get("precipitation_amount") or 0)
+            summary = (data.get("next_1_hours") or {}).get("summary") or {}
+            rain_signal = rain_signal or "rain" in str(summary.get("symbol_code", "")).lower()
+        if not temperatures:
+            continue
+        minimum, maximum = min(temperatures), max(temperatures)
+        wind = max(winds) if winds else 0.0
+        condition = "rainy" if rain_signal or precipitation > 0.2 else _normalize_weather(None, sum(temperatures) / len(temperatures), wind)
+        days.append(WeatherDay(
+            date=current_date,
+            weather=condition,
+            temperature_c=round(sum(temperatures) / len(temperatures), 1),
+            temperature_min_c=round(minimum, 1),
+            temperature_max_c=round(maximum, 1),
+            precipitation_mm=round(precipitation, 1),
+            precipitation_probability=None,
+            wind_speed_kmh=round(wind, 1),
+            uv_index=None,
+            source="met-no",
+            synthetic=False,
+        ))
+    if not days:
+        raise ValueError("MET Norway returned no usable forecast rows")
+    return WeatherData(
+        destination=destination,
+        latitude=latitude,
+        longitude=longitude,
+        days=days,
+        source="met-no",
+    )
+
+
 def fetch_weather(
     destination: str,
     start: date,
@@ -687,9 +768,12 @@ def fetch_weather(
     if prepared.invalid_reason:
         raise DestinationResolutionError(prepared.invalid_reason)
 
-    today = date.today()
+    # Open-Meteo evaluates its allowed date range against UTC, so use the same
+    # day here instead of the server's local date to avoid a one-day mismatch
+    # around midnight that made the same trip succeed or fail depending on time.
+    today = datetime.now(timezone.utc).date()
     within_forecast_window = (
-        start >= today - timedelta(days=1)
+        start >= today - timedelta(days=FORECAST_PAST_DAYS)
         and end <= today + timedelta(days=FORECAST_HORIZON_DAYS)
     )
 
@@ -701,13 +785,22 @@ def fetch_weather(
                     f"Could not confidently resolve destination '{destination}' "
                     "to a real city or country"
                 )
-            weather = _forecast(
-                destination,
-                resolution.latitude,
-                resolution.longitude,
-                start,
-                end,
-            )
+            try:
+                weather = _forecast(
+                    destination, resolution.latitude, resolution.longitude, start, end
+                )
+            except Exception as open_meteo_error:
+                log_event(
+                    logger,
+                    "weather_provider_fallback",
+                    destination=destination,
+                    provider="met-no",
+                    error=str(open_meteo_error),
+                    level=logging.WARNING,
+                )
+                weather = _forecast_met(
+                    destination, resolution.latitude, resolution.longitude, start, end
+                )
             weather = weather.model_copy(
                 update={
                     "resolved_name": resolution.name,
@@ -728,7 +821,7 @@ def fetch_weather(
         except DestinationResolutionError:
             raise
         except Exception as exc:
-            reason = f"Open-Meteo weather retrieval failed: {exc}."
+            reason = f"Weather providers failed: {exc}."
             log_event(
                 logger,
                 "weather_fallback",
@@ -740,11 +833,19 @@ def fetch_weather(
 
     if not within_forecast_window:
         reason = (
-            "Requested dates are outside the Open-Meteo forecast window "
-            f"({(today - timedelta(days=1)).isoformat()} to "
+            f"Requested dates {start.isoformat()} to {end.isoformat()} are outside "
+            "the Open-Meteo forecast window "
+            f"({(today - timedelta(days=FORECAST_PAST_DAYS)).isoformat()} to "
             f"{(today + timedelta(days=FORECAST_HORIZON_DAYS)).isoformat()})."
         )
     else:
         reason = "Network weather retrieval was disabled."
-    log_event(logger, "weather_synthetic_fallback", destination=destination, reason=reason)
+    log_event(
+        logger,
+        "weather_synthetic_fallback",
+        destination=destination,
+        start_date=start.isoformat(),
+        end_date=end.isoformat(),
+        reason=reason,
+    )
     return _synthetic_weather(destination, start, end, reason)

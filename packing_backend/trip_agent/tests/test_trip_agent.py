@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -257,6 +257,29 @@ def test_fallback_parser_handles_date_variants_and_updates() -> None:
     details = TripDetails.model_validate(parsed)
     assert details.duration_days == 5
     assert details.is_complete
+
+
+def test_fallback_parser_rolls_yearless_dates_into_the_future() -> None:
+    parsed = parse_trip_text(
+        "Trip to Paris June 3-7 for sightseeing, 8 kg luggage."
+    )
+    assert parsed["destination"] == "Paris"
+    start = date.fromisoformat(parsed["start_date"])
+    end = date.fromisoformat(parsed["end_date"])
+    assert start > date.today()
+    assert (end - start).days == 4
+    assert start.year in {date.today().year, date.today().year + 1}
+
+
+def test_fallback_parser_handles_relative_dates() -> None:
+    tomorrow = parse_trip_text("Going to Paris tomorrow for 3 days")
+    assert tomorrow["destination"] == "Paris"
+    assert tomorrow["start_date"] == (date.today() + timedelta(days=1)).isoformat()
+    assert tomorrow["duration_days"] == 3
+
+    in_two_weeks = parse_trip_text("Going to Paris in two weeks for 5 days")
+    assert in_two_weeks["start_date"] == (date.today() + timedelta(weeks=2)).isoformat()
+    assert in_two_weeks["duration_days"] == 5
 
 
 @pytest.mark.parametrize(

@@ -685,22 +685,52 @@ class TripTools:
             }
 
         expected_dates = {details.start_date + timedelta(days=i) for i in range((end - details.start_date).days + 1)}
-        available_dates = {day.date for day in weather.days if not day.synthetic and day.source == "open-meteo"}
+        real_forecast_sources = {"open-meteo", "met-no"}
+        available_dates = {
+            day.date
+            for day in weather.days
+            if not day.synthetic and day.source in real_forecast_sources
+        }
+        outside_forecast_window = bool(
+            weather.warning
+            and "outside the Open-Meteo forecast window" in weather.warning
+        )
         if self.wardrobe_provider.name == "bo1" and (
-            weather.source != "open-meteo" or not expected_dates.issubset(available_dates)
+            weather.source not in real_forecast_sources or not available_dates
         ):
-            if weather.warning and "outside the Open-Meteo forecast window" in weather.warning:
-                message = ("A real weather forecast is unavailable for these dates. "
-                           "The trip is outside the forecast window. Retry closer to departure "
-                           "or enter your own weather assumptions.")
-            else:
+            if not outside_forecast_window:
                 message = ("A real weather forecast is unavailable for these dates or destination. "
                            "The weather service may be unreachable or returned incomplete data. "
                            "Retry or enter your own weather assumptions.")
-            self.state.status = "failed"
-            if message not in self.state.errors:
-                self.state.errors.append(message)
-            return {"ok": False, "error": message, "next_action": "ask_user"}
+                self.state.status = "failed"
+                if message not in self.state.errors:
+                    self.state.errors.append(message)
+                return {"ok": False, "error": message, "next_action": "ask_user"}
+            # Dates outside the provider window are a deterministic limitation,
+            # not a transient failure. Continue with the explicitly labeled
+            # synthetic fallback instead of blocking a far-future trip.
+            if not weather.warning:
+                weather = weather.model_copy(
+                    update={"warning": "Synthetic weather is in use; it is not a real forecast."}
+                )
+
+        # A real provider can still omit a boundary day. Keep the plan moving and
+        # surface the gap instead of failing the whole trip; downstream lookups
+        # fall back to the nearest available real day.
+        missing_dates = sorted(expected_dates - available_dates)
+        if missing_dates:
+            gap_note = (
+                "Partial real forecast: no data for "
+                + ", ".join(day.isoformat() for day in missing_dates)
+                + ". The nearest available real forecast day is used for those dates."
+            )
+            weather = weather.model_copy(
+                update={
+                    "warning": f"{weather.warning} {gap_note}".strip()
+                    if weather.warning
+                    else gap_note
+                }
+            )
 
         self.state.errors = [error for error in self.state.errors
                              if not error.startswith("A real weather forecast is unavailable")]

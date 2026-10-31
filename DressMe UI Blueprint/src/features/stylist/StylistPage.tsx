@@ -62,7 +62,8 @@ export default function StylistPage() {
       ])
     } catch (sendError) {
       const message =
-        sendError instanceof Error ? sendError.message : "The stylist could not answer right now."
+        "I can still help with built-in style rules, but the AI stylist is taking a short break. "
+        + "Please try again shortly."
       setError(message)
       setMessages((previous) => [
         ...previous,

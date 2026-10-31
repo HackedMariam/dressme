@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import HelpMePack from "./features/helpmepack/HelpMePack";
 import { AuthProvider, useAuth } from "./features/auth/AuthProvider";
 import AuthScreen from "./features/auth/AuthScreen";
@@ -17,6 +17,7 @@ import { WardrobeProvider } from "./features/wardrobe/WardrobeProvider";
 import { getSupabaseConfigMessage } from "./lib/supabase";
 import WardrobeGapsPage from "./features/wardrobegaps/WardrobeGapsPage";
 import OutfitStudioPage from "./features/outfits/OutfitStudioPage";
+import { fetchWeather, weatherIcon, weatherLabel, type WeatherResponse } from "./api/weather";
 
 type Page =
   | "dashboard"
@@ -324,36 +325,55 @@ function MyWardrobe() {
 }
 
 function WeatherPage() {
-  const forecast = [
-    { day: "Thu", icon: "⛅", high: 18, low: 11, desc: "Partly Cloudy", wind: 12, humid: 65 },
-    { day: "Fri", icon: "☀️", high: 22, low: 14, desc: "Sunny", wind: 8, humid: 50 },
-    { day: "Sat", icon: "🌧️", high: 15, low: 10, desc: "Rainy", wind: 20, humid: 85 },
-    { day: "Sun", icon: "🌥️", high: 16, low: 10, desc: "Overcast", wind: 15, humid: 72 },
-    { day: "Mon", icon: "☀️", high: 21, low: 13, desc: "Sunny", wind: 6, humid: 45 },
-    { day: "Tue", icon: "⛅", high: 19, low: 12, desc: "Partly Cloudy", wind: 10, humid: 58 },
-    { day: "Wed", icon: "🌧️", high: 13, low: 8, desc: "Heavy Rain", wind: 25, humid: 90 },
-  ];
+  const { profile } = useUserData();
+  const [weather, setWeather] = useState<WeatherResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const location = parseLocation(profile?.location ?? null);
+  const city = location.city.trim();
+  const country = location.country || null;
+
+  useEffect(() => {
+    if (!city) {
+      setWeather(null);
+      setError("Add your city in Settings to see local weather.");
+      return;
+    }
+    let active = true;
+    setError(null);
+    fetchWeather(city, country)
+      .then((result) => active && setWeather(result))
+      .catch((caught: Error) => active && setError(caught.message));
+    return () => { active = false; };
+  }, [city, country]);
+
+  const current = weather?.current;
+  const today = weather?.days[0];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Weather & Style</h1>
-        <p className="text-[#8C8A82] text-sm mt-1">New York, NY · What to wear based on conditions</p>
+        <p className="text-[#8C8A82] text-sm mt-1">
+          {weather ? `${weather.location.name}${weather.location.country ? `, ${weather.location.country}` : ""}` : city || "Your location"} · Live forecast
+        </p>
       </div>
+
+      {error && <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{error}</div>}
+      {weather?.warning && <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{weather.warning}</div>}
 
       {/* Today Hero */}
       <div className="bg-[#1C1C1C] rounded-2xl p-8 flex gap-8">
         <div>
-          <p className="text-white/40 text-xs uppercase tracking-widest">Today · Thursday</p>
+          <p className="text-white/40 text-xs uppercase tracking-widest">Today</p>
           <div className="flex items-center gap-4 mt-2">
-            <span className="text-6xl">⛅</span>
+            <span className="text-6xl">{weatherIcon(current?.weather_code ?? null)}</span>
             <div>
-              <p className="font-display text-6xl font-light text-white">18°</p>
-              <p className="text-white/50 text-sm">Partly Cloudy · Feels like 15°</p>
+              <p className="font-display text-6xl font-light text-white">{current?.temperature_c == null ? "—" : `${Math.round(current.temperature_c)}°`}</p>
+              <p className="text-white/50 text-sm">{current ? `${weatherLabel(current.weather_code)} · Feels like ${current.feels_like_c == null ? "—" : `${Math.round(current.feels_like_c)}°`}` : "Loading forecast..."}</p>
             </div>
           </div>
           <div className="flex gap-6 mt-4">
-            {[{ l: "Wind", v: "12 km/h" }, { l: "Humidity", v: "65%" }, { l: "UV Index", v: "3 Low" }].map((s) => (
+            {[{ l: "Wind", v: current?.wind_speed_kmh == null ? "—" : `${Math.round(current.wind_speed_kmh)} km/h` }, { l: "Humidity", v: current?.humidity_percent == null ? "—" : `${Math.round(current.humidity_percent)}%` }, { l: "UV Index", v: today?.uv_index == null ? "—" : `${Math.round(today.uv_index)}` }].map((s) => (
               <div key={s.l}>
                 <p className="text-white/30 text-xs">{s.l}</p>
                 <p className="text-white/80 text-sm font-medium">{s.v}</p>
@@ -363,27 +383,22 @@ function WeatherPage() {
         </div>
         <div className="border-l border-white/10 pl-8 flex-1">
           <p className="text-[#556B2F] text-xs font-semibold uppercase tracking-widest">What to Wear Today</p>
-          <p className="font-display text-xl font-medium text-white mt-2">Layer for the afternoon chill</p>
+          <p className="font-display text-xl font-medium text-white mt-2">{today ? `Dress for ${weatherLabel(today.weather_code).toLowerCase()} conditions` : "Preparing your weather advice"}</p>
           <p className="text-white/50 text-sm mt-1.5 leading-relaxed">
-            Start with your ivory turtleneck as a base. Your camel blazer handles the 18° morning. Wind at 12 km/h means you don't need a heavy coat. Opt for closed-toe shoes — Chelsea boots are perfect.
+          {today ? `Today's range is ${Math.round(today.temperature_min_c)}° to ${Math.round(today.temperature_max_c)}° with ${today.precipitation_mm.toFixed(1)} mm of expected precipitation. Use your wardrobe and the forecast to choose appropriate layers.` : "Live weather will appear here once your location is configured."}
           </p>
-          <div className="flex gap-2 mt-4">
-            {["Ivory Turtleneck", "Camel Blazer", "Chelsea Boots"].map((i) => (
-              <span key={i} className="text-xs bg-white/10 text-white/70 px-3 py-1.5 rounded-lg">{i}</span>
-            ))}
-          </div>
         </div>
       </div>
 
       {/* 7-Day Forecast */}
       <div className="grid grid-cols-7 gap-3">
-        {forecast.map((f, i) => (
+        {(weather?.days ?? []).map((f, i) => (
           <div key={i} className={`rounded-xl p-4 text-center ${i === 0 ? "bg-[#556B2F] text-white" : "bg-[#F0EFEA]"}`}>
-            <p className={`text-xs font-semibold ${i === 0 ? "text-white/70" : "text-[#8C8A82]"}`}>{f.day}</p>
-            <span className="text-2xl block my-2">{f.icon}</span>
-            <p className={`text-sm font-semibold ${i === 0 ? "text-white" : "text-[#1C1C1C]"}`}>{f.high}°</p>
-            <p className={`text-xs ${i === 0 ? "text-white/60" : "text-[#8C8A82]"}`}>{f.low}°</p>
-            <p className={`text-[10px] mt-2 leading-tight ${i === 0 ? "text-white/60" : "text-[#8C8A82]"}`}>{f.desc}</p>
+            <p className={`text-xs font-semibold ${i === 0 ? "text-white/70" : "text-[#8C8A82]"}`}>{new Date(`${f.date}T12:00:00`).toLocaleDateString("en", { weekday: "short" })}</p>
+            <span className="text-2xl block my-2">{weatherIcon(f.weather_code)}</span>
+            <p className={`text-sm font-semibold ${i === 0 ? "text-white" : "text-[#1C1C1C]"}`}>{Math.round(f.temperature_max_c)}°</p>
+            <p className={`text-xs ${i === 0 ? "text-white/60" : "text-[#8C8A82]"}`}>{Math.round(f.temperature_min_c)}°</p>
+            <p className={`text-[10px] mt-2 leading-tight ${i === 0 ? "text-white/60" : "text-[#8C8A82]"}`}>{weatherLabel(f.weather_code)}</p>
           </div>
         ))}
       </div>
@@ -392,11 +407,11 @@ function WeatherPage() {
       <div className="bg-[#F0EFEA] rounded-xl p-6">
         <h3 className="font-display text-lg font-medium text-[#1C1C1C] mb-4">Weekly Outfit Guide</h3>
         <div className="grid grid-cols-7 gap-3">
-          {forecast.map((f, i) => (
+          {(weather?.days ?? []).map((f, i) => (
             <div key={i} className="text-center">
-              <p className="text-xs font-semibold text-[#8C8A82]">{f.day}</p>
+              <p className="text-xs font-semibold text-[#8C8A82]">{new Date(`${f.date}T12:00:00`).toLocaleDateString("en", { weekday: "short" })}</p>
               <p className="text-[10px] text-[#1C1C1C] mt-1 leading-tight">
-                {f.high >= 20 ? "Light dress + sandals" : f.high >= 16 ? "Blazer + jeans" : f.icon === "🌧️" ? "Trench + boots" : "Layered knit"}
+                {f.temperature_max_c >= 20 ? "Light layers" : f.temperature_max_c >= 16 ? "Blazer + jeans" : weatherLabel(f.weather_code).toLowerCase().includes("rain") ? "Trench + boots" : "Layered knit"}
               </p>
             </div>
           ))}
@@ -822,12 +837,6 @@ function AuthenticatedApp() {
               >
                 Complete profile setup
               </button>
-            </div>
-          )}
-          {page === "weather" && (
-            <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
-              <b>Design preview.</b> This screen is not connected to a live backend on this branch
-              yet.
             </div>
           )}
           {renderPage()}

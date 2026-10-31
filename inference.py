@@ -123,7 +123,7 @@ class DressMeInferenceEngine:
     def _init_llm_client(self):
         """Initializes OpenAI client for personal styling and decision explanation."""
         if not self.openai_key:
-            print("[LLM Notice] No OPENAI_API_KEY found in .env; running in deterministic evaluation mode.")
+            print("[LLM Notice] No primary LLM key found; using the built-in wardrobe evaluation.")
             return
 
         try:

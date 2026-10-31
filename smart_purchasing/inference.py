@@ -128,7 +128,7 @@ class DressMeInferenceEngine:
     def _init_llm_client(self):
         """Initializes OpenAI client for personal styling and decision explanation."""
         if not self.openai_key:
-            print("[LLM Notice] No OPENAI_API_KEY found in .env; running in deterministic evaluation mode.")
+            print("[LLM Notice] No primary LLM key found; using the built-in wardrobe evaluation.")
             return
 
         try:
@@ -330,6 +330,12 @@ class DressMeInferenceEngine:
             interpretation = self._interpret_with_gpt(payload)
             if interpretation:
                 payload["stylist_interpretation"] = interpretation
+            else:
+                payload["stylist_interpretation"] = (
+                    "Your wardrobe evaluation is ready. I used DressMe's built-in analysis because "
+                    "the AI stylist is taking a short break. The core recommendation is still based "
+                    "on your wardrobe, budget, and outfit compatibility."
+                )
 
         return payload
 
