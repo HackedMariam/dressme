@@ -32,11 +32,15 @@ def cell(summary: dict, key: str) -> str:
 
 def main() -> None:
     lines = ["# RAG v2 : résultats avant / après", "",
-             "**Chiffres provisoires** : le gold set (`gold_set.jsonl`, 40 questions, 20 sujets en FR et en EN) est un "
-             "brouillon non validé. Une exécution par ligne ; le LLM varie d'un appel à l'autre. `top_k = 5`.",
+             "Gold set (`gold_set.jsonl`, 40 questions, 20 sujets en FR et en EN) validé pour l'étape 4 ; annotation "
+             "par une seule personne. Une exécution par ligne ; le LLM varie d'un appel à l'autre. `top_k = 5`.",
              "", "Depuis l'étape 4, le sujet « tendances » (2 questions) n'a plus de source : réponse attendue "
-             "« I don't know », hors Hit@5 / MRR / précision (36 questions mesurées). Les lignes 0 à 3 utilisent "
-             "l'ancien gold set (40 questions mesurées, attendus de la v1).", ""]
+             "« I don't know », hors Hit@5 / MRR / précision (38 questions mesurées). Les lignes 0 à 3 utilisent "
+             "l'ancien gold set (40 questions mesurées, attendus de la v1, livres z-library compris) : la "
+             "comparaison avec la ligne 4 est indicative, les documents attendus ne sont pas les mêmes.",
+             "", "**Couverture fragile** : questions 23-24 (talons confortables, un seul document attendu : "
+             "« woman shoes ») et 35-36 (essentiels de la garde-robe masculine, couverture partielle : Suit, "
+             "accessories men, Dress Shoes).", ""]
     for scope, title in (("tout", "Ensemble (40 questions)"), ("fr", "Questions en français (20)"),
                          ("en", "Questions en anglais (20)")):
         lines += [f"## {title}", "", "| Étape | Mode | " + " | ".join(label for _, label in COLUMNS) + " |",
