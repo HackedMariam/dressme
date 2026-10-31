@@ -57,8 +57,9 @@ SYSTEM = (
     "You may only talk about items the user actually owns: always call search_wardrobe at least "
     "once before answering, and call it again with different filters if a search comes back "
     "empty or clearly too broad. Keep replies short (1-3 sentences), friendly, and specific - "
-    "name the actual items you found by name. If nothing in the wardrobe fits, say so plainly "
-    "instead of inventing something."
+    "name the actual items you found by name and say briefly why they fit (warmth, season, "
+    "occasion, style). Reply in the language the user wrote in. If nothing in the wardrobe fits, "
+    "say so plainly instead of inventing something."
 )
 
 
@@ -105,6 +106,7 @@ def chat(items: list[dict], message: str) -> dict:
     messages: list[dict] = [{"role": "system", "content": SYSTEM},
                             {"role": "user", "content": message[:1000]}]
     found: dict[str, dict] = {}
+    filters: list[dict] = []   # the filters the model chose, shown to the user as chips
 
     for _ in range(MAX_ROUNDS):
         try:
@@ -114,11 +116,11 @@ def chat(items: list[dict], message: str) -> dict:
         except Exception:
             log.exception("agent LLM call failed")
             return {"reply": "The AI stylist is having trouble right now, try again in a moment.",
-                    "items": list(found.values())}
+                    "items": list(found.values()), "filters": filters}
 
         msg = resp.choices[0].message
         if not msg.tool_calls:
-            return {"reply": msg.content or "", "items": list(found.values())}
+            return {"reply": msg.content or "", "items": list(found.values()), "filters": filters}
 
         messages.append({"role": "assistant", "content": msg.content,
                          "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
@@ -128,13 +130,15 @@ def chat(items: list[dict], message: str) -> dict:
             except json.JSONDecodeError:
                 args = {}
             results = _run_search(items, args)
+            if args:
+                filters.append(args)
             trimmed = [{k: i.get(k) for k in RESULT_FIELDS} for i in results]
             for i, t in zip(results, trimmed):
                 found[i["id"]] = t
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(trimmed)})
 
     return {"reply": "That search is taking more digging than usual - try asking more specifically.",
-           "items": list(found.values())}
+           "items": list(found.values()), "filters": filters}
 
 
 DUPLICATE_SYSTEM = (

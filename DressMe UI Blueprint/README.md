@@ -27,8 +27,10 @@ $env:BACKEND_URL="http://127.0.0.1:8001"; pnpm dev
 
 ## Environment
 
-Copy `.env.example` to `.env` and fill in the public Supabase values. Leave `VITE_API_URL` empty
-when using the Vite proxy. Set it to the backend origin when the app is served without a proxy.
+Vite reads the single `.env` at the repository root (copy the root `.env.example`): `SUPABASE_URL`,
+`SUPABASE_ANON_KEY` and the `VITE_*` values. A `.env` in this folder, if present, wins for those two Supabase
+values. Leave `VITE_API_URL` empty when using the Vite proxy. Set it to the backend origin when the app is
+served without a proxy.
 
 Never put `SUPABASE_SERVICE_ROLE_KEY` or an LLM/RAG key in this file: it is compiled into the
 browser bundle.

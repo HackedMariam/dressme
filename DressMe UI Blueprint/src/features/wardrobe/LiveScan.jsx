@@ -5,7 +5,7 @@ import { cap } from '../../lib/taxonomy'
 const POLL_MS = 600       // how often we ask the server "what's in frame right now"
 const STABLE_MS = 1400    // how long the same item must hold steady before we save it
 const COOLDOWN_MS = 2200  // after a capture, ignore detections for this long (lets you swap items)
-const MIN_CONFIDENCE = 0.35
+const MIN_CONFIDENCE = 0.35  // below this it is background noise; between this and the server's bar you get a question
 
 // Live camera scan: polls /api/items/quick-detect (fast, YOLO-only) to track whatever is
 // in frame, and once the same item has been held steady for STABLE_MS, saves it instantly
@@ -21,12 +21,16 @@ export default function LiveScan({ onAdded, onClose }) {
   const busyRef = useRef(false)
   const trackRef = useRef(null)       // { key, since }
   const cooldownUntilRef = useRef(0)
+  const lastKeyRef = useRef(null)     // item just captured; it must leave the frame before the next capture
+  const armedRef = useRef(true)
+  const addRef = useRef(null)         // addFromFile, reachable from the "Add anyway" button
 
   const [status, setStatus] = useState('starting') // starting | scanning | holding | captured | error
   const [error, setError] = useState('')
   const [label, setLabel] = useState(null)          // { category, color_name }
   const [box, setBox] = useState(null)               // { x1,y1,x2,y2, frameW, frameH }
   const [progress, setProgress] = useState(0)
+  const [hint, setHint] = useState('')                // live advice: show the whole item, move closer...
   const [session, setSession] = useState([])          // this session's captures, newest first
 
   useEffect(() => {
@@ -73,12 +77,24 @@ export default function LiveScan({ onAdded, onClose }) {
         trackRef.current = null
         setBox(null)
         setProgress(0)
+        setHint('')
+        setStatus('scanning')
+        armedRef.current = true   // nothing usable in frame: the last item was taken away
+        return
+      }
+      const key = `${det.category}|${det.color_name}`
+      if (key !== lastKeyRef.current) armedRef.current = true
+      if (!armedRef.current) {    // same item still in front of the camera: do not save it again
+        trackRef.current = null
+        setBox(null)
+        setProgress(0)
+        setHint('Already scanned. Remove it, or show another item.')
         setStatus('scanning')
         return
       }
+      setHint(det.problem || '')
       setBox({ ...boxOf(det), frameW, frameH })
       setLabel(det)
-      const key = `${det.category}|${det.color_name}`
       if (trackRef.current?.key !== key) trackRef.current = { key, since: now }
       const held = now - trackRef.current.since
       setProgress(Math.min(1, held / STABLE_MS))
@@ -86,11 +102,11 @@ export default function LiveScan({ onAdded, onClose }) {
       if (held >= STABLE_MS) {
         trackRef.current = null
         cooldownUntilRef.current = now + COOLDOWN_MS
-        capture()
+        capture(key)
       }
     }
 
-    async function capture() {
+    async function capture(key) {
       setStatus('captured')
       try {
         const video = videoRef.current
@@ -101,8 +117,32 @@ export default function LiveScan({ onAdded, onClose }) {
         const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.92))
         if (!blob) throw new Error('Could not capture the frame')
         const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' })
-        const { items: added } = await api.analyze(file, { fast: true })
+        lastKeyRef.current = key
+        armedRef.current = false
+        await addFromFile(file, false)
+      } catch (e) {
+        if (e.status === 422) {
+          // The server refused a bad frame (low confidence, item cut off, too far): advice, not an error card.
+          setHint(e.message)
+          armedRef.current = true
+        } else {
+          setSession((s) => [{ id: `err-${Date.now()}`, error: e.message }, ...s])
+        }
+      } finally {
+        if (!cancelled) setTimeout(() => setStatus('scanning'), 1100)
+      }
+    }
+
+    // Saves one frame. The server skips it (nothing saved) when it looks like an item you already own.
+    async function addFromFile(file, force) {
+      {
+        const { items: added, skipped } = await api.analyze(file, { fast: true, force })
         if (cancelled) return
+        if (skipped) {
+          // Nothing was saved. The card says why and lets the user confirm or dismiss.
+          setSession((s) => [{ id: `skip-${Date.now()}`, skipped, file, preview: URL.createObjectURL(file) }, ...s])
+          return
+        }
         onAdded(added)
         setSession((s) => [...added.map((i) => ({ ...i, pending: true })), ...s])
         added.forEach((item) => {
@@ -120,12 +160,9 @@ export default function LiveScan({ onAdded, onClose }) {
             setSession((s) => s.map((x) => (x.id === item.id ? { ...x, dup: res.note || 'Looks like one you already have' } : x)))
           }).catch(() => {})
         })
-      } catch (e) {
-        setSession((s) => [{ id: `err-${Date.now()}`, error: e.message }, ...s])
-      } finally {
-        if (!cancelled) setTimeout(() => setStatus('scanning'), 1100)
       }
     }
+    addRef.current = addFromFile
 
     return () => {
       cancelled = true
@@ -133,6 +170,20 @@ export default function LiveScan({ onAdded, onClose }) {
       streamRef.current?.getTracks().forEach((t) => t.stop())
     }
   }, [])
+
+  function dismiss(entry) {
+    if (entry.preview) URL.revokeObjectURL(entry.preview)
+    setSession((s) => s.filter((x) => x.id !== entry.id))
+  }
+
+  async function addAnyway(entry) {
+    dismiss(entry)
+    try {
+      await addRef.current(entry.file, true)
+    } catch (e) {
+      setSession((s) => [{ id: `err-${Date.now()}`, error: e.message }, ...s])
+    }
+  }
 
   function boxOf(det) {
     const [x1, y1, x2, y2] = det.box
@@ -175,8 +226,8 @@ export default function LiveScan({ onAdded, onClose }) {
               )}
               <div className={`absolute inset-x-0 bottom-0 px-4 py-2 text-center text-sm font-medium text-white ${status === 'captured' ? 'bg-[#556B2F]' : 'bg-black/50'}`}>
                 {status === 'starting' && 'Starting camera...'}
-                {status === 'scanning' && 'Point the camera at one clothing item'}
-                {status === 'holding' && `Hold still - ${cap(label?.color_name || '')} ${cap(label?.category || '')}...`}
+                {status === 'scanning' && (hint || 'Point the camera at one clothing item')}
+                {status === 'holding' && `Hold still - ${cap(label?.color_name || '')} ${cap(label?.category || '')}...${hint ? ` (${hint})` : ''}`}
                 {status === 'captured' && 'Added!'}
               </div>
             </>
@@ -200,12 +251,24 @@ export default function LiveScan({ onAdded, onClose }) {
                   className={`flex max-w-full items-center gap-2 rounded-lg border p-2 text-xs ${
                     i.error
                       ? 'border-red-200 bg-red-50 text-red-700'
-                      : i.dup
+                      : i.dup || i.skipped
                         ? 'border-amber-200 bg-amber-50'
                         : 'border-[#E2E0D8] bg-white'
                   }`}
                 >
-                  {i.error ? <span>Could not add: {i.error}</span> : (
+                  {i.error ? <span>Could not add: {i.error}</span> : i.skipped ? (
+                    <>
+                      {i.preview && <img src={i.preview} alt="" className="h-12 w-10 rounded bg-[#F0EFEA] object-cover" />}
+                      <div className="min-w-0">
+                        <span className="block font-medium text-[#1C1C1C]">Not added yet</span>
+                        <span className="block text-amber-800">{i.skipped.note}</span>
+                        <div className="mt-1 flex gap-3">
+                          <button type="button" className="font-semibold text-[#556B2F] underline" onClick={() => addAnyway(i)}>Add anyway</button>
+                          <button type="button" className="text-[#8C8A82] underline" onClick={() => dismiss(i)}>Dismiss</button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
                     <>
                       {i.cutout_url && <img src={asset(i.cutout_url)} alt="" className="h-10 w-8 rounded bg-[#F0EFEA] object-contain" />}
                       <div className="min-w-0">

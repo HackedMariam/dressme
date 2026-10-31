@@ -2,25 +2,26 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "
 import {
   fetchGaps,
   fetchGoals,
-  fetchLearning,
-  resetRanker,
-  retrainRanker,
   sendChat,
   sendFeedback,
   type ChatTurn,
   type CoveredRequirement,
   type GapRanking,
   type Goal,
-  type LearningStatus,
   type RankedGap,
+  type ShownItem,
   type TraceStep,
-  type TrainingRun,
 } from "./api";
+import { asset } from "../../lib/api";
 
 const GOAL_DESIGN: Record<string, { icon: string; note: string; prompt: string }> = {
   winter_work: { icon: "❄", note: "Office days, rain & cold", prompt: "What am I missing for winter work days in Tunis?" },
   summer_casual: { icon: "☀", note: "Light & breathable", prompt: "What am I missing for hot summer days?" },
   formal_event: { icon: "✦", note: "Weddings & celebrations", prompt: "What am I missing for a summer wedding?" },
+  sport_gym: { icon: "⚡", note: "Training, running & the gym", prompt: "What am I missing for the gym and sport?" },
+  hiking_outdoor: { icon: "▲", note: "Trails, wind & rain", prompt: "What am I missing for hiking and the outdoors?" },
+  beach_pool: { icon: "≈", note: "Swim, sun & sand", prompt: "What am I missing for a beach or pool day?" },
+  dinner_date: { icon: "✧", note: "Evenings out", prompt: "What am I missing for a dinner or date night?" },
 };
 
 const FEATURES: { key: keyof RankedGap; label: string; inverse?: boolean }[] = [
@@ -235,108 +236,32 @@ function GapCard({
   );
 }
 
-type Movement = { id: string; name: string; before: number; after: number };
+type Message = ChatTurn & { trace?: TraceStep[]; items?: ShownItem[] };
 
-function LearningLoop({
-  status,
-  training,
-  movements,
-  busy,
-  error,
-  onRetrain,
-  onReset,
-}: {
-  status: LearningStatus | null;
-  training: TrainingRun | null;
-  movements: Movement[];
-  busy: boolean;
-  error: string | null;
-  onRetrain: () => void;
-  onReset: () => void;
-}) {
-  const run = training ?? status?.last_training ?? null;
+// Owned pieces the agent talked about, as photo cards.
+function ShownItems({ items }: { items: ShownItem[] }) {
   return (
-    <section className="bg-white border border-[#E2E0D8] rounded-2xl p-6" aria-label="Learning loop">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <span className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#8C8A82]">03 · Learning loop</span>
-          <h2 className="font-display text-[23px] text-[#1C1C1C] mt-1">The ranker learns from you</h2>
-          <p className="text-xs text-[#8C8A82] mt-1 max-w-[640px]">
-            Every “I need this” and “Not relevant” becomes a training label. Retraining blends your labels with the synthetic data,
-            weighting yours higher, and the new XGBoost model replaces the old one immediately.
-          </p>
-        </div>
-        <span
-          className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-md ${
-            status?.personalised ? "bg-[#556B2F] text-white" : "bg-[#EDEAF2] text-[#5E5675]"
-          }`}
-        >
-          {status?.personalised ? "Personalised model" : "Synthetic model"}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-4 gap-3 mt-5">
-        {[
-          { label: "Your labels", value: status?.feedback_labels ?? "—", note: `${status?.need_labels ?? 0} need · ${status?.not_relevant_labels ?? 0} not relevant` },
-          { label: "Model in use", value: status?.personalised ? "v-you" : "v-synthetic", note: status?.active_model ?? "" },
-          { label: "NDCG@3 before", value: run?.ndcg_at_3_before?.toFixed(2) ?? "—", note: "on your feedback" },
-          { label: "NDCG@3 after", value: run?.ndcg_at_3_after?.toFixed(2) ?? "—", note: run ? run.evaluation : "retrain to measure" },
-        ].map((s) => (
-          <div key={s.label} className="bg-[#FAF9F6] rounded-xl p-4">
-            <span className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#8C8A82]">{s.label}</span>
-            <strong className="block font-display text-2xl mt-1.5 text-[#1C1C1C]">{s.value}</strong>
-            <p className="text-[10.5px] text-[#8C8A82] mt-0.5 truncate" title={s.note}>{s.note}</p>
+    <div className="mt-3 grid grid-cols-2 gap-2">
+      {items.map((item) => (
+        <div key={item.id} className="flex items-center gap-2 rounded-lg border border-[#E2E0D8] bg-[#FAF9F6] p-1.5">
+          <div className="grid h-16 w-12 shrink-0 place-items-center overflow-hidden rounded bg-[#F0EFEA] text-[9px] text-[#8C8A82]">
+            {item.image_url ? (
+              <img src={asset(item.image_url)} alt={item.name} loading="lazy" className="h-full w-full object-contain" />
+            ) : (
+              "No photo"
+            )}
           </div>
-        ))}
-      </div>
-
-      {movements.length > 0 && (
-        <div className="mt-5">
-          <p className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#8C8A82] mb-2">How the ranking changed for this context</p>
-          <div className="grid grid-cols-2 gap-x-6">
-            {movements.map((m) => {
-              const delta = m.before - m.after;
-              return (
-                <div key={m.id} className="flex items-center gap-3 py-2 border-b border-[#E2E0D8] text-xs">
-                  <span className="text-[#8C8A82] w-12 font-mono">#{m.before} → #{m.after}</span>
-                  <span className="flex-1 text-[#1C1C1C]">{m.name}</span>
-                  <span className={`font-bold ${delta > 0 ? "text-[#556B2F]" : delta < 0 ? "text-[#9A5A3C]" : "text-[#8C8A82]"}`}>
-                    {delta > 0 ? `▲ ${delta}` : delta < 0 ? `▼ ${-delta}` : "="}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-semibold text-[#1C1C1C]" title={item.name}>{item.name}</p>
+            <p className="truncate text-[10px] capitalize text-[#8C8A82]">
+              {[item.colors?.[0], (item.subcategory ?? item.category).replace(/_/g, " ")].filter(Boolean).join(" · ")}
+            </p>
           </div>
         </div>
-      )}
-
-      {error && <p className="text-xs text-[#9A5A3C] mt-4">{error}</p>}
-      <div className="flex flex-wrap items-center gap-2 mt-5">
-        <button
-          onClick={onRetrain}
-          disabled={busy || !status?.feedback_labels}
-          className="bg-[#1C1C1C] hover:bg-black disabled:opacity-40 text-white text-[13px] font-bold px-4 py-2.5 rounded-lg"
-        >
-          {busy ? "Retraining…" : "Retrain from my feedback"}
-        </button>
-        {status?.personalised && (
-          <button
-            onClick={onReset}
-            disabled={busy}
-            className="px-4 py-2.5 text-[13px] font-bold rounded-lg border border-[#D6D0C5] bg-white hover:bg-[#FAF9F6]"
-          >
-            Reset to synthetic model
-          </button>
-        )}
-        <span className="text-[11px] text-[#8C8A82]">
-          {status?.feedback_labels ? "Unrated pieces in a rated context count as neutral." : "Rate at least one piece above to enable retraining."}
-        </span>
-      </div>
-    </section>
+      ))}
+    </div>
   );
 }
-
-type Message = ChatTurn & { trace?: TraceStep[] };
 
 function AgentDrawer({
   open,
@@ -392,6 +317,7 @@ function AgentDrawer({
               }`}
             >
               {m.role === "assistant" ? <AgentMarkdown text={m.content} /> : m.content}
+              {m.items && m.items.length > 0 && <ShownItems items={m.items} />}
               {m.trace && <TraceView trace={m.trace} />}
             </div>
           </div>
@@ -430,11 +356,7 @@ export default function WardrobeGapsPage() {
   const [confirmed, toggleConfirmed] = usePersistentList(CONFIRMED_KEY);
   const piecesRef = useRef<HTMLElement>(null);
 
-  const [learning, setLearning] = useState<LearningStatus | null>(null);
-  const [training, setTraining] = useState<TrainingRun | null>(null);
-  const [movements, setMovements] = useState<Movement[]>([]);
-  const [learningBusy, setLearningBusy] = useState(false);
-  const [learningError, setLearningError] = useState<string | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -444,48 +366,18 @@ export default function WardrobeGapsPage() {
 
   useEffect(() => {
     fetchGoals().then(setGoals).catch((e: Error) => setError(e.message));
-    fetchLearning().then(setLearning).catch(() => undefined);
   }, []);
 
   useEffect(() => {
     setRanking(null);
     setError(null);
-    setMovements([]);
     fetchGaps(goal).then(setRanking).catch((e: Error) => setError(e.message));
   }, [goal]);
 
   // Sends a label to the backend; the local list keeps the buttons in sync across reloads.
   const giveFeedback = (gap: RankedGap, relevance: 0 | 3 | null) => {
-    setLearningError(null);
-    sendFeedback(goal, gap.candidate_id, relevance)
-      .then(setLearning)
-      .catch((e: Error) => setLearningError(`Feedback not saved: ${e.message}`));
-  };
-
-  const runLearning = async (action: "retrain" | "reset") => {
-    if (!ranking) return;
-    setLearningBusy(true);
-    setLearningError(null);
-    const before = new Map(ranking.ranked_gaps.map((g) => [g.candidate_id, g.rank]));
-    try {
-      if (action === "retrain") {
-        const result = await retrainRanker();
-        setTraining(result.training);
-        setLearning(result.status);
-      } else {
-        setTraining(null);
-        setLearning(await resetRanker());
-      }
-      const next = await fetchGaps(goal);
-      setRanking(next);
-      setMovements(
-        next.ranked_gaps.map((g) => ({ id: g.candidate_id, name: g.name, before: before.get(g.candidate_id) ?? g.rank, after: g.rank })),
-      );
-    } catch (e) {
-      setLearningError((e as Error).message);
-    } finally {
-      setLearningBusy(false);
-    }
+    setFeedbackError(null);
+    sendFeedback(goal, gap.candidate_id, relevance).catch((e: Error) => setFeedbackError(`Feedback not saved: ${e.message}`));
   };
 
   const key = (id: string) => `${goal}:${id}`;
@@ -506,7 +398,7 @@ export default function WardrobeGapsPage() {
     try {
       const response = await sendChat(message, history, conversationId);
       setConversationId(response.conversation_id);
-      setMessages((m) => [...m, { role: "assistant", content: response.answer, trace: response.trace }]);
+      setMessages((m) => [...m, { role: "assistant", content: response.answer, trace: response.trace, items: response.items }]);
       if (response.ranking && response.ranking.goal !== goal) setGoal(response.ranking.goal);
     } catch (e) {
       setChatError((e as Error).message);
@@ -584,7 +476,7 @@ export default function WardrobeGapsPage() {
       <section className="bg-white border border-[#E2E0D8] rounded-2xl p-6" aria-label="Context">
         <span className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#8C8A82]">01 · Your context</span>
         <h2 className="font-display text-[23px] text-[#1C1C1C] mt-1 mb-4">What are you dressing for?</h2>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {goals.map((g) => {
             const on = g.id === goal;
             const design = GOAL_DESIGN[g.id] ?? { icon: "◐", note: g.season, prompt: "" };
@@ -632,6 +524,7 @@ export default function WardrobeGapsPage() {
 
         {error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">Gap agent unavailable: {error}</div>}
         {!ranking && !error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">Analysing your wardrobe…</div>}
+        {feedbackError && <p className="text-xs text-[#9A5A3C] mb-3">{feedbackError}</p>}
 
         <div className="grid grid-cols-2 gap-3.5 items-start">
           {ranking &&
@@ -665,16 +558,6 @@ export default function WardrobeGapsPage() {
           </div>
         )}
       </section>
-
-      <LearningLoop
-        status={learning}
-        training={training}
-        movements={movements}
-        busy={learningBusy}
-        error={learningError}
-        onRetrain={() => runLearning("retrain")}
-        onReset={() => runLearning("reset")}
-      />
 
       {/* Covered + feedback */}
       <div className="grid grid-cols-2 gap-4">

@@ -293,6 +293,15 @@ def _response_payload(
 # ----------------------------------------------------------------------
 # Application factory
 # ----------------------------------------------------------------------
+# The dev frontend may be opened as localhost, 127.0.0.1, 0.0.0.0 or this machine's LAN address, on any
+# port. The service only listens on 127.0.0.1 and authenticates with bearer tokens (no cookies), so these
+# origins are safe to accept; anything else is still refused.
+DEV_ORIGIN_REGEX = (
+    r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}"
+    r"|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2})(:\d+)?$"
+)
+
+
 def create_app(
     use_llm: bool | None = None,
     allow_weather_network: bool | None = None,
@@ -391,10 +400,20 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=sorted(origins),
+        allow_origin_regex=DEV_ORIGIN_REGEX,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def log_rejected_origin(request: Request, call_next):
+        # Outermost: sees the preflight answer. A refused origin shows up in the browser only as
+        # "Failed to fetch", so say which origin it was.
+        response = await call_next(request)
+        if request.method == "OPTIONS" and response.status_code == 400 and request.headers.get("origin"):
+            log_event(logger, "cors_origin_rejected", level=logging.WARNING, origin=request.headers["origin"])
+        return response
 
     @app.exception_handler(Exception)
     async def unhandled_exception(request: Request, exc: Exception):

@@ -11,7 +11,10 @@
     "casual": 0.8,
     "smart_casual": 0.6,
     "formal": 0.3,
-    "outdoor": 0.4
+    "outdoor": 0.4,
+    "sport": 0.5,
+    "beach": 0.25,
+    "date_night": 0.3
   },
   "lifestyle": "Office five days a week, weekend outings, a few weddings and family celebrations per year."
 }

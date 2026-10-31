@@ -18,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Load .env from the project root (works whatever the current directory is)
 load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT.parent / ".env")  # repo-root .env (never overrides the above)
 
 # ============================================================================
 # ENVIRONMENT
@@ -31,7 +32,9 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 # ============================================================================
 
 # LLM_* names (not CLAUDE_*) avoid clashing with variables set by Claude tooling
-LLM_MODEL = os.getenv("LLM_MODEL", "claude-opus-5-5")
+# LLM_MODEL is shared with the OpenAI services of the repo-root .env: only a Claude name is used here.
+_shared_model = os.getenv("LLM_MODEL", "")
+LLM_MODEL = os.getenv("CLAUDE_MODEL") or (_shared_model if _shared_model.startswith("claude") else "claude-opus-5-5")
 LLM_API_KEY = os.getenv("CLAUDE_API_KEY") or os.getenv("ANTHROPIC_API_KEY", "")
 LLM_EFFORT = os.getenv("LLM_EFFORT", "low")  # explanations - low | medium | high | xhigh | max
 LLM_AGENT_EFFORT = os.getenv("LLM_AGENT_EFFORT", "medium")  # multi-step agent runs

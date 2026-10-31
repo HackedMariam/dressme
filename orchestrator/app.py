@@ -32,18 +32,21 @@ app = FastAPI(title="DressMe Orchestrator")
 _settings: dict[str, Any] = {}
 HERE = Path(__file__).resolve().parent
 ENV_FILE = HERE / ".env"
+ROOT_ENV_FILE = HERE.parent / ".env"
 MARKDOWN_JS = (HERE / "static" / "markdown.js").read_text(encoding="utf-8")
 SUPABASE_JS = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"
 
 
-def read_env(path: Path = ENV_FILE) -> dict[str, str]:
-    """Variables KEY=VALUE d'un fichier .env (sans dépendance) ; l'environnement du processus l'emporte."""
+def read_env(path: Path = ENV_FILE, fallback: Optional[Path] = None) -> dict[str, str]:
+    """Variables KEY=VALUE d'un fichier .env (sans dépendance), puis du fichier de repli (.env racine) sans
+    écraser ; l'environnement du processus l'emporte."""
     values: dict[str, str] = {}
-    if path.is_file():
-        for line in path.read_text(encoding="utf-8-sig").splitlines():
-            key, sep, value = line.strip().partition("=")
-            if sep and key and not key.startswith("#"):
-                values[key.strip()] = value.strip().strip('"').strip("'")
+    for env_path in (path, fallback):
+        if env_path is not None and env_path.is_file():
+            for line in env_path.read_text(encoding="utf-8-sig").splitlines():
+                key, sep, value = line.strip().partition("=")
+                if sep and key and not key.startswith("#"):
+                    values.setdefault(key.strip(), value.strip().strip('"').strip("'"))
     for key in ("SUPABASE_URL", "SUPABASE_ANON_KEY"):
         if os.environ.get(key):
             values[key] = os.environ[key]
@@ -513,7 +516,7 @@ def main() -> None:
     services = load_services(args.services) if args.services else load_services()
     modules = load_modules(args.services) if args.services else load_modules()
     configure(gateway=Gateway(services), llm=None if args.no_llm else "ollama", require_auth=args.require_auth,
-              env=read_env(), modules=modules)
+              env=read_env(fallback=ROOT_ENV_FILE), modules=modules)
     import uvicorn
     uvicorn.run(app, host=args.host, port=args.port)
 

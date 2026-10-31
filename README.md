@@ -47,14 +47,15 @@ category rules and can be reclassified later ("Re-run AI").
 
 ### 1. Keys
 ```bash
-cp .env.example .env                    # OPENAI_API_KEY (+ Supabase in production)
-cp frontend/.env.example frontend/.env  # VITE_SUPABASE_ANON_KEY in production
+cp .env.example .env    # the single .env for every service: OPENAI_API_KEY (+ Supabase in production)
 ```
+All services read this root `.env`. A service's own `.env` (e.g. `orchestrator/.env`), if present, is read
+first and wins. `.env.example` lists every variable and which service reads it.
 
 ### 2. Supabase (production)
 1. Dashboard → **SQL Editor** → paste `supabase/schema.sql` → **Run**
    (tables `items`, `corrections`, RLS policies, bucket `wardrobe`). The script can be run again safely.
-2. **Project Settings → API**: `service_role` key → `.env`; `anon public` key → `frontend/.env`.
+2. **Project Settings → API**: `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` in `.env` (server only); `anon public` key → `SUPABASE_ANON_KEY` in `.env`.
 3. **Authentication → Providers → Email** enabled. **URL Configuration**: add the frontend URL.
 
 ### 3. Backend
@@ -196,11 +197,16 @@ Journaux : `%TEMP%\dressme-run`.
 
 Fichiers `.env` (ignorés par git ; ne jamais les commiter). Seuls les **noms** des variables sont donnés ici :
 
-| Fichier | Variables |
+Un seul fichier `.env` à la racine (copie de `.env.example`) est lu par tous les services : BO1, BO3, HelpMePack,
+Purchase Redundancy, smart_purchasing, orchestrateur et frontend Vite (`DressMe UI Blueprint`). Un `.env` propre à un
+service (`backend/.env`, `orchestrator/.env`, `purchase-redundancy-ai/.env`…) reste possible : il est lu avant et l'emporte.
+
+| Variable | Remarque |
 |---|---|
-| `.env` ou `backend/.env` (BO1) | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY` ; facultatif : `LLM_MODEL`, `CORS_ORIGINS`, `PUBLIC_API_URL` |
-| `orchestrator/.env` | `SUPABASE_URL`, `SUPABASE_ANON_KEY` (connexion des utilisateurs sur la page) |
-| `purchase-redundancy-ai/.env` | voir `purchase-redundancy-ai/.env.example` (`SECRET_KEY`, `AUTH_REQUIRED`, `CLIP_ENABLED`, `DB_TYPE`…) ; `API_PORT` est fixé par le script |
-| `frontend/.env` | `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
+| `OPENAI_API_KEY` | clé LLM unique ; `LLM_API_KEY` est accepté comme alias par BO1 et BO3 |
+| `SUPABASE_SERVICE_ROLE_KEY` | secrète, backend seulement ; `SUPABASE_SERVICE_KEY` est accepté comme alias par BO1 et BO3 |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | publiques : seules valeurs Supabase lues par le navigateur et la page de l'orchestrateur |
+| `LLM_MODEL` | partagé par les services OpenAI ; Purchase Redundancy (Claude) utilise `CLAUDE_MODEL` à la place |
+| `API_PORT` | non défini : `start_all.ps1` fixe 8040 pour Purchase Redundancy (son défaut, 8000, est celui de BO1) |
 
 Le Stylist n'a pas de `.env` : avec `--require-auth`, il vérifie le jeton de l'utilisateur auprès de BO1.

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { api, asset } from "../../lib/api"
 import { cap } from "../../lib/taxonomy"
 import type { WardrobeItem } from "../../lib/types"
+import { useSpeech } from "../../lib/useSpeech"
 import { useUserData } from "../profile/UserDataProvider"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
 
@@ -57,7 +58,7 @@ export default function StylistPage() {
           id: createId(),
           role: "assistant",
           text: response.reply,
-          items: response.items,
+          items: response.items.map((found) => items.find((owned) => owned.id === found.id) ?? found),
         },
       ])
     } catch (sendError) {
@@ -77,6 +78,11 @@ export default function StylistPage() {
       setBusy(false)
     }
   }
+
+  const speech = useSpeech((text, final) => {
+    setInput(text)
+    if (final && text) void send(text)
+  })
 
   const styles = preferences?.preferred_styles ?? []
   const colors = preferences?.preferred_colors ?? []
@@ -196,6 +202,22 @@ export default function StylistPage() {
               placeholder="Ask your AI stylist about your wardrobe..."
               className="flex-1 rounded-xl border border-[#E2E0D8] bg-white px-4 py-2.5 text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F]"
             />
+            {speech.supported && (
+              <button
+                type="button"
+                title={speech.listening ? "Stop listening" : "Ask by voice"}
+                aria-label="Ask by voice"
+                onClick={speech.toggle}
+                className={`rounded-xl border border-[#E2E0D8] px-3 transition-colors ${
+                  speech.listening ? "animate-pulse bg-red-100 text-red-600" : "bg-white text-[#8C8A82] hover:bg-[#F0EFEA]"
+                }`}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="9" y="3" width="6" height="11" rx="3" />
+                  <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               disabled={busy || !input.trim()}

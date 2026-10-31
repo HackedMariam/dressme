@@ -1,4 +1,6 @@
 // Client for the BO3 gap agent API (backend/api.py), proxied by Vite under /api.
+// Every request carries the signed-in user's Supabase session so BO3 loads their own wardrobe.
+import { isSupabaseConfigured, supabase } from "../../lib/supabase";
 
 export type Goal = { id: string; label: string; season: string };
 
@@ -67,15 +69,31 @@ export type TraceStep = { step: number; tool: string; arguments: Record<string, 
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
+// An owned piece the agent chose to show next to its answer.
+export type ShownItem = {
+  id: string;
+  name: string;
+  category: string;
+  subcategory?: string | null;
+  colors?: string[];
+  image_url?: string | null;
+};
+
 export type ChatResponse = {
   conversation_id: string;
   answer: string;
   ranking: GapRanking | null;
   trace: TraceStep[];
+  items: ShownItem[];
 };
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (isSupabaseConfigured) {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) headers.set("Authorization", `Bearer ${data.session.access_token}`);
+  }
+  const response = await fetch(path, { ...init, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail ?? `Request failed (${response.status})`);
@@ -85,7 +103,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const fetchGoals = () => request<Goal[]>("/api/bo3/goals");
 
-export const fetchGaps = (goal: string) => request<GapRanking>(`/api/bo3/gaps?goal=${encodeURIComponent(goal)}`);
+// The GPT interpretation (+5 s) is not shown by any screen, so it is not requested by default.
+export const fetchGaps = (goal: string, interpret = false) =>
+  request<GapRanking>(`/api/bo3/gaps?goal=${encodeURIComponent(goal)}&interpret=${interpret}`);
 
 const post = <T,>(path: string, body?: unknown) =>
   request<T>(path, {
@@ -97,12 +117,6 @@ const post = <T,>(path: string, body?: unknown) =>
 // relevance: 3 = "I need this", 0 = "Not relevant", null = remove the label.
 export const sendFeedback = (goal: string, candidateId: string, relevance: 0 | 3 | null) =>
   post<LearningStatus>("/api/bo3/feedback", { goal, candidate_id: candidateId, relevance });
-
-export const fetchLearning = () => request<LearningStatus>("/api/bo3/learning");
-
-export const retrainRanker = () => post<{ training: TrainingRun; status: LearningStatus }>("/api/bo3/retrain");
-
-export const resetRanker = () => post<LearningStatus>("/api/bo3/reset-model");
 
 export const sendChat =(message: string, history: ChatTurn[], conversationId: string | null) =>
   request<ChatResponse>("/api/bo3/chat", {

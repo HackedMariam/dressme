@@ -75,6 +75,16 @@ const BAG_OPTIONS = [
 const SAMPLE_AI_TEXT =
   "I'm going to Paris for 5 days in November. I'll be sightseeing, shopping, and attending a formal dinner. I have an 8 kg luggage limit.";
 
+// Real weather forecasts cover yesterday to 15 days ahead (the Trip Agent refuses invented weather).
+const FORECAST_DAYS_AHEAD = 15;
+
+function inputDate(offsetDays: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(`${value}T00:00:00`);
@@ -286,6 +296,10 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
   });
 
   const submitManual = async () => {
+    if (startDate && endDate && endDate < startDate) {
+      setError("The end date is before the start date. Please fix the dates.");
+      return;
+    }
     setLoading(true);
     setError(null);
     setGap(null);
@@ -533,7 +547,14 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
                     <input
                       type="date"
                       value={startDate}
-                      onChange={(event) => setStartDate(event.target.value)}
+                      min={inputDate(-1)}
+                      max={inputDate(FORECAST_DAYS_AHEAD)}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setStartDate(value);
+                        // A trip cannot end before it starts: move the end date along.
+                        if (value && endDate && endDate < value) setEndDate(value);
+                      }}
                       className="w-full px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
                     />
                   </div>
@@ -544,11 +565,17 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
                     <input
                       type="date"
                       value={endDate}
+                      min={startDate && startDate > inputDate(-1) ? startDate : inputDate(-1)}
+                      max={inputDate(FORECAST_DAYS_AHEAD)}
                       onChange={(event) => setEndDate(event.target.value)}
                       className="w-full px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
                     />
                   </div>
                 </div>
+
+                <p className="-mt-2 text-xs text-[#8C8A82]">
+                  Real weather forecasts cover {formatDate(inputDate(-1))} – {formatDate(inputDate(FORECAST_DAYS_AHEAD))}.
+                </p>
 
                 {[
                   {

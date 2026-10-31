@@ -1,11 +1,12 @@
 """Wardrobe source for BO3: the user's pieces detected by BO1 (Supabase `items`), or the bundled sample.
 
-Configuration (backend/.env):
-    SUPABASE_URL           e.g. https://<project-ref>.supabase.co
-    SUPABASE_SERVICE_KEY   server-side key; `items` is protected by row-level security
-    WARDROBE_USER_ID       auth user id whose pieces BO3 analyses
+Configuration (repo-root .env, or backend/.env which wins):
+    SUPABASE_URL                e.g. https://<project-ref>.supabase.co
+    SUPABASE_SERVICE_ROLE_KEY   server-side key (SUPABASE_SERVICE_KEY also accepted); `items` is protected by row-level security
+    WARDROBE_USER_ID            only when nobody is signed in (Streamlit, scripts); the API passes the signed-in user instead
 
-Without all three, or if Supabase cannot be reached, BO3 uses data/sample_wardrobe.json.
+load_wardrobe(user_id) returns that user's pieces. Without Supabase configured, without a user id, or if
+Supabase cannot be reached, BO3 uses data/sample_wardrobe.json.
 `SOURCE_INFO` records which one was used so the UI can say so.
 """
 
@@ -22,10 +23,11 @@ from dotenv import load_dotenv
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BACKEND_DIR / "data"
 load_dotenv(BACKEND_DIR / ".env")
+load_dotenv(BACKEND_DIR.parents[1] / ".env")  # repo-root .env
 
 CACHE_SECONDS = 60
 SOURCE_INFO: dict[str, Any] = {"source": "sample", "item_count": 0, "reason": "not loaded yet"}
-_cache: dict[str, Any] = {"at": 0.0, "items": None}
+_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}  # per user: id -> (loaded at, items)
 
 # BO1 category -> BO3 category (the vocabulary of agent/coverage.py).
 CATEGORY_MAP = {
@@ -36,25 +38,32 @@ CATEGORY_MAP = {
     "shoe": "shoes", "shoes": "shoes", "sneakers": "shoes", "boots": "shoes", "sandals": "shoes",
     "bag": "accessory", "belt": "accessory", "hat": "accessory", "glasses": "accessory",
     "watch": "accessory", "tights": "accessory", "scarf": "accessory", "jewelry": "accessory",
+    "headband": "accessory", "sock": "accessory", "glove": "accessory", "umbrella": "accessory",
     "accessory": "accessory",
     "swimwear": "other",
 }
 
 # Keyword -> BO3 subcategory, checked in order against the BO1 subcategory (then the name).
 SUBCATEGORY_RULES: dict[str, list[tuple[str, str]]] = {
-    "top": [("t-shirt", "t-shirt"), ("tee", "t-shirt"), ("linen shirt", "linen_shirt"), ("blouse", "blouse"),
+    "top": [("sport", "sports_top"), ("athletic", "sports_top"), ("gym", "sports_top"), ("running", "sports_top"),
+            ("training", "sports_top"), ("jersey", "sports_top"), ("hoodie", "hoodie"), ("t-shirt", "t-shirt"), ("tee", "t-shirt"), ("linen shirt", "linen_shirt"), ("blouse", "blouse"),
             ("shirt", "shirt"), ("turtleneck", "turtleneck"), ("cardigan", "cardigan"), ("tank", "tank_top"),
             ("sweater", "sweater"), ("knit", "sweater"), ("jumper", "sweater")],
-    "bottom": [("jeans", "jeans"), ("chino", "chinos"), ("short", "shorts"), ("linen", "linen_trousers"),
+    "bottom": [("legging", "leggings"), ("jogger", "joggers"), ("sweatpant", "joggers"), ("track", "joggers"),
+               ("jeans", "jeans"), ("chino", "chinos"), ("short", "shorts"), ("linen", "linen_trousers"),
                ("skirt", "skirt"), ("trouser", "trousers"), ("pants", "trousers")],
     "dress": [("evening", "evening_dress"), ("cocktail", "cocktail_dress")],
-    "outerwear": [("rain", "rain_jacket"), ("trench", "trench"), ("parka", "parka"), ("puffer", "puffer"),
+    "outerwear": [("track", "track_jacket"), ("windbreaker", "windbreaker"), ("softshell", "windbreaker"),
+                  ("fleece", "fleece"), ("hoodie", "hoodie"), ("waterproof", "rain_jacket"), ("rain", "rain_jacket"), ("trench", "trench"), ("parka", "parka"), ("puffer", "puffer"),
                   ("suit", "suit_jacket"), ("blazer", "blazer"), ("denim", "denim_jacket"), ("coat", "coat")],
-    "shoes": [("ankle boot", "ankle_boots"), ("boot", "boots"), ("loafer", "loafers"), ("derby", "derbies"),
+    "shoes": [("hiking", "hiking_boots"), ("trek", "hiking_boots"), ("running", "sneakers"), ("trainer", "sneakers"),
+              ("ankle boot", "ankle_boots"), ("boot", "boots"), ("loafer", "loafers"), ("derby", "derbies"),
               ("oxford", "oxfords"), ("heel", "heels"), ("pump", "pumps"), ("sandal", "sandals"),
               ("espadrille", "espadrilles"), ("slide", "slides"), ("sneaker", "sneakers")],
-    "accessory": [("clutch", "clutch"), ("evening bag", "evening_bag"), ("bag", "bag"), ("belt", "belt"),
-                  ("hat", "hat"), ("cap", "cap"), ("tie", "tie"), ("jewel", "jewelry")],
+    "accessory": [("clutch", "clutch"), ("evening bag", "evening_bag"), ("gym", "gym_bag"), ("duffel", "gym_bag"),
+                  ("backpack", "backpack"), ("rucksack", "backpack"), ("beach bag", "beach_bag"), ("tote", "tote"),
+                  ("bag", "bag"), ("belt", "belt"), ("headband", "headband"), ("sock", "socks"),
+                  ("sunglass", "sunglasses"), ("hat", "hat"), ("cap", "cap"), ("tie", "tie"), ("jewel", "jewelry")],
 }
 
 
@@ -90,13 +99,16 @@ def to_bo3_item(row: dict[str, Any]) -> dict[str, Any]:
         "seasons": [s.lower() for s in (row.get("seasons") or [])],
         "occasion_tags": [_slug(o) for o in (row.get("occasions") or [])],
         "style_tags": [style] if style else [],
+        "image_url": row.get("cutout_url") or row.get("image_url") or None,   # shown in the agent chat
     }
 
 
-def _fetch_supabase() -> list[dict[str, Any]]:
-    url, key, user_id = (os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY"), os.getenv("WARDROBE_USER_ID"))
+def _fetch_supabase(user_id: str | None) -> list[dict[str, Any]]:
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+    user_id = user_id or os.getenv("WARDROBE_USER_ID")   # no login (Streamlit, scripts): old behaviour
     if not (url and key and user_id):
-        raise RuntimeError("SUPABASE_URL, SUPABASE_SERVICE_KEY and WARDROBE_USER_ID are not all set")
+        raise RuntimeError("SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and a user id are not all set")
     response = httpx.get(
         f"{url.rstrip('/')}/rest/v1/items",
         params={"user_id": f"eq.{user_id}", "select": "*", "order": "created_at.asc"},
@@ -107,17 +119,22 @@ def _fetch_supabase() -> list[dict[str, Any]]:
     return [to_bo3_item(row) for row in response.json()]
 
 
-def load_wardrobe() -> list[dict[str, Any]]:
+def load_wardrobe(user_id: str | None = None) -> list[dict[str, Any]]:
+    """The signed-in user's pieces. user_id=None keeps the old WARDROBE_USER_ID / sample behaviour."""
+    if user_id == "demo_user":      # the shared user BO3 uses when Supabase is not configured
+        user_id = None
+    cache_key = user_id or "default"
     now = time.time()
-    if _cache["items"] is not None and now - _cache["at"] < CACHE_SECONDS:
-        return _cache["items"]
+    hit = _cache.get(cache_key)
+    if hit and now - hit[0] < CACHE_SECONDS:
+        return hit[1]
     try:
-        items = _fetch_supabase()
+        items = _fetch_supabase(user_id)
         if not items:
             raise RuntimeError("no pieces found in Supabase `items` for this user")
         SOURCE_INFO.update(source="supabase", item_count=len(items), reason="BO1 pieces from Supabase items")
     except Exception as error:  # fall back to the sample so the demo keeps working
         items = json.loads((DATA_DIR / "sample_wardrobe.json").read_text(encoding="utf-8"))
         SOURCE_INFO.update(source="sample", item_count=len(items), reason=str(error)[:160])
-    _cache.update(at=now, items=items)
+    _cache[cache_key] = (now, items)
     return items

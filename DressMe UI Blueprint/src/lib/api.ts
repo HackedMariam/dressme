@@ -90,13 +90,15 @@ export const api = {
 
   analyze: (
     file: File | Blob,
-    options: { allItems?: boolean; save?: boolean; fast?: boolean } = {},
+    options: { allItems?: boolean; save?: boolean; fast?: boolean; force?: boolean; only?: number } = {},
   ) => {
     const query = new URLSearchParams({
       all_items: String(options.allItems ?? false),
       save: String(options.save ?? true),
       fast: String(options.fast ?? false),
+      force: String(options.force ?? false),
     })
+    if (options.only !== undefined) query.set("only", String(options.only))
     return request<AnalyzeResponse>(`/api/items/analyze?${query}`, {
       method: "POST",
       body: fileBody(file),
@@ -127,10 +129,13 @@ export const api = {
       body: JSON.stringify({ message }),
     }),
 
-  checkDuplicate: (item: Pick<WardrobeItem, "category" | "color_name" | "pattern" | "material">) =>
+  checkDuplicate: (
+    item: Pick<WardrobeItem, "category" | "color_name" | "pattern" | "material"> & { id?: string },
+  ) =>
     request<DuplicateResult>("/api/agent/check-duplicate", {
       method: "POST",
       body: JSON.stringify({
+        id: item.id ?? null,
         category: item.category,
         color_name: item.color_name ?? null,
         pattern: item.pattern ?? null,

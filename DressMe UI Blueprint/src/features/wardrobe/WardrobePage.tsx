@@ -1,12 +1,21 @@
 import { lazy, Suspense, useMemo, useRef, useState } from "react"
 import { api, asset } from "../../lib/api"
 import { COLORS, TAXONOMY, cap, formatDate, seasonLabel } from "../../lib/taxonomy"
-import type { WardrobeItem } from "../../lib/types"
+import type { SkippedItem, WardrobeItem } from "../../lib/types"
+import { useSpeech } from "../../lib/useSpeech"
 import ItemDrawer from "./ItemDrawer"
 import LiveScan from "./LiveScan"
 import { useWardrobe } from "./WardrobeProvider"
 
 const Wardrobe3D = lazy(() => import("./Wardrobe3D"))
+
+// A photo (or one garment of it) the server did not save, waiting for the user to confirm or dismiss.
+interface HeldPhoto extends SkippedItem {
+  id: string
+  file: File
+  preview: string
+  multi: boolean
+}
 
 interface UploadJob {
   id: string
@@ -127,6 +136,12 @@ export default function WardrobePage() {
   const [photoSearching, setPhotoSearching] = useState(false)
   const [photoError, setPhotoError] = useState("")
   const [photoMatch, setPhotoMatch] = useState<WardrobeItem | null | undefined>(undefined)
+  // Natural-language search: the agent picks the filters, searches, and explains its answer.
+  const [aiBusy, setAiBusy] = useState(false)
+  const [ai, setAi] = useState<{ reply: string; ids: string[]; filters: Record<string, string | number>[] } | null>(null)
+  // Verdicts of the duplicate agent for photos just added or searched.
+  const [dupNotes, setDupNotes] = useState<{ id: string; text: string }[]>([])
+  const [held, setHeld] = useState<HeldPhoto[]>([])
 
   const fileInput = useRef<HTMLInputElement>(null)
   const photoInput = useRef<HTMLInputElement>(null)
@@ -149,6 +164,10 @@ export default function WardrobePage() {
 
   const shown = useMemo(() => {
     if (photoMatch !== undefined) return photoMatch ? [photoMatch] : []
+    if (ai) {
+      const byId = new Map(items.map((item) => [item.id, item]))
+      return ai.ids.map((id) => byId.get(id)).filter((item): item is WardrobeItem => Boolean(item))
+    }
     const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean)
     return items.filter((item) => {
       if (group !== "All" && item.category_group !== group) return false
@@ -163,7 +182,56 @@ export default function WardrobePage() {
       }
       return true
     })
-  }, [items, photoMatch, query, group, reviewOnly, color, season, occasion, style])
+  }, [items, photoMatch, ai, query, group, reviewOnly, color, season, occasion, style])
+
+  const dismissHeld = (entry: HeldPhoto) => {
+    setHeld((previous) => {
+      const rest = previous.filter((other) => other.id !== entry.id)
+      if (!rest.some((other) => other.preview === entry.preview)) URL.revokeObjectURL(entry.preview)
+      return rest
+    })
+  }
+
+  const addHeldAnyway = async (entry: HeldPhoto) => {
+    dismissHeld(entry)
+    try {
+      const response = await api.analyze(entry.file, { allItems: entry.multi, force: true, only: entry.index })
+      addItems(response.items)
+    } catch (uploadError) {
+      setAddError(uploadError instanceof Error ? uploadError.message : "Could not add this item.")
+    }
+  }
+
+  const noteDuplicate = (id: string, text: string) =>
+    setDupNotes((previous) => [...previous.filter((note) => note.id !== id), { id, text }])
+
+  const clearAi = () => setAi(null)
+
+  const askAi = async (raw?: string) => {
+    const text = (raw ?? query).trim()
+    if (!text || aiBusy) return
+    setAiBusy(true)
+    setPhotoMatch(undefined)
+    try {
+      const response = await api.agentSearch(text)
+      setAi({
+        reply: response.reply,
+        ids: response.items.map((item) => item.id),
+        filters: response.filters ?? [],
+      })
+    } catch (searchError) {
+      setAi(null)
+      setPhotoError(searchError instanceof Error ? searchError.message : "The AI search failed.")
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  const speech = useSpeech((text, final) => {
+    setQuery(text)
+    clearAi()
+    if (final && text) void askAi(text)
+  })
 
   const addFiles = async (fileList: FileList | File[] | null) => {
     const files = Array.from(fileList ?? []).filter((file) => file.type.startsWith("image/"))
@@ -182,6 +250,30 @@ export default function WardrobePage() {
         addItems(response.items)
         setJobs((previous) => previous.filter((job) => job.id !== jobId))
         URL.revokeObjectURL(preview)
+        if (response.skipped_items?.length) {
+          const heldPreview = URL.createObjectURL(file)
+          setHeld((previous) => [
+            ...response.skipped_items!.map((entry) => ({
+              ...entry,
+              id: Math.random().toString(36).slice(2),
+              file,
+              preview: heldPreview,
+              multi,
+            })),
+            ...previous,
+          ])
+        }
+        // The duplicate agent searches the wardrobe (without the new item) for a near-duplicate.
+        for (const added of response.items) {
+          api
+            .checkDuplicate(added)
+            .then((verdict) => {
+              if (verdict.duplicate) {
+                noteDuplicate(added.id, `${added.name}: ${verdict.note || "looks like one you already have"}`)
+              }
+            })
+            .catch(() => {})
+        }
       } catch (uploadError) {
         const message =
           uploadError instanceof Error ? uploadError.message : "Could not analyse this photo."
@@ -201,9 +293,17 @@ export default function WardrobePage() {
     setPhotoSearching(true)
     setPhotoError("")
     setPhotoMatch(undefined)
+    clearAi()
     try {
       const response = await api.searchByPhoto(file)
       setPhotoMatch(response.match)
+      // Nothing was saved, so the agent can compare the photographed garment to the whole wardrobe.
+      api
+        .checkDuplicate({ category: response.category, color_name: response.color_name })
+        .then((verdict) => {
+          if (verdict.duplicate) noteDuplicate("photo-search", verdict.note || "You already own something very similar.")
+        })
+        .catch(() => {})
     } catch (searchError) {
       setPhotoError(
         searchError instanceof Error ? searchError.message : "Could not search by photo.",
@@ -216,6 +316,7 @@ export default function WardrobePage() {
   const clearPhotoSearch = () => {
     setPhotoMatch(undefined)
     setPhotoError("")
+    setDupNotes((previous) => previous.filter((note) => note.id !== "photo-search"))
   }
 
   if (loading && !items.length) {
@@ -303,6 +404,67 @@ export default function WardrobePage() {
           >
             Try again
           </button>
+        </div>
+      )}
+
+      {held.length > 0 && (
+        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Not added yet - your call</p>
+          {held.map((entry) => (
+            <div key={entry.id} className="flex flex-wrap items-center gap-3 rounded-lg bg-white/70 p-2">
+              <img src={entry.preview} alt="" className="h-16 w-14 shrink-0 rounded bg-[#F0EFEA] object-cover" />
+              {entry.similar_item?.cutout_url && (
+                <>
+                  <span className="text-xs text-[#8C8A82]">vs</span>
+                  <img
+                    src={asset(entry.similar_item.cutout_url)}
+                    alt={entry.similar_item.name}
+                    className="h-16 w-14 shrink-0 rounded bg-[#F0EFEA] object-contain"
+                  />
+                </>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">{cap(entry.category)} not added</p>
+                <p>{entry.note}</p>
+              </div>
+              <div className="flex gap-3 text-xs">
+                <button
+                  type="button"
+                  onClick={() => void addHeldAnyway(entry)}
+                  className="rounded-lg bg-[#556B2F] px-3 py-1.5 font-semibold text-white hover:bg-[#6B8A3A]"
+                >
+                  Add anyway
+                </button>
+                <button type="button" onClick={() => dismissHeld(entry)} className="underline">
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {speech.error && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {speech.error}
+        </div>
+      )}
+
+      {dupNotes.length > 0 && (
+        <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-semibold">Possible duplicate</p>
+          {dupNotes.map((note) => (
+            <div key={note.id} className="flex items-start justify-between gap-3">
+              <span>{note.text}</span>
+              <button
+                type="button"
+                onClick={() => setDupNotes((previous) => previous.filter((entry) => entry.id !== note.id))}
+                className="shrink-0 text-xs underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -436,10 +598,38 @@ export default function WardrobePage() {
               onChange={(event) => {
                 setQuery(event.target.value)
                 clearPhotoSearch()
+                clearAi()
               }}
-              placeholder="Search by name, colour, occasion, material..."
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void askAi()
+              }}
+              placeholder='Search, or ask: "a warm jacket for a cold day"'
               className="w-full bg-transparent text-sm text-[#1C1C1C] outline-none placeholder:text-[#8C8A82]"
             />
+            {speech.supported && (
+              <button
+                type="button"
+                title={speech.listening ? "Stop listening" : "Search by voice"}
+                aria-label="Search by voice"
+                onClick={speech.toggle}
+                className={`rounded-full p-1.5 transition-colors ${
+                  speech.listening ? "animate-pulse bg-red-100 text-red-600" : "text-[#8C8A82] hover:bg-[#F0EFEA]"
+                }`}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <rect x="9" y="3" width="6" height="11" rx="3" />
+                  <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                </svg>
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={aiBusy || !query.trim()}
+              onClick={() => void askAi()}
+              className="shrink-0 rounded-md bg-[#556B2F] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#6B8A3A] disabled:opacity-40"
+            >
+              {aiBusy ? "Searching..." : "Ask AI"}
+            </button>
           </div>
           {[
             { value: color, set: setColor, label: "All colours", options: colors },
@@ -495,6 +685,30 @@ export default function WardrobePage() {
           )}
         </div>
       </div>
+
+      {ai && (
+        <div className="space-y-2 rounded-xl border border-[#556B2F]/30 bg-[#E8EDE0] px-4 py-3 text-sm text-[#1C1C1C]">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#556B2F]">AI search</p>
+          {ai.filters.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {ai.filters.flatMap((entry, index) =>
+                Object.entries(entry).map(([key, value]) => (
+                  <span
+                    key={`${index}-${key}`}
+                    className="rounded-full bg-white px-2.5 py-0.5 text-xs text-[#556B2F]"
+                  >
+                    {key.replace(/_/g, " ")}: {String(value)}
+                  </span>
+                )),
+              )}
+            </div>
+          )}
+          <p className="whitespace-pre-line leading-relaxed">{ai.reply}</p>
+          <button type="button" onClick={clearAi} className="text-xs text-[#556B2F] underline">
+            Clear AI search
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {jobs.map((job) => (

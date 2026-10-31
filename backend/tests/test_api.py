@@ -36,8 +36,17 @@ def client(monkeypatch):
 
 
 def _upload(client, **params):
+    # force=true by default: these tests are about what gets saved, not about the confirmation gate
+    params = {"force": "true", **params}
     return client.post("/api/items/analyze", params=params,
                        files={"file": ("photo.png", _png(), "image/png")})
+
+
+@pytest.fixture
+def fresh_store(tmp_path, monkeypatch):
+    """An empty wardrobe, so duplicates from other tests cannot interfere."""
+    monkeypatch.setattr(config, "LOCAL_DATA_DIR", tmp_path)
+    monkeypatch.setattr(main, "store", LocalStore())
 
 
 def test_health(client):
@@ -62,6 +71,37 @@ def test_all_items_and_low_confidence_review(client):
     items = _upload(client, all_items="true").json()["items"]
     assert [i["category"] for i in items] == ["dress", "shoe"]
     assert items[1]["needs_review"] is True and items[1]["status"] == "review"
+
+
+def test_poor_photo_is_held_back_until_the_user_confirms(client, fresh_store):
+    result = _upload(client, all_items="true", force="false").json()
+    assert [i["category"] for i in result["items"]] == ["dress"]
+    held = result["skipped_items"]
+    assert [(h["category"], h["reason"], h["index"]) for h in held] == [("shoe", "quality", 1)]
+    assert held[0]["note"]
+    assert len(client.get("/api/items").json()) == 1          # the 40% shoe was not saved
+
+    confirmed = _upload(client, all_items="true", force="true", only=held[0]["index"]).json()
+    assert [i["category"] for i in confirmed["items"]] == ["shoe"]   # only the confirmed one
+    assert len(client.get("/api/items").json()) == 2
+
+
+def test_same_photo_twice_is_a_duplicate_until_confirmed(client, fresh_store):
+    assert _upload(client, force="false").json()["items"]
+    again = _upload(client, force="false").json()
+    assert again["items"] == []
+    assert again["skipped_items"][0]["reason"] == "duplicate"
+    assert again["skipped_items"][0]["similar_item"]["category"] == "dress"
+    assert len(client.get("/api/items").json()) == 1
+
+    assert _upload(client, force="true").json()["items"]            # "Add anyway"
+    assert len(client.get("/api/items").json()) == 2
+
+
+def test_preview_is_never_held_back(client, fresh_store):
+    assert _upload(client, force="false").json()["items"]
+    preview = _upload(client, force="false", save="false").json()
+    assert preview["items"] and preview["skipped_items"] == []
 
 
 def test_llm_output_is_used_and_sanitized(client, monkeypatch):

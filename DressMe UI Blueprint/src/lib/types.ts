@@ -56,6 +56,8 @@ export interface PhotoMatch {
 export interface AgentReply {
   reply: string
   items: WardrobeItem[]
+  /** Search filters the agent chose, e.g. { category: "jacket", min_warmth: 4 } */
+  filters?: Record<string, string | number>[]
 }
 
 export interface DuplicateResult {
@@ -64,8 +66,19 @@ export interface DuplicateResult {
   note: string
 }
 
+/** A detection that was NOT saved: a poor photo, or it looks like an item already owned. `note` says why. */
+export interface SkippedItem {
+  index: number
+  category: string
+  reason: "duplicate" | "quality"
+  similar_item: WardrobeItem | null
+  note: string
+}
+
 export interface AnalyzeResponse {
   items: WardrobeItem[]
+  skipped?: SkippedItem | null
+  skipped_items?: SkippedItem[]
 }
 
 export interface QuickDetection {
@@ -74,6 +87,8 @@ export interface QuickDetection {
   confidence: number
   box: number[]
   color_name?: string | null
+  /** Advice when this frame will not be saved as is (item cut off, too far, not sure what it is). */
+  problem?: string | null
 }
 
 

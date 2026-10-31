@@ -1,27 +1,87 @@
 """HTTP API exposing the BO3 gap agent to the React frontend.
 
-Run from the repository root:
-    backend/.venv/Scripts/python.exe -m uvicorn api:app --app-dir backend --port 8000
+Run from "DressMe UI Blueprint/" (port 8001: BO1 uses 8000, and the Vite proxy sends /api/bo3 here):
+    python -m uvicorn api:app --app-dir backend --port 8001
+
+Every route except /health and /goals needs the user's Supabase session (Authorization: Bearer <token>);
+the wardrobe, feedback and conversations are then that user's. Without Supabase configured, BO3 serves
+the shared demo user and the sample wardrobe.
 """
 
+import hashlib
+import logging
+import os
+import socket
+import threading
+import time
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from agent.coverage import GOALS, compute_coverage
-from agent.gap_agent import GapAgent
+from agent.gap_agent import GapAgent, interpret_gaps_with_gpt
 from agent.learning import learning_status, reset_model, retrain
 from agent.memory import AgentMemory
 from agent.tools import GapAgentTools, load_profile, load_wardrobe, score_candidates
 from agent.wardrobe_source import SOURCE_INFO
-from agent.gap_interpreter import interpret_gaps_with_gpt
 from xgboost_ranker import FEATURES
 
-USER_ID = "demo_user"
+# This network cannot reach Supabase over IPv6: without this every new connection waits ~40 s.
+_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = lambda *a, **k: [r for r in _getaddrinfo(*a, **k) if r[0] == socket.AF_INET] or _getaddrinfo(*a, **k)
+
+DEMO_USER = "demo_user"
+_TOKEN_TTL = 300                      # seconds a verified token is trusted
+_tokens: dict[str, tuple[float, str]] = {}
+_tokens_lock = threading.Lock()
+
+
+def _supabase_key() -> str | None:
+    return os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+
+
+def current_user(authorization: str | None = Header(None)) -> str:
+    """Supabase user id from the session token. Without Supabase configured: the shared demo user."""
+    url, key = os.getenv("SUPABASE_URL"), _supabase_key()
+    if not (url and key):
+        return DEMO_USER
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Not signed in")
+    token = authorization.split(" ", 1)[1].strip()
+    cache_key = hashlib.sha256(token.encode()).hexdigest()
+    now = time.time()
+    with _tokens_lock:
+        hit = _tokens.get(cache_key)
+        if hit and hit[0] > now:
+            return hit[1]
+    try:
+        reply = httpx.get(f"{url.rstrip('/')}/auth/v1/user",
+                          headers={"apikey": key, "Authorization": f"Bearer {token}"}, timeout=10)
+    except httpx.HTTPError as error:
+        raise HTTPException(503, "Cannot reach Supabase to verify the session") from error
+    if reply.status_code != 200 or not reply.json().get("id"):
+        raise HTTPException(401, "Session expired, please sign in again")
+    user_id = reply.json()["id"]
+    with _tokens_lock:
+        _tokens[cache_key] = (now + _TOKEN_TTL, user_id)
+    return user_id
+
 
 app = FastAPI(title="DressMe BO3 Gap Agent API")
 memory = AgentMemory()
+
+
+def _warm_up() -> None:
+    """Load the embedding model once at startup: the first ranking otherwise takes ~10 s longer."""
+    try:
+        GapAgentTools(memory, DEMO_USER).rank_gaps("winter_work")
+    except Exception:
+        logging.getLogger("dressme.bo3").warning("warm-up failed", exc_info=True)
+
+
+threading.Thread(target=_warm_up, daemon=True).start()
 
 
 class ChatTurn(BaseModel):
@@ -53,66 +113,71 @@ def goals() -> list[dict[str, str]]:
 
 
 @app.get("/api/bo3/context")
-def context() -> dict[str, Any]:
-    wardrobe = load_wardrobe()
+def context(user_id: str = Depends(current_user)) -> dict[str, Any]:
+    wardrobe = load_wardrobe(user_id)
     return {"profile": load_profile(), "item_count": len(wardrobe), "wardrobe_source": SOURCE_INFO}
 
 
 @app.get("/api/bo3/gaps")
-def gaps(goal: str = "winter_work", interpret: bool = True) -> dict[str, Any]:
+def gaps(goal: str = "winter_work", interpret: bool = True, user_id: str = Depends(current_user)) -> dict[str, Any]:
     """Pipeline (rules -> features -> XGBoost) with optional GPT-4 interpretation."""
     if goal not in GOALS:
         raise HTTPException(404, f"Unknown goal {goal!r}.")
-    result = GapAgentTools(memory, USER_ID).rank_gaps(goal)
+    result = GapAgentTools(memory, user_id).rank_gaps(goal)
     if interpret:
-        interpretation = interpret_gaps_with_gpt(result)
+        # The GPT interpretation is optional: if it fails, the ranked gaps are still returned.
+        try:
+            interpretation = interpret_gaps_with_gpt(result)
+        except Exception:
+            logging.getLogger("dressme.bo3").exception("gap interpretation failed")
+            interpretation = None
         if interpretation:
             result["stylist_interpretation"] = interpretation
     return result
 
 
 @app.post("/api/bo3/feedback")
-def feedback(request: FeedbackRequest) -> dict[str, Any]:
+def feedback(request: FeedbackRequest, user_id: str = Depends(current_user)) -> dict[str, Any]:
     if request.goal not in GOALS:
         raise HTTPException(404, f"Unknown goal {request.goal!r}.")
     if request.relevance is None:
-        memory.delete_feedback(USER_ID, request.goal, request.candidate_id)
-        return learning_status(memory, USER_ID)
+        memory.delete_feedback(user_id, request.goal, request.candidate_id)
+        return learning_status(memory, user_id)
 
     # Store the features the server computes, not values sent by the browser.
-    wardrobe, profile = load_wardrobe(), load_profile()
+    wardrobe, profile = load_wardrobe(user_id), load_profile()
     candidates = compute_coverage(wardrobe, request.goal)["candidates"]
     scored = {c["candidate_id"]: c for c in score_candidates(request.goal, candidates, wardrobe, profile)}
     if request.candidate_id not in scored:
         raise HTTPException(404, f"{request.candidate_id!r} is not a current gap for {request.goal!r}.")
     features = {name: scored[request.candidate_id][name] for name in FEATURES}
-    memory.set_feedback(USER_ID, request.goal, request.candidate_id, features, request.relevance)
-    return learning_status(memory, USER_ID)
+    memory.set_feedback(user_id, request.goal, request.candidate_id, features, request.relevance)
+    return learning_status(memory, user_id)
 
 
 @app.get("/api/bo3/learning")
-def learning() -> dict[str, Any]:
-    return learning_status(memory, USER_ID)
+def learning(user_id: str = Depends(current_user)) -> dict[str, Any]:
+    return learning_status(memory, user_id)
 
 
 @app.post("/api/bo3/retrain")
-def retrain_ranker() -> dict[str, Any]:
+def retrain_ranker(user_id: str = Depends(current_user)) -> dict[str, Any]:
     try:
-        return {"training": retrain(memory, USER_ID), "status": learning_status(memory, USER_ID)}
+        return {"training": retrain(memory, user_id), "status": learning_status(memory, user_id)}
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 
 
 @app.post("/api/bo3/reset-model")
-def reset_ranker() -> dict[str, Any]:
+def reset_ranker(user_id: str = Depends(current_user)) -> dict[str, Any]:
     reset_model()
-    return learning_status(memory, USER_ID)
+    return learning_status(memory, user_id)
 
 
 @app.post("/api/bo3/chat")
-def chat(request: ChatRequest) -> dict[str, Any]:
-    conversation_id = request.conversation_id or memory.start_conversation(USER_ID)
-    tools = GapAgentTools(memory, USER_ID, conversation_id)
+def chat(request: ChatRequest, user_id: str = Depends(current_user)) -> dict[str, Any]:
+    conversation_id = request.conversation_id or memory.start_conversation(user_id)
+    tools = GapAgentTools(memory, user_id, conversation_id)
     try:
         result = GapAgent(tools).run(request.message, [turn.model_dump() for turn in request.history])
     except RuntimeError as error:
@@ -120,9 +185,5 @@ def chat(request: ChatRequest) -> dict[str, Any]:
 
     memory.add_message(conversation_id, "user", request.message)
     memory.add_message(conversation_id, "assistant", result.answer)
-    return {
-        "conversation_id": conversation_id,
-        "answer": result.answer,
-        "ranking": result.ranking,
-        "trace": result.trace,
-    }
+    return {"conversation_id": conversation_id, "answer": result.answer,
+            "ranking": result.ranking, "trace": result.trace, "items": result.items}
