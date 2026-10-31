@@ -109,6 +109,43 @@ class SupabaseStore:
                 .eq("items.user_id", user_id).execute().data)
         return [{"item_id": r["item_id"], "field": r["field"]} for r in rows]
 
+    # -- private per-user files (avatar, try-ons): a private bucket that only the backend can read -----
+    def _private(self):
+        if not getattr(self, "_private_ready", False):
+            try:
+                self.db.storage.get_bucket(config.AVATAR_BUCKET)
+            except Exception:
+                try:
+                    self.db.storage.create_bucket(config.AVATAR_BUCKET, options={"public": False})
+                except Exception:
+                    log.exception("Could not create the private bucket %s", config.AVATAR_BUCKET)
+            self._private_ready = True
+        return self.db.storage.from_(config.AVATAR_BUCKET)
+
+    def private_put(self, path: str, data: bytes, content_type: str) -> None:
+        self._private().upload(path, data, {"content-type": content_type, "upsert": "true"})
+
+    def private_get(self, path: str) -> bytes | None:
+        try:
+            return self._private().download(path)
+        except Exception:
+            log.debug("private file %s not found", path, exc_info=True)
+            return None
+
+    def private_list(self, prefix: str) -> list[str]:
+        try:
+            return [entry["name"] for entry in self._private().list(prefix)]
+        except Exception:
+            log.debug("could not list %s", prefix, exc_info=True)
+            return []
+
+    def private_delete(self, paths: list[str]) -> None:
+        if paths:
+            try:
+                self._private().remove(paths)
+            except Exception:
+                log.exception("Could not delete private files %s", paths)
+
 
 class LocalStore:
     """Same interface, stores everything under backend/local_data (served at /files)."""
@@ -196,6 +233,31 @@ class LocalStore:
     def list_corrections(self, user_id: str) -> list[dict]:
         mine = {i["id"] for i in self.list_items(user_id)}
         return [c for c in self._load()["corrections"] if c["item_id"] in mine]
+
+    # -- private per-user files (same interface as SupabaseStore) ------------------------------------
+    def _private_file(self, path: str):
+        base = (self.root / "private").resolve()
+        f = (base / path).resolve()
+        if base not in f.parents and f != base:
+            raise ValueError("invalid path")
+        return f
+
+    def private_put(self, path: str, data: bytes, content_type: str) -> None:
+        f = self._private_file(path)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+
+    def private_get(self, path: str) -> bytes | None:
+        f = self._private_file(path)
+        return f.read_bytes() if f.is_file() else None
+
+    def private_list(self, prefix: str) -> list[str]:
+        d = self._private_file(prefix)
+        return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+
+    def private_delete(self, paths: list[str]) -> None:
+        for path in paths:
+            self._private_file(path).unlink(missing_ok=True)
 
 
 _store = None

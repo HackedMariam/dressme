@@ -122,6 +122,30 @@ python inference.py --skip-llm
 
 ---
 
+## 3D avatar and virtual try-on
+
+The **My 3D Avatar** page turns one full-body photo into a 3D model of the user (rotate it with the mouse) and
+puts wardrobe pieces on it. Everything runs through [fal.ai](https://fal.ai) with one key, pay per use:
+
+| Step | fal.ai model | Approx. price |
+|---|---|---|
+| Photo to 3D avatar (textured GLB) | `fal-ai/hunyuan3d/v2` | $0.48 |
+| Try-on: the photo wearing a piece (2D) | `fal-ai/fashn/tryon/v1.6` | about $0.075 |
+| Try-on in 3D: that dressed photo to GLB | `fal-ai/hunyuan3d/v2` | $0.48 |
+
+So an avatar costs about $0.48 and each new piece about $0.55; a result already generated is served from storage for
+free. Prices come from fal.ai model pages and may change. Tops, jackets, bottoms and dresses are supported; shoes, bags
+and accessories are not. The 3D model comes from a single photo, so the back and sides are inferred by the AI.
+
+Set `FAL_KEY` in the root `.env` (create it at fal.ai/dashboard/keys and add credit in the billing page) and restart
+BO1. Per user, `AVATAR_CREATIONS_PER_DAY` (3) avatars and `AVATAR_TRYONS_PER_HOUR` (10) try-ons are allowed, to protect
+the credit. Generations take one to two minutes: BO1 runs them as background jobs (`/api/avatar/jobs/{id}`) that the
+page polls (jobs live in the BO1 process: a restart of BO1 loses a running one).
+
+Privacy: after an explicit consent the photo is sent to fal.ai (and the models it runs). DressMe keeps the photo, the 3D
+models and the try-on images in a private Supabase bucket (`avatar-media`, created on first use) under the user's id;
+"Delete everything" removes them all. In local mode they go to `backend/local_data/private/`.
+
 ## Help Me Pack (BO7)
 
 The Help Me Pack screen and orchestrator use the packing API in `backend/main.py`

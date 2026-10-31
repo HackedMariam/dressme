@@ -53,6 +53,16 @@ LOCAL_USER_ID = "local"
 # Local fallback storage (used when Supabase isn't configured)
 LOCAL_DATA_DIR = Path(os.getenv("LOCAL_DATA_DIR", BASE_DIR / "local_data"))
 
+# --- 3D avatar and virtual try-on (fal.ai: one key, pay per use) ---------------
+FAL_KEY = os.getenv("FAL_KEY", "")
+FAL_3D_MODEL = os.getenv("FAL_3D_MODEL", "fal-ai/hunyuan3d/v2")             # image -> textured GLB (about $0.48)
+FAL_TRYON_MODEL = os.getenv("FAL_TRYON_MODEL", "fal-ai/fashn/tryon/v1.6")   # 2D try-on step
+FAL_TRYON_MODE = os.getenv("FAL_TRYON_MODE", "balanced")                    # performance | balanced | quality
+FAL_TIMEOUT = _float("FAL_TIMEOUT", 300)                                    # seconds to wait for one generation
+AVATAR_BUCKET = os.getenv("AVATAR_BUCKET", "avatar-media")                  # private Supabase bucket
+AVATAR_CREATIONS_PER_DAY = int(os.getenv("AVATAR_CREATIONS_PER_DAY", 3))    # credit protection, per user
+AVATAR_TRYONS_PER_HOUR = int(os.getenv("AVATAR_TRYONS_PER_HOUR", 10))
+
 # --- HTTP -----------------------------------------------------------------
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "http://localhost:8000").rstrip("/")
