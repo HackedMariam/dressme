@@ -1,442 +1,34 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  fetchGapImages,
   fetchGaps,
   fetchGoals,
   sendChat,
   sendFeedback,
   type ChatTurn,
-  type CoveredRequirement,
   type GapRanking,
   type Goal,
   type RankedGap,
-  type ShownItem,
-  type TraceStep,
   type WebPhoto,
 } from "./api";
-import { asset } from "../../lib/api";
+import AgentDrawer, { type Message } from "./AgentDrawer";
+import ContextBar from "./ContextBar";
+import GapDetail from "./GapDetail";
+import GapList from "./GapList";
+import SourceBanner from "./SourceBanner";
+import { GOAL_DESIGN, coverage, feedbackKey, useConfirmedList, useDismissedList } from "./gapUtils";
 
-// Tells the user when the analysed wardrobe is not their real one, or when nothing could be analysed.
-function SourceBanner({ ranking }: { ranking: GapRanking }) {
-  const wardrobe = ranking.wardrobe_source;
-  if (wardrobe && wardrobe.source !== "supabase" && wardrobe.message) {
-    const blocked = wardrobe.source === "empty" || wardrobe.source === "error";
-    return (
-      <div
-        role="status"
-        className={`mb-4 rounded-xl border px-4 py-3 text-xs ${
-          blocked ? "border-[#E6C9BA] bg-[#F7ECE6] text-[#9A5A3C]" : "border-[#E2D6BE] bg-[#F6EFE4] text-[#6B5B3E]"
-        }`}
-      >
-        <strong className="font-semibold">{blocked ? "No analysis" : "Sample data"}</strong> · {wardrobe.message}
-      </div>
-    );
-  }
-  if (ranking.profile_source === "default") {
-    return (
-      <div role="status" className="mb-4 rounded-xl border border-[#E2E0D8] bg-white px-4 py-3 text-xs text-[#8C8A82]">
-        Your style preferences are empty, so suggestions are not personalised yet. Fill in your style profile to improve them.
-      </div>
-    );
-  }
-  return null;
-}
-
-const GOAL_DESIGN: Record<string, { icon: string; note: string; prompt: string }> = {
-  winter_work: { icon: "❄", note: "Office days, rain & cold", prompt: "What am I missing for winter work days in Tunis?" },
-  summer_casual: { icon: "☀", note: "Light & breathable", prompt: "What am I missing for hot summer days?" },
-  formal_event: { icon: "✦", note: "Weddings & celebrations", prompt: "What am I missing for a summer wedding?" },
-  sport_gym: { icon: "⚡", note: "Training, running & the gym", prompt: "What am I missing for the gym and sport?" },
-  hiking_outdoor: { icon: "▲", note: "Trails, wind & rain", prompt: "What am I missing for hiking and the outdoors?" },
-  beach_pool: { icon: "≈", note: "Swim, sun & sand", prompt: "What am I missing for a beach or pool day?" },
-  dinner_date: { icon: "✧", note: "Evenings out", prompt: "What am I missing for a dinner or date night?" },
-};
-
-const FEATURES: { key: keyof RankedGap; label: string; inverse?: boolean }[] = [
-  { key: "coverage_deficit", label: "Coverage deficit" },
-  { key: "use_frequency", label: "Use frequency" },
-  { key: "season_relevance", label: "Season relevance" },
-  { key: "outfit_gain", label: "Outfit gain" },
-  { key: "preference_match", label: "Preference match" },
-  { key: "redundancy_score", label: "Redundancy", inverse: true },
-];
-
-const priorityTag = {
-  high: "bg-[#F5E6DC] text-[#9A5A3C]",
-  medium: "bg-[#F4EEDD] text-[#8A7130]",
-  low: "bg-[#E8EDE0] text-[#556B2F]",
-};
-
-const DISMISSED_KEY = "dressme.bo3.dismissed";
-const CONFIRMED_KEY = "dressme.bo3.confirmed";
-
-function readList(key: string): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(key) ?? "[]");
-  } catch {
-    return [];
-  }
-}
-
-function usePersistentList(key: string) {
-  const [list, setList] = useState<string[]>(() => readList(key));
-  useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(list));
-    } catch {
-      // Feedback still works for this session without storage.
-    }
-  }, [key, list]);
-  const toggle = (id: string, on: boolean) => setList((l) => (on ? [...new Set([...l, id])] : l.filter((x) => x !== id)));
-  return [list, toggle] as const;
-}
-
-// Coverage = owned units / required units across every requirement of the goal.
-function coverage(gaps: RankedGap[], covered: CoveredRequirement[], filled?: string) {
-  const all = [...gaps, ...covered];
-  const required = all.reduce((t, r) => t + r.required_count, 0);
-  const owned = all.reduce(
-    (t, r) => t + (r.candidate_id === filled ? r.required_count : Math.min(r.owned_count, r.required_count)),
-    0,
-  );
-  return required ? Math.round((owned / required) * 100) : 0;
-}
-
-function reasonFor(gap: RankedGap) {
-  const ownership =
-    gap.owned_count === 0 ? "Nothing in your wardrobe covers this yet" : `You own ${gap.owned_count} of the ${gap.required_count} needed`;
-  const strongest = FEATURES.filter((f) => !f.inverse && f.key !== "coverage_deficit")
-    .sort((a, b) => (gap[b.key] as number) - (gap[a.key] as number))[0];
-  return `${ownership}. Strongest signal: ${strongest.label.toLowerCase()} (${(gap[strongest.key] as number).toFixed(2)}).`;
-}
-
-function inline(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) =>
-    part.startsWith("**") ? (
-      <strong key={i}>{part.slice(2, -2)}</strong>
-    ) : part.startsWith("`") ? (
-      <code key={i} className="text-[12px] bg-[#F0EFEA] px-1 rounded">{part.slice(1, -1)}</code>
-    ) : (
-      <Fragment key={i}>{part}</Fragment>
-    ),
-  );
-}
-
-function AgentMarkdown({ text }: { text: string }) {
-  return (
-    <div className="space-y-1.5">
-      {text.split("\n").map((line, i) => {
-        const trimmed = line.trim();
-        if (!trimmed) return null;
-        const bullet = trimmed.match(/^[-*]\s+(.*)/);
-        return bullet ? <p key={i} className="pl-4">• {inline(bullet[1])}</p> : <p key={i}>{inline(trimmed)}</p>;
-      })}
-    </div>
-  );
-}
-
-function CoverageRing({ score }: { score: number | null }) {
-  return (
-    <div
-      className="w-[82px] h-[82px] rounded-full grid place-items-center shrink-0"
-      style={{ background: `conic-gradient(#556B2F ${(score ?? 0) * 3.6}deg, #E2E0D8 0)` }}
-      role="img"
-      aria-label={`Wardrobe coverage: ${score === null ? "loading" : `${score}%`}`}
-    >
-      <span className="bg-white w-[66px] h-[66px] rounded-full grid place-items-center text-xl font-bold text-[#1C1C1C]">
-        {score === null ? "—" : `${score}%`}
-      </span>
-    </div>
-  );
-}
-
-function TraceView({ trace }: { trace: TraceStep[] }) {
-  const [open, setOpen] = useState(false);
-  if (trace.length === 0) return null;
-  return (
-    <div className="mt-2">
-      <button onClick={() => setOpen(!open)} className="text-[11px] text-[#556B2F] font-semibold hover:underline">
-        {open ? "Hide" : "Show"} agent pipeline · {trace.length} tool call{trace.length > 1 ? "s" : ""}
-      </button>
-      {open && (
-        <div className="mt-2 space-y-2">
-          {trace.map((entry, i) => (
-            <div key={i} className="bg-[#1C1C1C] rounded-lg p-3 text-[11px]">
-              <p className="text-white/80 font-mono">
-                <span className="text-[#8FA866]">step {entry.step}</span> · {entry.tool}({JSON.stringify(entry.arguments)})
-              </p>
-              <pre className="text-white/50 mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap">{JSON.stringify(entry.result, null, 2)}</pre>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Web photos of the missing piece, loaded after the card is shown so the ranking never waits for them.
-function GapPhotos({ goal, candidateId }: { goal: string; candidateId: string }) {
-  const [state, setState] = useState<{ photos: WebPhoto[]; message: string | null } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false; // ignore a late answer if the card changed or disappeared meanwhile
-    setState(null);
-    fetchGapImages(goal, candidateId)
-      .then((reply) => !cancelled && setState({ photos: reply.images, message: reply.message }))
-      .catch(() => !cancelled && setState({ photos: [], message: null })); // photos are a bonus: fail quietly
-    return () => {
-      cancelled = true;
-    };
-  }, [goal, candidateId]);
-
-  if (!state) {
-    return (
-      <div className="mt-3 grid grid-cols-3 gap-2" aria-label="Loading photos">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-[96px] animate-pulse rounded-lg bg-[#F0EFEA]" />
-        ))}
-      </div>
-    );
-  }
-  if (state.photos.length === 0) {
-    return state.message ? <p className="mt-3 text-[10.5px] text-[#8C8A82]">{state.message}</p> : null;
-  }
-  return (
-    <div className="mt-3">
-      <div className="grid grid-cols-3 gap-2">
-        {state.photos.map((photo) => (
-          <a key={photo.page_url} href={photo.page_url} target="_blank" rel="noopener noreferrer" title={photo.title} className="block">
-            <img
-              src={photo.thumbnail}
-              alt={photo.title}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              onError={(event) => (event.currentTarget.style.visibility = "hidden")}
-              className="h-[96px] w-full rounded-lg bg-[#F0EFEA] object-cover"
-            />
-            <span className="mt-0.5 block truncate text-[10px] text-[#8C8A82]">{photo.source}</span>
-          </a>
-        ))}
-      </div>
-      <p className="mt-1 text-[10px] text-[#8C8A82]">Photos from Tunisian shops, for inspiration. Click to open the shop.</p>
-    </div>
-  );
-}
-
-function GapCard({
-  goal,
-  gap,
-  rank,
-  currentCoverage,
-  coverageAfter,
-  confirmed,
-  onConfirm,
-  onDismiss,
-  onAsk,
-}: {
-  goal: string;
-  gap: RankedGap;
-  rank: number;
-  currentCoverage: number;
-  coverageAfter: number;
-  confirmed: boolean;
-  onConfirm: () => void;
-  onDismiss: () => void;
-  onAsk: () => void;
-}) {
-  const [preview, setPreview] = useState(false);
-  return (
-    <article className="bg-white border border-[#E2E0D8] rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="font-display text-[17px] text-[#8C8A82] mr-auto">{String(rank).padStart(2, "0")}</span>
-        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md capitalize ${priorityTag[gap.priority]}`}>{gap.priority}</span>
-        {confirmed && <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-[#1C1C1C] text-white">I need this</span>}
-      </div>
-
-      <div className="flex gap-3 items-center">
-        <div className="w-[64px] h-[64px] rounded-xl bg-[#F0EFEA] grid place-items-center text-[26px] text-[#556B2F] shrink-0">◐</div>
-        <div className="min-w-0">
-          <h3 className="font-display text-[19px] font-medium text-[#1C1C1C] leading-snug">{gap.name}</h3>
-          <p className="text-xs text-[#8C8A82] mt-0.5">Suggested: {gap.suggested_item}</p>
-        </div>
-      </div>
-
-      <GapPhotos goal={goal} candidateId={gap.candidate_id} />
-
-      <p className="text-xs text-[#8C8A82] py-2.5">{reasonFor(gap)}</p>
-
-      <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-[#E8EDE0] text-[#415638]">
-        <span className="text-lg">✦</span>
-        <div>
-          <strong className="text-[19px]">+{gap.pairable_owned_items}</strong>
-          <span className="text-[11px]"> owned pieces it combines with this season</span>
-        </div>
-      </div>
-
-      <button
-        onClick={() => setPreview(!preview)}
-        aria-expanded={preview}
-        className="w-full flex items-center justify-between py-2.5 text-xs font-bold text-[#556B2F]"
-      >
-        {preview ? "Hide coverage preview" : "Your wardrobe with this piece"} <span>→</span>
-      </button>
-      {preview && (
-        <div className="bg-[#FAF9F6] rounded-lg p-4 mb-3">
-          <p className="text-[10.5px] font-bold tracking-widest uppercase text-[#8C8A82]">Estimated coverage with this piece</p>
-          <div className="flex items-center gap-4 text-2xl py-3">
-            <span>{currentCoverage}% <small className="block text-[10px] text-[#8C8A82]">now</small></span>
-            <span className="text-[#8C8A82]">→</span>
-            <strong className="text-[#556B2F]">{coverageAfter}% <small className="block text-[10px] text-[#8C8A82] font-normal">with this piece</small></strong>
-          </div>
-          <p className="text-xs text-[#8C8A82]">
-            {gap.matched_items.length ? `Already counted: ${gap.matched_items.join(", ")}.` : "No owned piece fulfils this need yet."}
-            {gap.redundancy_score >= 0.6 && ` Check your ${gap.closest_owned_item} first — it is similar.`}
-          </p>
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-1.5 border-t border-[#E2E0D8] pt-2.5">
-        {[
-          { label: confirmed ? "✓ I need this" : "I need this", onClick: onConfirm, pressed: confirmed },
-          { label: "Not relevant", onClick: onDismiss, pressed: false },
-        ].map((b) => (
-          <button
-            key={b.label}
-            onClick={b.onClick}
-            aria-pressed={b.pressed}
-            className="px-2.5 py-1.5 text-xs font-bold rounded-lg border border-[#D6D0C5] bg-white text-[#1C1C1C] hover:bg-[#FAF9F6]"
-          >
-            {b.label}
-          </button>
-        ))}
-      </div>
-      <button onClick={onAsk} className="w-full mt-2.5 py-2.5 rounded-lg bg-[#1C1C1C] hover:bg-black text-white text-[13px] font-bold">
-        Ask the agent about this piece →
-      </button>
-    </article>
-  );
-}
-
-type Message = ChatTurn & { trace?: TraceStep[]; items?: ShownItem[] };
-
-// Owned pieces the agent talked about, as photo cards.
-function ShownItems({ items }: { items: ShownItem[] }) {
-  return (
-    <div className="mt-3 grid grid-cols-2 gap-2">
-      {items.map((item) => (
-        <div key={item.id} className="flex items-center gap-2 rounded-lg border border-[#E2E0D8] bg-[#FAF9F6] p-1.5">
-          <div className="grid h-16 w-12 shrink-0 place-items-center overflow-hidden rounded bg-[#F0EFEA] text-[9px] text-[#8C8A82]">
-            {item.image_url ? (
-              <img src={asset(item.image_url)} alt={item.name} loading="lazy" className="h-full w-full object-contain" />
-            ) : (
-              "No photo"
-            )}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-[11px] font-semibold text-[#1C1C1C]" title={item.name}>{item.name}</p>
-            <p className="truncate text-[10px] capitalize text-[#8C8A82]">
-              {[item.colors?.[0], (item.subcategory ?? item.category).replace(/_/g, " ")].filter(Boolean).join(" · ")}
-            </p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AgentDrawer({
-  open,
-  onClose,
-  messages,
-  thinking,
-  error,
-  onSend,
-  suggestion,
-}: {
-  open: boolean;
-  onClose: () => void;
-  messages: Message[];
-  thinking: boolean;
-  error: string | null;
-  onSend: (text: string) => void;
-  suggestion: string;
-}) {
-  const [input, setInput] = useState("");
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" });
-  }, [messages, thinking]);
-  if (!open) return null;
-  const send = (text: string) => {
-    onSend(text);
-    setInput("");
-  };
-  return (
-    <div className="fixed top-0 right-0 bottom-0 w-[460px] max-w-full bg-white border-l border-[#E2E0D8] shadow-[-20px_0_40px_rgba(40,30,20,.12)] z-[60] flex flex-col">
-      <div className="px-5 py-4 border-b border-[#E2E0D8] flex items-start gap-3">
-        <div className="flex-1">
-          <p className="text-[11px] font-bold tracking-[1.8px] uppercase text-[#556B2F]">BO3 · Gap Agent</p>
-          <p className="text-[11px] text-[#8C8A82] mt-0.5">GPT-4o mini · tools: coverage rules, FashionCLIP, XGBoost, memory</p>
-        </div>
-        <button onClick={onClose} aria-label="Close agent" className="text-[#8C8A82] hover:text-[#1C1C1C] text-lg">×</button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#FAF9F6]">
-        {messages.length === 0 && (
-          <button
-            onClick={() => send(suggestion)}
-            className="block w-full text-left text-xs bg-white border border-[#E2E0D8] px-3 py-2 rounded-lg hover:border-[#556B2F]"
-          >
-            {suggestion}
-          </button>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
-            <div
-              className={`rounded-2xl px-4 py-3 text-[13px] leading-relaxed ${
-                m.role === "user" ? "bg-[#1C1C1C] text-white rounded-tr-none max-w-[85%]" : "bg-white border border-[#E2E0D8] text-[#1C1C1C] rounded-tl-none"
-              }`}
-            >
-              {m.role === "assistant" ? <AgentMarkdown text={m.content} /> : m.content}
-              {m.items && m.items.length > 0 && <ShownItems items={m.items} />}
-              {m.trace && <TraceView trace={m.trace} />}
-            </div>
-          </div>
-        ))}
-        {thinking && <p className="text-xs text-[#8C8A82]">Agent is calling tools…</p>}
-        {error && <p className="text-xs text-[#9A5A3C]">Error: {error}</p>}
-        <div ref={end} />
-      </div>
-
-      <div className="p-3 border-t border-[#E2E0D8] flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send(input)}
-          placeholder="Ask about your wardrobe gaps…"
-          className="flex-1 px-3 py-2.5 bg-white border border-[#E2E0D8] rounded-xl text-sm outline-none focus:border-[#556B2F]"
-        />
-        <button
-          onClick={() => send(input)}
-          disabled={thinking}
-          className="bg-[#556B2F] hover:bg-[#6B8A3A] disabled:opacity-50 text-white px-4 rounded-xl text-sm font-semibold"
-        >
-          Send
-        </button>
-      </div>
-    </div>
-  );
-}
-
+// Two panes instead of a long scroll: the ranked list on the left, the selected piece on the right.
+// On wide screens the page fits the window; the list and the detail scroll on their own if needed.
 export default function WardrobeGapsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [goal, setGoal] = useState("winter_work");
   const [ranking, setRanking] = useState<GapRanking | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dismissed, toggleDismissed] = usePersistentList(DISMISSED_KEY);
-  const [confirmed, toggleConfirmed] = usePersistentList(CONFIRMED_KEY);
-  const piecesRef = useRef<HTMLElement>(null);
-
+  const [reload, setReload] = useState(0); // bumped after a model refresh to rank again
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [photoThumbs, setPhotoThumbs] = useState<Record<string, string>>({}); // "goal:piece" -> first photo
+  const [dismissed, toggleDismissed] = useDismissedList();
+  const [confirmed, toggleConfirmed] = useConfirmedList();
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -453,20 +45,85 @@ export default function WardrobeGapsPage() {
     setRanking(null);
     setError(null);
     fetchGaps(goal).then(setRanking).catch((e: Error) => setError(e.message));
-  }, [goal]);
+  }, [goal, reload]);
+
+  const isDismissed = useCallback((id: string) => dismissed.includes(feedbackKey(goal, id)), [dismissed, goal]);
+  const isConfirmed = useCallback((id: string) => confirmed.includes(feedbackKey(goal, id)), [confirmed, goal]);
+
+  // Select the first piece still to consider when a ranking arrives, so the right pane is never empty.
+  useEffect(() => {
+    if (!ranking) return;
+    setSelectedId((current) => {
+      if (current && ranking.ranked_gaps.some((g) => g.candidate_id === current)) return current;
+      const first = ranking.ranked_gaps.find((g) => !isDismissed(g.candidate_id)) ?? ranking.ranked_gaps[0];
+      return first?.candidate_id ?? null;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new ranking changes the default selection
+  }, [ranking]);
+
+  const changeGoal = (id: string) => {
+    setSelectedId(null);
+    setGoal(id);
+  };
+
+  // Arrow keys move through the list (not while typing, and not while the agent drawer is open).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (drawerOpen || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)) return;
+      const gaps = ranking?.ranked_gaps ?? [];
+      if (gaps.length === 0) return;
+      event.preventDefault();
+      const index = gaps.findIndex((g) => g.candidate_id === selectedId);
+      const next = event.key === "ArrowDown" ? Math.min(gaps.length - 1, index + 1) : Math.max(0, index - 1);
+      setSelectedId(gaps[next].candidate_id);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [ranking, selectedId, drawerOpen]);
 
   // Sends a label to the backend; the local list keeps the buttons in sync across reloads.
   const giveFeedback = (gap: RankedGap, relevance: 0 | 3 | null) => {
     setFeedbackError(null);
     sendFeedback(goal, gap.candidate_id, relevance).catch((e: Error) => setFeedbackError(`Feedback not saved: ${e.message}`));
   };
+  const confirm = (gap: RankedGap) => {
+    const key = feedbackKey(goal, gap.candidate_id);
+    const on = !confirmed.includes(key);
+    toggleConfirmed(key, on);
+    if (on) toggleDismissed(key, false); // "I need this" replaces an earlier "Not relevant"
+    giveFeedback(gap, on ? 3 : null);
+  };
+  const dismiss = (gap: RankedGap) => {
+    const key = feedbackKey(goal, gap.candidate_id);
+    toggleDismissed(key, true);
+    toggleConfirmed(key, false);
+    giveFeedback(gap, 0);
+  };
+  const restore = (gap: RankedGap) => {
+    toggleDismissed(feedbackKey(goal, gap.candidate_id), false);
+    giveFeedback(gap, null);
+  };
 
-  const key = (id: string) => `${goal}:${id}`;
-  const visible = useMemo(() => ranking?.ranked_gaps.filter((g) => !dismissed.includes(key(g.candidate_id))) ?? [], [ranking, dismissed, goal]);
-  const score = ranking ? coverage(ranking.ranked_gaps, ranking.covered) : null;
-  const totalRequirements = ranking ? ranking.ranked_gaps.length + ranking.covered.length : 0;
+  const rememberPhoto = (gap: RankedGap, photos: WebPhoto[]) => {
+    if (photos[0]) setPhotoThumbs((t) => ({ ...t, [feedbackKey(goal, gap.candidate_id)]: photos[0].thumbnail }));
+  };
+  const thumbs = useMemo(() => {
+    const here: Record<string, string> = {};
+    for (const gap of ranking?.ranked_gaps ?? []) {
+      const url = photoThumbs[feedbackKey(goal, gap.candidate_id)];
+      if (url) here[gap.candidate_id] = url;
+    }
+    return here;
+  }, [ranking, photoThumbs, goal]);
+
   const goalLabel = goals.find((g) => g.id === goal)?.label ?? "";
-  const dismissedHere = ranking?.ranked_gaps.filter((g) => dismissed.includes(key(g.candidate_id))) ?? [];
+  const score = ranking ? coverage(ranking.ranked_gaps, ranking.covered) : null;
+  const selected = ranking?.ranked_gaps.find((g) => g.candidate_id === selectedId) ?? null;
+  const selectedIndex = selected && ranking ? ranking.ranked_gaps.indexOf(selected) : -1;
+  const nothingToAnalyse = ranking?.wardrobe_source?.source === "empty" || ranking?.wardrobe_source?.source === "error";
 
   const ask = async (text: string) => {
     const message = text.trim();
@@ -480,7 +137,7 @@ export default function WardrobeGapsPage() {
       const response = await sendChat(message, history, conversationId);
       setConversationId(response.conversation_id);
       setMessages((m) => [...m, { role: "assistant", content: response.answer, trace: response.trace, items: response.items }]);
-      if (response.ranking && response.ranking.goal !== goal) setGoal(response.ranking.goal);
+      if (response.ranking && response.ranking.goal !== goal) changeGoal(response.ranking.goal);
     } catch (e) {
       setChatError((e as Error).message);
     } finally {
@@ -489,198 +146,75 @@ export default function WardrobeGapsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-bold tracking-[1.8px] uppercase text-[#556B2F]">BO3 · Wardrobe Gaps</p>
-          <h1 className="font-display text-3xl font-semibold text-[#1C1C1C] mt-1">A wardrobe ready for your life.</h1>
-          <p className="text-[#8C8A82] text-sm mt-1">Discover what you already cover, what needs attention, and the pieces that make a difference.</p>
-        </div>
-        <button
-          onClick={() => setDrawerOpen(true)}
-          className="shrink-0 inline-flex items-center gap-2 bg-[#556B2F] hover:bg-[#6B8A3A] text-white text-sm font-semibold px-4 py-2.5 rounded-lg"
-        >
-          ✦ Ask the Gap Agent
-        </button>
-      </div>
+    <div className="flex flex-col gap-3 lg:h-[calc(100vh-5rem)] lg:min-h-[600px]">
+      <ContextBar
+        goals={goals}
+        goal={goal}
+        onGoal={changeGoal}
+        score={score}
+        department={ranking?.department}
+        onAsk={() => setDrawerOpen(true)}
+        onRankingChanged={() => setReload((n) => n + 1)}
+      />
 
-      {/* Summary */}
-      <section className="grid grid-cols-[1.35fr_1fr_1fr_1fr] gap-3.5" aria-label="Coverage summary">
-        <div className="flex gap-4 items-center p-5 rounded-xl bg-[#E8EDE0] border border-[#CAD5C3]">
-          <CoverageRing score={score} />
-          <div>
-            <h3 className="text-sm font-semibold text-[#1C1C1C]">Wardrobe coverage</h3>
-            <p className="text-[11px] text-[#8C8A82] mt-1">{goalLabel}</p>
-            <small className="text-[10px] text-[#8C8A82]">Owned pieces vs. pieces this context needs</small>
-          </div>
-        </div>
-        <div className="p-5 rounded-xl bg-white border border-[#E2E0D8] flex flex-col justify-center">
-          <span className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#8C8A82]">Covered needs</span>
-          <strong className="font-display text-3xl mt-2">{ranking ? `${ranking.covered.length} / ${totalRequirements}` : "—"}</strong>
-          <p className="text-[11px] text-[#8C8A82] mt-1">Requirements fully met by pieces you own.</p>
-        </div>
-        <div className="p-5 rounded-xl bg-white border border-[#E2E0D8] flex flex-col justify-center">
-          <span className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#8C8A82]">Wardrobe pieces counted</span>
-          <strong className="font-display text-3xl mt-2">
-            {ranking ? new Set([...ranking.ranked_gaps, ...ranking.covered].flatMap((r) => r.matched_items)).size : "—"}
-          </strong>
-          <p className="text-[11px] text-[#8C8A82] mt-1">Owned items that satisfy at least one need.</p>
-        </div>
-        <div className="p-5 rounded-xl bg-[#1C1C1C] text-white flex flex-col justify-center">
-          <span className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#C6D2BF]">Missing pieces</span>
-          <strong className="font-display text-3xl mt-2">{ranking ? visible.length : "—"}</strong>
-          <p className="text-[12px] text-[#E1DDD5] mt-1">
-            {ranking ? `${visible.filter((g) => g.priority === "high").length} high priority` : "Analysing…"}
+      {ranking && <SourceBanner ranking={ranking} />}
+      {feedbackError && <p className="text-xs text-[#9A5A3C]">{feedbackError}</p>}
+
+      {error ? (
+        <div className="rounded-2xl border border-[#E2E0D8] bg-white p-10 text-center text-sm text-[#8C8A82]">Gap agent unavailable: {error}</div>
+      ) : nothingToAnalyse ? (
+        <div className="rounded-2xl border border-[#E2E0D8] bg-white p-10 text-center">
+          <p className="text-3xl" aria-hidden="true">🧺</p>
+          <h2 className="mt-2 font-display text-[22px] font-semibold text-[#1C1C1C]">Nothing to analyse yet</h2>
+          <p className="mx-auto mt-1 max-w-md text-sm text-[#8C8A82]">
+            Add pieces to My Wardrobe and your gaps will appear here, ranked for each context.
           </p>
-          {visible.length > 0 && (
-            <button
-              onClick={() => piecesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-              className="self-start mt-1 text-xs font-bold underline underline-offset-4 text-[#E4EDDD] hover:text-white"
-            >
-              View missing pieces →
-            </button>
+        </div>
+      ) : (
+        <div className="grid min-h-0 grid-cols-1 gap-3.5 lg:flex-1 lg:grid-cols-[minmax(300px,380px)_1fr]">
+          <div className="flex max-h-[60vh] min-h-0 flex-col lg:max-h-none [&>section]:min-h-0 [&>section]:flex-1">
+            <GapList
+              gaps={ranking?.ranked_gaps ?? null}
+              covered={ranking?.covered ?? []}
+              selectedId={selectedId}
+              isDismissed={isDismissed}
+              isConfirmed={isConfirmed}
+              thumbs={thumbs}
+              onSelect={setSelectedId}
+            />
+          </div>
+
+          {ranking && selected ? (
+            <GapDetail
+              goal={goal}
+              gap={selected}
+              currentCoverage={score ?? 0}
+              coverageAfter={coverage(ranking.ranked_gaps, ranking.covered, selected.candidate_id)}
+              confirmed={isConfirmed(selected.candidate_id)}
+              dismissed={isDismissed(selected.candidate_id)}
+              onConfirm={() => confirm(selected)}
+              onDismiss={() => dismiss(selected)}
+              onRestore={() => restore(selected)}
+              onAsk={() =>
+                ask(`Tell me more about the "${selected.name}" gap for ${goalLabel.toLowerCase()}. Why is it ranked #${selectedIndex + 1}?`)
+              }
+              onPhotosLoaded={(photos) => rememberPhoto(selected, photos)}
+            />
+          ) : (
+            <section className="grid place-items-center rounded-2xl border border-[#E2E0D8] bg-white p-10 text-center text-[#8C8A82]">
+              {ranking ? (
+                <div>
+                  <p className="text-2xl text-[#556B2F]" aria-hidden="true">✓</p>
+                  <h2 className="mt-2 text-sm font-semibold text-[#1C1C1C]">No missing pieces for this context</h2>
+                  <p className="mt-1 text-xs">Try another context from the bar above.</p>
+                </div>
+              ) : (
+                <p className="text-sm">Analysing your wardrobe…</p>
+              )}
+            </section>
           )}
         </div>
-      </section>
-
-      <details className="text-xs text-[#8C8A82] -mt-2">
-        <summary className="cursor-pointer underline">How are these stats calculated?</summary>
-        <p className="max-w-[900px] mt-2">
-          Coverage rules decide whether a gap exists: each context lists the pieces it needs and how many. Coverage is the share of needed
-          pieces you already own. Missing pieces are ordered by an XGBoost learning-to-rank model using six features — coverage deficit, use
-          frequency, season relevance, outfit gain, preference match and FashionCLIP redundancy. The ranker is trained on synthetic data until
-          real feedback is collected.
-        </p>
-      </details>
-
-      {/* Context */}
-      <section className="bg-white border border-[#E2E0D8] rounded-2xl p-6" aria-label="Context">
-        <span className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#8C8A82]">01 · Your context</span>
-        <h2 className="font-display text-[23px] text-[#1C1C1C] mt-1 mb-4">What are you dressing for?</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {goals.map((g) => {
-            const on = g.id === goal;
-            const design = GOAL_DESIGN[g.id] ?? { icon: "◐", note: g.season, prompt: "" };
-            return (
-              <button
-                key={g.id}
-                aria-pressed={on}
-                onClick={() => setGoal(g.id)}
-                className={`flex items-center gap-3 text-left px-4 py-4 rounded-xl border transition-all ${
-                  on ? "bg-[#E8EDE0] border-[#556B2F] shadow-[inset_0_0_0_1px_#556B2F]" : "bg-[#FAF9F6] border-[#E2E0D8] hover:border-[#556B2F]"
-                }`}
-              >
-                <span className={`w-10 h-10 rounded-xl grid place-items-center text-xl ${on ? "bg-[#DCE6D3] text-[#4C6441]" : "bg-white text-[#7B776F]"}`}>
-                  {design.icon}
-                </span>
-                <span className="flex-1">
-                  <b className="block text-sm text-[#1C1C1C]">{g.label}</b>
-                  <small className="block text-[11px] text-[#8C8A82] mt-0.5">{design.note} · {g.season}</small>
-                </span>
-                <span
-                  className={`w-[18px] h-[18px] rounded-full border grid place-items-center text-[10px] ${
-                    on ? "bg-[#556B2F] border-[#556B2F] text-white" : "border-[#C6CBBF]"
-                  }`}
-                >
-                  {on && "✓"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Missing pieces */}
-      <section ref={piecesRef} className="scroll-mt-5" aria-label="Missing pieces">
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <div>
-            <span className="text-[10.5px] font-bold tracking-[1.5px] uppercase text-[#8C8A82]">02 · Missing pieces</span>
-            <h2 className="font-display text-[23px] text-[#1C1C1C] mt-1">Missing pieces for your wardrobe</h2>
-            <p className="text-xs text-[#8C8A82] mt-1">Ranked for {goalLabel.toLowerCase() || "this context"} by the BO3 ranker.</p>
-          </div>
-          <span className="inline-flex items-center gap-1.5 border border-[#E2E0D8] bg-[#E8EDE0] rounded-full px-3 py-2 text-[11px] whitespace-nowrap">
-            ✦ {visible.length} suggestions
-          </span>
-        </div>
-
-        {ranking && <SourceBanner ranking={ranking} />}
-        {error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">Gap agent unavailable: {error}</div>}
-        {!ranking && !error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">Analysing your wardrobe…</div>}
-        {feedbackError && <p className="text-xs text-[#9A5A3C] mb-3">{feedbackError}</p>}
-
-        <div className="grid grid-cols-2 gap-3.5 items-start">
-          {ranking &&
-            visible.map((gap, index) => (
-              <GapCard
-                key={gap.candidate_id}
-                goal={goal}
-                gap={gap}
-                rank={index + 1}
-                currentCoverage={score ?? 0}
-                coverageAfter={coverage(ranking.ranked_gaps, ranking.covered, gap.candidate_id)}
-                confirmed={confirmed.includes(key(gap.candidate_id))}
-                onConfirm={() => {
-                  const on = !confirmed.includes(key(gap.candidate_id));
-                  toggleConfirmed(key(gap.candidate_id), on);
-                  giveFeedback(gap, on ? 3 : null);
-                }}
-                onDismiss={() => {
-                  toggleDismissed(key(gap.candidate_id), true);
-                  toggleConfirmed(key(gap.candidate_id), false);
-                  giveFeedback(gap, 0);
-                }}
-                onAsk={() => ask(`Tell me more about the "${gap.name}" gap for ${goalLabel.toLowerCase()}. Why is it ranked #${index + 1}?`)}
-              />
-            ))}
-        </div>
-        {ranking && visible.length === 0 && ranking.wardrobe_source?.source !== "empty" && ranking.wardrobe_source?.source !== "error" && (
-          <div className="bg-white border border-[#E2E0D8] rounded-xl p-9 text-center text-[#8C8A82]">
-            <p className="text-2xl text-[#556B2F]">✓</p>
-            <h3 className="text-sm font-semibold text-[#1C1C1C] mt-2">No missing pieces for this context</h3>
-            <p className="text-xs mt-1">Try another context, or restore dismissed suggestions below.</p>
-          </div>
-        )}
-      </section>
-
-      {/* Covered + feedback */}
-      <div className="grid grid-cols-2 gap-4">
-        <details className="bg-white border border-[#E2E0D8] rounded-2xl p-4">
-          <summary className="cursor-pointer text-xs">
-            <b>Already in your wardrobe</b> <span className="text-[#8C8A82]">· {ranking?.covered.length ?? 0} covered needs</span>
-          </summary>
-          {ranking?.covered.map((c) => (
-            <div key={c.candidate_id} className="flex items-center gap-2.5 py-2.5 text-[#556B2F]">
-              <span>✓</span>
-              <span className="text-xs">
-                <b className="text-[#1C1C1C]">{c.name}</b>
-                <small className="block text-[#8C8A82]">Covered by {c.matched_items.join(", ")}</small>
-              </span>
-            </div>
-          ))}
-          {ranking && ranking.covered.length === 0 && <p className="text-xs text-[#8C8A82] mt-2">No need is fully covered yet for this context.</p>}
-        </details>
-        <details className="bg-white border border-[#E2E0D8] rounded-2xl p-4">
-          <summary className="cursor-pointer text-xs">
-            <b>Your feedback</b> <span className="text-[#8C8A82]">· {dismissedHere.length} dismissed</span>
-          </summary>
-          <p className="text-xs text-[#8C8A82] mt-2">Feedback is kept on this device. Restore a suggestion to include it again.</p>
-          {dismissedHere.map((g) => (
-            <div key={g.candidate_id} className="flex justify-between items-center gap-2 py-2">
-              <span className="text-xs">{g.name}</span>
-              <button
-                onClick={() => {
-                  toggleDismissed(key(g.candidate_id), false);
-                  giveFeedback(g, null);
-                }}
-                className="px-2.5 py-1.5 text-xs font-bold rounded-lg border border-[#D6D0C5] bg-white hover:bg-[#FAF9F6]"
-              >
-                Restore
-              </button>
-            </div>
-          ))}
-          {dismissedHere.length === 0 && <p className="text-xs text-[#8C8A82] mt-2">No dismissed suggestions yet.</p>}
-        </details>
-      </div>
+      )}
 
       <AgentDrawer
         open={drawerOpen}

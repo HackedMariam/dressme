@@ -69,6 +69,8 @@ export type GapRanking = {
   ranker_model?: string;
   ranker_trained_on?: string;
   wardrobe_source?: WardrobeSource;
+  // Whose wardrobe the suggestions are for, from the user's profile (null = not set: the original rules).
+  department?: "women" | "men" | "both" | null;
   // "profile" = built from the user's own preferences, "default" = none filled in yet, "sample" = demo persona.
   profile_source?: "profile" | "default" | "sample" | null;
   ranked_gaps: RankedGap[];
@@ -138,6 +140,11 @@ const post = <T,>(path: string, body?: unknown) =>
 // relevance: 3 = "I need this", 0 = "Not relevant", null = remove the label.
 export const sendFeedback = (goal: string, candidateId: string, relevance: 0 | 3 | null) =>
   post<LearningStatus>("/api/bo3/feedback", { goal, candidate_id: candidateId, relevance });
+
+// Per-user learning: each user has their own retrained ranker, so these never touch anyone else's model.
+export const fetchLearning = () => request<LearningStatus>("/api/bo3/learning");
+export const retrainRanker = () => post<{ training: TrainingRun; status: LearningStatus }>("/api/bo3/retrain");
+export const resetRanker = () => post<LearningStatus>("/api/bo3/reset-model");
 
 export const sendChat =(message: string, history: ChatTurn[], conversationId: string | null) =>
   request<ChatResponse>("/api/bo3/chat", {
