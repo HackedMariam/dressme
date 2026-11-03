@@ -218,7 +218,7 @@ function GapPhotos({ goal, candidateId }: { goal: string; candidateId: string })
           </a>
         ))}
       </div>
-      <p className="mt-1 text-[10px] text-[#8C8A82]">Web photos, for inspiration only. Click to open the source.</p>
+      <p className="mt-1 text-[10px] text-[#8C8A82]">Photos from Tunisian shops, for inspiration. Click to open the shop.</p>
     </div>
   );
 }
