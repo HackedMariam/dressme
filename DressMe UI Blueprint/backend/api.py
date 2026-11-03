@@ -25,7 +25,7 @@ from agent.gap_agent import GapAgent, interpret_gaps_with_gpt
 from agent.learning import learning_status, reset_model, retrain
 from agent.memory import AgentMemory
 from agent.tools import GapAgentTools, load_profile, load_wardrobe, score_candidates
-from agent.wardrobe_source import SOURCE_INFO
+from agent.wardrobe_source import source_info
 from xgboost_ranker import FEATURES
 
 # This network cannot reach Supabase over IPv6: without this every new connection waits ~40 s.
@@ -114,8 +114,9 @@ def goals() -> list[dict[str, str]]:
 
 @app.get("/api/bo3/context")
 def context(user_id: str = Depends(current_user)) -> dict[str, Any]:
-    wardrobe = load_wardrobe(user_id)
-    return {"profile": load_profile(), "item_count": len(wardrobe), "wardrobe_source": SOURCE_INFO}
+    wardrobe, profile = load_wardrobe(user_id), load_profile(user_id)
+    return {"profile": profile, "profile_source": profile.get("profile_source"),
+            "item_count": len(wardrobe), "wardrobe_source": source_info(user_id)}
 
 
 @app.get("/api/bo3/gaps")
@@ -145,7 +146,7 @@ def feedback(request: FeedbackRequest, user_id: str = Depends(current_user)) -> 
         return learning_status(memory, user_id)
 
     # Store the features the server computes, not values sent by the browser.
-    wardrobe, profile = load_wardrobe(user_id), load_profile()
+    wardrobe, profile = load_wardrobe(user_id), load_profile(user_id)
     candidates = compute_coverage(wardrobe, request.goal)["candidates"]
     scored = {c["candidate_id"]: c for c in score_candidates(request.goal, candidates, wardrobe, profile)}
     if request.candidate_id not in scored:
@@ -170,7 +171,8 @@ def retrain_ranker(user_id: str = Depends(current_user)) -> dict[str, Any]:
 
 @app.post("/api/bo3/reset-model")
 def reset_ranker(user_id: str = Depends(current_user)) -> dict[str, Any]:
-    reset_model()
+    """Back to the synthetic demo model for THIS user only: each user has their own retrained model."""
+    reset_model(user_id)
     return learning_status(memory, user_id)
 
 

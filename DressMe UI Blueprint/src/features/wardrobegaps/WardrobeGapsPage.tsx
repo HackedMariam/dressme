@@ -14,6 +14,32 @@ import {
 } from "./api";
 import { asset } from "../../lib/api";
 
+// Tells the user when the analysed wardrobe is not their real one, or when nothing could be analysed.
+function SourceBanner({ ranking }: { ranking: GapRanking }) {
+  const wardrobe = ranking.wardrobe_source;
+  if (wardrobe && wardrobe.source !== "supabase" && wardrobe.message) {
+    const blocked = wardrobe.source === "empty" || wardrobe.source === "error";
+    return (
+      <div
+        role="status"
+        className={`mb-4 rounded-xl border px-4 py-3 text-xs ${
+          blocked ? "border-[#E6C9BA] bg-[#F7ECE6] text-[#9A5A3C]" : "border-[#E2D6BE] bg-[#F6EFE4] text-[#6B5B3E]"
+        }`}
+      >
+        <strong className="font-semibold">{blocked ? "No analysis" : "Sample data"}</strong> · {wardrobe.message}
+      </div>
+    );
+  }
+  if (ranking.profile_source === "default") {
+    return (
+      <div role="status" className="mb-4 rounded-xl border border-[#E2E0D8] bg-white px-4 py-3 text-xs text-[#8C8A82]">
+        Your style preferences are empty, so suggestions are not personalised yet. Fill in your style profile to improve them.
+      </div>
+    );
+  }
+  return null;
+}
+
 const GOAL_DESIGN: Record<string, { icon: string; note: string; prompt: string }> = {
   winter_work: { icon: "❄", note: "Office days, rain & cold", prompt: "What am I missing for winter work days in Tunis?" },
   summer_casual: { icon: "☀", note: "Light & breathable", prompt: "What am I missing for hot summer days?" },
@@ -522,6 +548,7 @@ export default function WardrobeGapsPage() {
           </span>
         </div>
 
+        {ranking && <SourceBanner ranking={ranking} />}
         {error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">Gap agent unavailable: {error}</div>}
         {!ranking && !error && <div className="bg-white border border-[#E2E0D8] rounded-xl p-8 text-center text-sm text-[#8C8A82]">Analysing your wardrobe…</div>}
         {feedbackError && <p className="text-xs text-[#9A5A3C] mb-3">{feedbackError}</p>}
@@ -550,7 +577,7 @@ export default function WardrobeGapsPage() {
               />
             ))}
         </div>
-        {ranking && visible.length === 0 && (
+        {ranking && visible.length === 0 && ranking.wardrobe_source?.source !== "empty" && ranking.wardrobe_source?.source !== "error" && (
           <div className="bg-white border border-[#E2E0D8] rounded-xl p-9 text-center text-[#8C8A82]">
             <p className="text-2xl text-[#556B2F]">✓</p>
             <h3 className="text-sm font-semibold text-[#1C1C1C] mt-2">No missing pieces for this context</h3>

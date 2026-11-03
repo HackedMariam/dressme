@@ -1,6 +1,5 @@
 """Tools the gap agent can call; each is a plain function usable without the LLM."""
 
-import json
 import math
 from collections import Counter
 from functools import lru_cache
@@ -12,14 +11,11 @@ from xgboost_ranker import rank_gap_candidates
 from .coverage import ALL_YEAR, GOALS, compute_coverage, get_requirement
 from .learning import DEMO_MODEL_PATH, active_model_path, model_metadata
 from .memory import AgentMemory
-from .wardrobe_source import load_wardrobe
+from .profile_source import load_profile   # re-exported: api.py and the Streamlit pages import it from here
+from .wardrobe_source import load_wardrobe, source_info
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BACKEND_DIR / "data"
-
-
-def load_profile() -> dict[str, Any]:
-    return json.loads((DATA_DIR / "sample_profile.json").read_text(encoding="utf-8"))
 
 
 def item_description(item: dict[str, Any]) -> str:
@@ -128,9 +124,10 @@ class GapAgentTools:
         self.shown_items: list[dict[str, Any]] = []   # owned items the agent chose to show as photo cards
 
     def get_wardrobe(self) -> dict[str, Any]:
-        wardrobe, profile = load_wardrobe(self.user_id), load_profile()
+        wardrobe, profile = load_wardrobe(self.user_id), load_profile(self.user_id)
         return {
             "profile": profile,
+            "wardrobe_source": source_info(self.user_id),
             "item_count": len(wardrobe),
             "items_by_category": dict(Counter(item["category"] for item in wardrobe)),
             "items": [
@@ -141,25 +138,33 @@ class GapAgentTools:
         }
 
     def compute_coverage(self, goal: str) -> dict[str, Any]:
-        return compute_coverage(load_wardrobe(self.user_id), goal)
+        return {**compute_coverage(load_wardrobe(self.user_id), goal), "wardrobe_source": source_info(self.user_id)}
 
     def rank_gaps(self, goal: str) -> dict[str, Any]:
-        wardrobe, profile = load_wardrobe(self.user_id), load_profile()
+        wardrobe, profile = load_wardrobe(self.user_id), load_profile(self.user_id)
+        source = source_info(self.user_id)
+        if source["source"] in ("empty", "error"):
+            # No pieces to analyse: say so instead of reporting every requirement as a gap.
+            return {"goal": goal, "ranked_gaps": [], "covered": [], "wardrobe_source": source,
+                    "profile_source": profile.get("profile_source"), "note": source["message"]}
         coverage = compute_coverage(wardrobe, goal)
         if not coverage["candidates"]:
             return {"goal": goal, "ranked_gaps": [], "covered": coverage["covered"],
+                    "wardrobe_source": source, "profile_source": profile.get("profile_source"),
                     "note": "Every requirement for this goal is covered."}
 
         scored = score_candidates(goal, coverage["candidates"], wardrobe, profile)
-        model_path = active_model_path()
+        model_path = active_model_path(self.user_id)
         ranked = rank_gap_candidates(scored, model_path=model_path)
         for gap in ranked:
             gap["priority"] = _priority(gap["rank"], len(ranked))
             gap["ranking_score"] = round(gap["ranking_score"], 4)
 
-        metadata = model_metadata()
+        metadata = model_metadata(self.user_id)
         result = {
             "goal": goal,
+            "wardrobe_source": source,
+            "profile_source": profile.get("profile_source"),
             "goal_label": coverage["goal_label"],
             "season": coverage["season"],
             "ranker_model": model_path.name,

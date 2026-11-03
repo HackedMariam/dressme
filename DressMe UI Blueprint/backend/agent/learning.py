@@ -4,10 +4,17 @@ Feedback labels: "I need this" = 3, "Not relevant" = 0. Candidates shown for the
 but left unrated are treated as neutral (1), so a single click already forms a usable
 ranking group. Real feedback groups are weighted above the synthetic groups so a handful
 of real labels can move a model trained on 140 synthetic scenarios.
+
+Each user has their own retrained model (models/users/<user id>.json), trained on the synthetic
+scenarios plus only that user's feedback. Retraining or resetting therefore never touches anyone
+else's model; users without a retrained model rank with the shared synthetic demo model.
 """
 
 import csv
 import json
+import os
+import re
+import threading
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +23,7 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import ndcg_score
 
-from xgboost_ranker import FEATURES, MODEL_PATH, load_ranker, make_ranker
+from xgboost_ranker import FEATURES, load_ranker, make_ranker
 
 from .coverage import compute_coverage
 from .memory import AgentMemory
@@ -24,21 +31,35 @@ from .memory import AgentMemory
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 SYNTHETIC_DATA = BACKEND_DIR / "data" / "bo3_synthetic_training_demo.csv"
 DEMO_MODEL_PATH = BACKEND_DIR / "models" / "bo3_gap_ranker_synthetic_demo.json"
-META_PATH = MODEL_PATH.with_suffix(".meta.json")
+USER_MODELS_DIR = BACKEND_DIR / "models" / "users"
 
 NEUTRAL_RELEVANCE = 1
 # Chosen empirically: 8 fully learns one feedback group while disturbing other goals less than 25.
 REAL_GROUP_WEIGHT = 8.0
 
-
-def active_model_path() -> Path:
-    """Prefer the model retrained from feedback; fall back to the synthetic demo."""
-    return MODEL_PATH if MODEL_PATH.is_file() else DEMO_MODEL_PATH
+_train_lock = threading.Lock()   # XGBoost training is CPU-heavy: one retraining at a time per process
 
 
-def model_metadata() -> dict[str, Any] | None:
-    if MODEL_PATH.is_file() and META_PATH.is_file():
-        return json.loads(META_PATH.read_text(encoding="utf-8"))
+def user_model_path(user_id: str | None) -> Path:
+    """models/users/<user id>.json; anything but letters, digits, '-' and '_' is replaced (no path tricks)."""
+    safe = re.sub(r"[^A-Za-z0-9_-]", "_", user_id or "demo_user")[:80]
+    return USER_MODELS_DIR / f"{safe}.json"
+
+
+def _meta_path(user_id: str | None) -> Path:
+    return user_model_path(user_id).with_suffix(".meta.json")
+
+
+def active_model_path(user_id: str | None = None) -> Path:
+    """The user's own retrained model if they have one; otherwise the synthetic demo model."""
+    own = user_model_path(user_id)
+    return own if own.is_file() else DEMO_MODEL_PATH
+
+
+def model_metadata(user_id: str | None = None) -> dict[str, Any] | None:
+    meta = _meta_path(user_id)
+    if user_model_path(user_id).is_file() and meta.is_file():
+        return json.loads(meta.read_text(encoding="utf-8"))
     return None
 
 
@@ -61,7 +82,7 @@ def feedback_groups(memory: AgentMemory, user_id: str) -> list[dict[str, Any]]:
     for entry in memory.list_feedback(user_id):
         by_goal[entry["goal"]][entry["candidate_id"]] = entry
 
-    wardrobe, profile = load_wardrobe(user_id), load_profile()
+    wardrobe, profile = load_wardrobe(user_id), load_profile(user_id)
 
     groups = []
     for goal, rated in by_goal.items():
@@ -102,7 +123,7 @@ def retrain(memory: AgentMemory, user_id: str) -> dict[str, Any]:
             "Not enough feedback yet. Mark at least one suggestion as 'I need this' or 'Not relevant'."
         )
 
-    previous_model = active_model_path()
+    previous_model = active_model_path(user_id)
     ndcg_before = _ndcg_at_3(previous_model, groups)
 
     features: list[list[float]] = []
@@ -119,9 +140,13 @@ def retrain(memory: AgentMemory, user_id: str) -> dict[str, Any]:
         group_weights.append(weight)
 
     ranker = make_ranker()   # same hyperparameters as CSV training; here with per-group weights
-    ranker.fit(np.array(features), labels, qid=query_ids, sample_weight=group_weights, verbose=False)
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    ranker.save_model(str(MODEL_PATH))
+    with _train_lock:
+        ranker.fit(np.array(features), labels, qid=query_ids, sample_weight=group_weights, verbose=False)
+    model_path = user_model_path(user_id)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = model_path.with_name(model_path.stem + ".tmp.json")
+    ranker.save_model(str(temporary))
+    os.replace(temporary, model_path)      # a request ranking at the same moment never reads a half-written file
 
     metadata = {
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -131,27 +156,27 @@ def retrain(memory: AgentMemory, user_id: str) -> dict[str, Any]:
         "explicit_labels": sum(group["explicit_labels"] for group in groups),
         "real_group_weight": REAL_GROUP_WEIGHT,
         "ndcg_at_3_before": ndcg_before,
-        "ndcg_at_3_after": _ndcg_at_3(MODEL_PATH, groups),
+        "ndcg_at_3_after": _ndcg_at_3(model_path, groups),
         "evaluation": "in-sample on the user's feedback groups",
     }
-    META_PATH.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    _meta_path(user_id).write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return metadata
 
 
-def reset_model() -> None:
-    """Return to the synthetic demo model."""
-    MODEL_PATH.unlink(missing_ok=True)
-    META_PATH.unlink(missing_ok=True)
+def reset_model(user_id: str | None = None) -> None:
+    """Return THIS user to the synthetic demo model. Other users' models are untouched."""
+    user_model_path(user_id).unlink(missing_ok=True)
+    _meta_path(user_id).unlink(missing_ok=True)
 
 
 def learning_status(memory: AgentMemory, user_id: str) -> dict[str, Any]:
     feedback = memory.list_feedback(user_id)
     return {
-        "active_model": active_model_path().name,
-        "personalised": MODEL_PATH.is_file(),
+        "active_model": active_model_path(user_id).name,
+        "personalised": user_model_path(user_id).is_file(),
         "feedback_labels": len(feedback),
         "need_labels": sum(1 for f in feedback if f["relevance"] == 3),
         "not_relevant_labels": sum(1 for f in feedback if f["relevance"] == 0),
         "goals_with_feedback": sorted({f["goal"] for f in feedback}),
-        "last_training": model_metadata(),
+        "last_training": model_metadata(user_id),
     }

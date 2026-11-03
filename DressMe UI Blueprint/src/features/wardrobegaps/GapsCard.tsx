@@ -32,6 +32,9 @@ export default function GapsCard({ onOpen }: { onOpen: () => void }) {
 
       {error && <p className="text-xs text-[#8C8A82]">Gap agent unavailable: {error}</p>}
       {!ranking && !error && <p className="text-xs text-[#8C8A82]">Analysing your wardrobe…</p>}
+      {ranking?.wardrobe_source?.message && ranking.wardrobe_source.source !== "supabase" && (
+        <p className="text-xs text-[#9A5A3C] mb-3">{ranking.wardrobe_source.message}</p>
+      )}
 
       {ranking?.ranked_gaps.slice(0, 4).map((gap) => {
         const coverage = Math.round((gap.owned_count / gap.required_count) * 100);

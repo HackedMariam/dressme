@@ -54,12 +54,23 @@ export type CoveredRequirement = {
   matched_items: string[];
 };
 
+// Where the analysed wardrobe came from. Anything but "supabase" is shown to the user as a banner.
+export type WardrobeSource = {
+  source: "supabase" | "sample" | "empty" | "error";
+  item_count: number;
+  reason: string;
+  message: string | null;
+};
+
 export type GapRanking = {
   goal: string;
   goal_label?: string;
   season?: string;
   ranker_model?: string;
   ranker_trained_on?: string;
+  wardrobe_source?: WardrobeSource;
+  // "profile" = built from the user's own preferences, "default" = none filled in yet, "sample" = demo persona.
+  profile_source?: "profile" | "default" | "sample" | null;
   ranked_gaps: RankedGap[];
   covered: CoveredRequirement[];
   note?: string;

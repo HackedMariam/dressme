@@ -5,9 +5,12 @@ Configuration (repo-root .env, or backend/.env which wins):
     SUPABASE_SERVICE_ROLE_KEY   server-side key (SUPABASE_SERVICE_KEY also accepted); `items` is protected by row-level security
     WARDROBE_USER_ID            only when nobody is signed in (Streamlit, scripts); the API passes the signed-in user instead
 
-load_wardrobe(user_id) returns that user's pieces. Without Supabase configured, without a user id, or if
-Supabase cannot be reached, BO3 uses data/sample_wardrobe.json.
-`SOURCE_INFO` records which one was used so the UI can say so.
+load_wardrobe(user_id) returns that user's pieces, and source_info(user_id) says where they came from:
+    supabase  the user's real pieces
+    sample    data/sample_wardrobe.json, ONLY for the demo user (nobody signed in / Supabase not configured)
+    empty     a signed-in user with no pieces: an empty wardrobe, never someone else's or a sample one
+    error     a signed-in user whose pieces could not be loaded: an empty wardrobe and a message
+The UI shows a banner for everything except "supabase".
 """
 
 import json
@@ -26,8 +29,16 @@ load_dotenv(BACKEND_DIR / ".env")
 load_dotenv(BACKEND_DIR.parents[1] / ".env")  # repo-root .env
 
 CACHE_SECONDS = 60
-SOURCE_INFO: dict[str, Any] = {"source": "sample", "item_count": 0, "reason": "not loaded yet"}
-_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}  # per user: id -> (loaded at, items)
+ERROR_CACHE_SECONDS = 10    # a failed load is retried soon, but not on every request
+DEMO_USER = "demo_user"     # the shared user BO3 uses when Supabase is not configured
+
+MESSAGES = {
+    "sample": "Sample data: this is a demo wardrobe, not your pieces.",
+    "empty": "No pieces found in your wardrobe yet. Add pieces to My Wardrobe to get gap suggestions.",
+    "error": "Your wardrobe could not be loaded right now, so no gaps are shown. Please try again in a moment.",
+}
+# per user: id -> (loaded at, items, source info). Source info is per user, so two users never see each other's.
+_cache: dict[str, tuple[float, list[dict[str, Any]], dict[str, Any]]] = {}
 
 # BO1 category -> BO3 category (the vocabulary of agent/coverage.py).
 CATEGORY_MAP = {
@@ -119,22 +130,50 @@ def _fetch_supabase(user_id: str | None) -> list[dict[str, Any]]:
     return [to_bo3_item(row) for row in response.json()]
 
 
-def load_wardrobe(user_id: str | None = None) -> list[dict[str, Any]]:
-    """The signed-in user's pieces. user_id=None keeps the old WARDROBE_USER_ID / sample behaviour."""
-    if user_id == "demo_user":      # the shared user BO3 uses when Supabase is not configured
-        user_id = None
-    cache_key = user_id or "default"
+def is_demo_user(user_id: str | None) -> bool:
+    return user_id in (None, DEMO_USER)
+
+
+def _info(source: str, item_count: int, reason: str = "") -> dict[str, Any]:
+    return {"source": source, "item_count": item_count, "reason": reason[:160], "message": MESSAGES.get(source)}
+
+
+def _load(user_id: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    demo = is_demo_user(user_id)
+    try:
+        items = _fetch_supabase(None if demo else user_id)
+        if items:
+            return items, _info("supabase", len(items), "BO1 pieces from Supabase items")
+        reason = "no pieces found in Supabase `items` for this user"
+    except Exception as error:
+        reason = f"{type(error).__name__}: {error}"
+        if not demo:
+            return [], _info("error", 0, reason)
+    if not demo:
+        return [], _info("empty", 0, reason)
+    # Demo user only: the bundled sample keeps the offline demo and the Streamlit pages working.
+    sample = json.loads((DATA_DIR / "sample_wardrobe.json").read_text(encoding="utf-8"))
+    return sample, _info("sample", len(sample), reason)
+
+
+def _cached(user_id: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    cache_key = DEMO_USER if is_demo_user(user_id) else user_id
     now = time.time()
     hit = _cache.get(cache_key)
-    if hit and now - hit[0] < CACHE_SECONDS:
-        return hit[1]
-    try:
-        items = _fetch_supabase(user_id)
-        if not items:
-            raise RuntimeError("no pieces found in Supabase `items` for this user")
-        SOURCE_INFO.update(source="supabase", item_count=len(items), reason="BO1 pieces from Supabase items")
-    except Exception as error:  # fall back to the sample so the demo keeps working
-        items = json.loads((DATA_DIR / "sample_wardrobe.json").read_text(encoding="utf-8"))
-        SOURCE_INFO.update(source="sample", item_count=len(items), reason=str(error)[:160])
-    _cache[cache_key] = (now, items)
-    return items
+    if hit:
+        ttl = ERROR_CACHE_SECONDS if hit[2]["source"] == "error" else CACHE_SECONDS
+        if now - hit[0] < ttl:
+            return hit[1], hit[2]
+    items, info = _load(user_id)
+    _cache[cache_key] = (now, items, info)
+    return items, info
+
+
+def load_wardrobe(user_id: str | None = None) -> list[dict[str, Any]]:
+    """The user's pieces. Only the demo user (None / "demo_user") can get the sample wardrobe."""
+    return _cached(user_id)[0]
+
+
+def source_info(user_id: str | None = None) -> dict[str, Any]:
+    """Where this user's wardrobe came from: source, item_count, reason and a message for the UI banner."""
+    return _cached(user_id)[1]

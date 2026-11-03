@@ -6,3 +6,4 @@ __pycache__/
 /models/bo3_gap_ranker.meta.json
 .env
 /data/agent_memory.sqlite3
+/models/users/
