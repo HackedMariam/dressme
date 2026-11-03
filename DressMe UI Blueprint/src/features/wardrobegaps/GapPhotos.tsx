@@ -34,7 +34,7 @@ export default function GapPhotos({
     return (
       <div className="mt-4 grid grid-cols-3 gap-2.5" aria-label="Loading photos">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="aspect-square animate-pulse rounded-xl bg-[#F0EFEA]" />
+          <div key={i} className="aspect-square xl:aspect-[4/3] animate-pulse rounded-xl bg-[#F0EFEA]" />
         ))}
       </div>
     );
@@ -52,7 +52,7 @@ export default function GapPhotos({
             target="_blank"
             rel="noopener noreferrer"
             title={photo.title}
-            className="group relative block aspect-square overflow-hidden rounded-xl bg-[#F0EFEA]"
+            className="group relative block aspect-square xl:aspect-[4/3] overflow-hidden rounded-xl bg-[#F0EFEA]"
           >
             <img
               src={photo.thumbnail}

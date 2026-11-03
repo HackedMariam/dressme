@@ -146,7 +146,11 @@ export default function WardrobeGapsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-3 lg:h-[calc(100vh-5rem)] lg:min-h-[600px]">
+    // The app shell caps every page at 1200px, which leaves a wide screen half empty. On large screens this page
+    // takes the whole content area instead (window - 260px sidebar - the shell's 2 x 2.5rem padding - 1rem kept
+    // for a scrollbar), up to 1600px. It never gets narrower than its parent. Done here rather than in App.tsx so
+    // no shared file changes; if the shell changes, only this one line needs to follow.
+    <div className="flex flex-col gap-3 lg:h-[calc(100vh-5rem)] lg:min-h-[600px] lg:w-[max(100%,calc(100vw-260px-6rem))] lg:max-w-[1600px]">
       <ContextBar
         goals={goals}
         goal={goal}
@@ -171,7 +175,7 @@ export default function WardrobeGapsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid min-h-0 grid-cols-1 gap-3.5 lg:flex-1 lg:grid-cols-[minmax(300px,380px)_1fr]">
+        <div className="grid min-h-0 grid-cols-1 gap-3.5 lg:flex-1 lg:grid-cols-[minmax(320px,420px)_1fr]">
           <div className="flex max-h-[60vh] min-h-0 flex-col lg:max-h-none [&>section]:min-h-0 [&>section]:flex-1">
             <GapList
               gaps={ranking?.ranked_gaps ?? null}
