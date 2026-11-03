@@ -76,6 +76,9 @@ MEN_VARIANTS: dict[str, dict[str, dict[str, Any] | None]] = {
         },
         "beach_bag": {"description": "a canvas beach bag"},
     },
+    "daily_basics": {
+        "winter_tights": None,
+    },
     "dinner_date": {
         "date_outfit": None,
         "dressy_tops": {

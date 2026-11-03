@@ -71,6 +71,8 @@ export type GapRanking = {
   wardrobe_source?: WardrobeSource;
   // Whose wardrobe the suggestions are for, from the user's profile (null = not set: the original rules).
   department?: "women" | "men" | "both" | null;
+  // Pieces the wardrobe scanner cannot detect from photos (underwear, sleepwear): never counted as gaps.
+  not_analysed?: { name: string; reason: string }[];
   // "profile" = built from the user's own preferences, "default" = none filled in yet, "sample" = demo persona.
   profile_source?: "profile" | "default" | "sample" | null;
   ranked_gaps: RankedGap[];

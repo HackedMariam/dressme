@@ -10,6 +10,7 @@ export const GOAL_DESIGN: Record<string, { icon: string; short: string; note: st
   hiking_outdoor: { icon: "▲", short: "Hiking", note: "Trails, wind & rain", prompt: "What am I missing for hiking and the outdoors?" },
   beach_pool: { icon: "≈", short: "Beach", note: "Swim, sun & sand", prompt: "What am I missing for a beach or pool day?" },
   dinner_date: { icon: "✧", short: "Dinner", note: "Evenings out", prompt: "What am I missing for a dinner or date night?" },
+  daily_basics: { icon: "◇", short: "Basics", note: "Socks, belt, scarf, gloves, umbrella", prompt: "What everyday basics am I missing?" },
 };
 
 export const FEATURES: { key: keyof RankedGap; label: string; inverse?: boolean }[] = [

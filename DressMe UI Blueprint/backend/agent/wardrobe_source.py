@@ -74,6 +74,7 @@ SUBCATEGORY_RULES: dict[str, list[tuple[str, str]]] = {
     "accessory": [("clutch", "clutch"), ("evening bag", "evening_bag"), ("gym", "gym_bag"), ("duffel", "gym_bag"),
                   ("backpack", "backpack"), ("rucksack", "backpack"), ("beach bag", "beach_bag"), ("tote", "tote"),
                   ("bag", "bag"), ("belt", "belt"), ("headband", "headband"), ("sock", "socks"),
+                  ("tights", "tights"), ("glove", "gloves"), ("umbrella", "umbrella"), ("scarf", "scarf"),
                   ("sunglass", "sunglasses"), ("hat", "hat"), ("cap", "cap"), ("tie", "tie"), ("jewel", "jewelry")],
 }
 

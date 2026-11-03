@@ -25,6 +25,7 @@ function ListSkeleton() {
 export default function GapList({
   gaps,
   covered,
+  notAnalysed = [],
   selectedId,
   isDismissed,
   isConfirmed,
@@ -33,6 +34,7 @@ export default function GapList({
 }: {
   gaps: RankedGap[] | null;
   covered: CoveredRequirement[];
+  notAnalysed?: { name: string; reason: string }[];
   selectedId: string | null;
   isDismissed: (id: string) => boolean;
   isConfirmed: (id: string) => boolean;
@@ -122,6 +124,11 @@ export default function GapList({
             ))}
             {covered.length === 0 && <li className="text-xs text-[#8C8A82]">No need is fully covered yet for this context.</li>}
           </ul>
+        )}
+        {notAnalysed.length > 0 && (
+          <p className="mt-2.5 text-[11px] leading-snug text-[#8C8A82]" title={notAnalysed[0].reason}>
+            Not analysed: {notAnalysed.map((n) => n.name.toLowerCase()).join(", ")}. The wardrobe scanner cannot detect them from photos.
+          </p>
         )}
       </div>
     </section>

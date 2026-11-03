@@ -496,7 +496,84 @@ GOALS: dict[str, dict[str, Any]] = {
             },
         ],
     },
+    "daily_basics": {
+        "label": "Everyday basics",
+        "season": ALL_YEAR,
+        # Pieces the scanner (BO1) cannot detect from photos, so they are never counted as gaps: a need nothing can
+        # ever cover would be a false gap for everybody. They are listed so the user knows they are not analysed.
+        "not_analysed": [{"name": "Underwear"}, {"name": "Sleepwear"}],
+        "requirements": [
+            {
+                "id": "everyday_socks",
+                "name": "Everyday socks",
+                "description": "plain cotton socks",
+                "match": [{"category": "accessory", "subcategories": ["socks"]}],
+                "min_count": 3,
+                "occasion": "casual",
+                "season_relevance": 0.6,
+                "style_tags": ["minimal", "practical"],
+                "pairs_with": ["shoes"],
+            },
+            {
+                "id": "everyday_belt",
+                "name": "Belt",
+                "description": "a leather belt",
+                "match": [{"category": "accessory", "subcategories": ["belt"]}],
+                "min_count": 1,
+                "occasion": "work",
+                "season_relevance": 0.6,
+                "style_tags": ["classic"],
+                "pairs_with": ["bottom"],
+            },
+            {
+                "id": "winter_tights",
+                "name": "Warm tights",
+                "description": "opaque winter tights",
+                "match": [{"category": "accessory", "subcategories": ["tights"]}],
+                "min_count": 1,
+                "occasion": "work",
+                "season_relevance": 0.55,
+                "style_tags": ["classic", "practical"],
+                "pairs_with": ["dress", "bottom", "shoes"],
+            },
+            {
+                "id": "winter_scarf",
+                "name": "Scarf",
+                "description": "a wool scarf",
+                "match": [{"category": "accessory", "subcategories": ["scarf"]}],
+                "min_count": 1,
+                "occasion": "outdoor",
+                "season_relevance": 0.6,
+                "style_tags": ["classic", "minimal"],
+                "pairs_with": ["outerwear", "top"],
+            },
+            {
+                "id": "winter_gloves",
+                "name": "Gloves",
+                "description": "warm gloves",
+                "match": [{"category": "accessory", "subcategories": ["gloves"]}],
+                "min_count": 1,
+                "occasion": "outdoor",
+                "season_relevance": 0.5,
+                "style_tags": ["classic", "practical"],
+                "pairs_with": ["outerwear"],
+            },
+            {
+                "id": "rain_umbrella",
+                "name": "Umbrella",
+                "description": "a compact umbrella",
+                "match": [{"category": "accessory", "subcategories": ["umbrella"]}],
+                "min_count": 1,
+                "occasion": "outdoor",
+                "season_relevance": 0.6,
+                "style_tags": ["practical"],
+                "pairs_with": ["outerwear"],
+            },
+        ],
+    },
 }
+
+NOT_ANALYSED_REASON = "The wardrobe scanner cannot detect it from photos, so it is not analysed."
 
 
 def _condition_met(item: Mapping[str, Any], condition: Mapping[str, Any]) -> bool:
@@ -551,6 +628,7 @@ def compute_coverage(wardrobe: Sequence[Mapping[str, Any]], goal_id: str, depart
         "season": season,
         "covered": covered,
         "candidates": candidates,
+        "not_analysed": [{**entry, "reason": NOT_ANALYSED_REASON} for entry in goal.get("not_analysed", [])],
     }
 
 

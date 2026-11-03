@@ -176,6 +176,7 @@ export default function WardrobeGapsPage() {
             <GapList
               gaps={ranking?.ranked_gaps ?? null}
               covered={ranking?.covered ?? []}
+              notAnalysed={ranking?.not_analysed}
               selectedId={selectedId}
               isDismissed={isDismissed}
               isConfirmed={isConfirmed}

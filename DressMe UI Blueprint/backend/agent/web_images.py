@@ -61,6 +61,9 @@ PIECE_FR = {
     "running sneakers": "baskets running", "stretch running leggings": "legging de sport",
     "tailored wool trousers": "pantalon classique", "technical hiking trousers": "pantalon de randonnée",
     "waterproof hiking boots": "chaussures de randonnée",
+    "plain cotton socks": "chaussettes en coton", "a leather belt": "ceinture en cuir",
+    "opaque winter tights": "collants hiver", "a wool scarf": "écharpe en laine", "warm gloves": "gants hiver",
+    "a compact umbrella": "parapluie compact",
     # Needs that only exist for men (agent/departments.py).
     "a dark formal suit": "costume noir", "black leather oxford shoes": "chaussures derby cuir noir",
     "a silk tie": "cravate en soie", "breathable running shorts": "short de running", "swim shorts": "short de bain",

@@ -155,7 +155,8 @@ class GapAgentTools:
         if not coverage["candidates"]:
             return {"goal": goal, "ranked_gaps": [], "covered": coverage["covered"],
                     "wardrobe_source": source, "profile_source": profile.get("profile_source"),
-                    "department": profile.get("department"), "note": "Every requirement for this goal is covered."}
+                    "department": profile.get("department"), "not_analysed": coverage["not_analysed"],
+                    "note": "Every requirement for this goal is covered."}
 
         scored = score_candidates(goal, coverage["candidates"], wardrobe, profile)
         model_path = active_model_path(self.user_id)
@@ -179,6 +180,7 @@ class GapAgentTools:
             ),
             "ranked_gaps": ranked,
             "covered": coverage["covered"],
+            "not_analysed": coverage["not_analysed"],   # pieces the scanner cannot see: never reported as gaps
         }
         self.memory.save_gap_analysis(self.user_id, self.conversation_id, goal, result)
         self.last_ranking = result
