@@ -20,12 +20,13 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from agent.coverage import GOALS, compute_coverage
+from agent.coverage import GOALS, compute_coverage, get_requirement
 from agent.gap_agent import GapAgent, interpret_gaps_with_gpt
 from agent.learning import learning_status, reset_model, retrain
 from agent.memory import AgentMemory
 from agent.tools import GapAgentTools, load_profile, load_wardrobe, score_candidates
 from agent.wardrobe_source import source_info
+from agent.web_images import search_images
 from xgboost_ranker import FEATURES
 
 # This network cannot reach Supabase over IPv6: without this every new connection waits ~40 s.
@@ -135,6 +136,21 @@ def gaps(goal: str = "winter_work", interpret: bool = True, user_id: str = Depen
         if interpretation:
             result["stylist_interpretation"] = interpretation
     return result
+
+
+@app.get("/api/bo3/gaps/{candidate_id}/images")
+def gap_images(candidate_id: str, goal: str = "winter_work", limit: int = 3,
+               user_id: str = Depends(current_user)) -> dict[str, Any]:
+    """Web photos of a missing piece. A separate route from /gaps: each search takes about a second, and the
+    ranking must not wait for six of them. The search text comes from the rules, never from the browser."""
+    if goal not in GOALS:
+        raise HTTPException(404, f"Unknown goal {goal!r}.")
+    try:
+        requirement = get_requirement(goal, candidate_id)
+    except KeyError:
+        raise HTTPException(404, f"{candidate_id!r} is not a requirement of {goal!r}.") from None
+    return {"candidate_id": candidate_id, "piece": requirement["description"],
+            **search_images(requirement["description"], limit)}
 
 
 @app.post("/api/bo3/feedback")

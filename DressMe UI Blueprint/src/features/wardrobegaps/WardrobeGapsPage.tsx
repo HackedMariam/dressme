@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  fetchGapImages,
   fetchGaps,
   fetchGoals,
   sendChat,
@@ -11,6 +12,7 @@ import {
   type RankedGap,
   type ShownItem,
   type TraceStep,
+  type WebPhoto,
 } from "./api";
 import { asset } from "../../lib/api";
 
@@ -172,7 +174,57 @@ function TraceView({ trace }: { trace: TraceStep[] }) {
   );
 }
 
+// Web photos of the missing piece, loaded after the card is shown so the ranking never waits for them.
+function GapPhotos({ goal, candidateId }: { goal: string; candidateId: string }) {
+  const [state, setState] = useState<{ photos: WebPhoto[]; message: string | null } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false; // ignore a late answer if the card changed or disappeared meanwhile
+    setState(null);
+    fetchGapImages(goal, candidateId)
+      .then((reply) => !cancelled && setState({ photos: reply.images, message: reply.message }))
+      .catch(() => !cancelled && setState({ photos: [], message: null })); // photos are a bonus: fail quietly
+    return () => {
+      cancelled = true;
+    };
+  }, [goal, candidateId]);
+
+  if (!state) {
+    return (
+      <div className="mt-3 grid grid-cols-3 gap-2" aria-label="Loading photos">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-[96px] animate-pulse rounded-lg bg-[#F0EFEA]" />
+        ))}
+      </div>
+    );
+  }
+  if (state.photos.length === 0) {
+    return state.message ? <p className="mt-3 text-[10.5px] text-[#8C8A82]">{state.message}</p> : null;
+  }
+  return (
+    <div className="mt-3">
+      <div className="grid grid-cols-3 gap-2">
+        {state.photos.map((photo) => (
+          <a key={photo.page_url} href={photo.page_url} target="_blank" rel="noopener noreferrer" title={photo.title} className="block">
+            <img
+              src={photo.thumbnail}
+              alt={photo.title}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              onError={(event) => (event.currentTarget.style.visibility = "hidden")}
+              className="h-[96px] w-full rounded-lg bg-[#F0EFEA] object-cover"
+            />
+            <span className="mt-0.5 block truncate text-[10px] text-[#8C8A82]">{photo.source}</span>
+          </a>
+        ))}
+      </div>
+      <p className="mt-1 text-[10px] text-[#8C8A82]">Web photos, for inspiration only. Click to open the source.</p>
+    </div>
+  );
+}
+
 function GapCard({
+  goal,
   gap,
   rank,
   currentCoverage,
@@ -182,6 +234,7 @@ function GapCard({
   onDismiss,
   onAsk,
 }: {
+  goal: string;
   gap: RankedGap;
   rank: number;
   currentCoverage: number;
@@ -207,6 +260,8 @@ function GapCard({
           <p className="text-xs text-[#8C8A82] mt-0.5">Suggested: {gap.suggested_item}</p>
         </div>
       </div>
+
+      <GapPhotos goal={goal} candidateId={gap.candidate_id} />
 
       <p className="text-xs text-[#8C8A82] py-2.5">{reasonFor(gap)}</p>
 
@@ -558,6 +613,7 @@ export default function WardrobeGapsPage() {
             visible.map((gap, index) => (
               <GapCard
                 key={gap.candidate_id}
+                goal={goal}
                 gap={gap}
                 rank={index + 1}
                 currentCoverage={score ?? 0}

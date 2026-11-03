@@ -118,6 +118,16 @@ export const fetchGoals = () => request<Goal[]>("/api/bo3/goals");
 export const fetchGaps = (goal: string, interpret = false) =>
   request<GapRanking>(`/api/bo3/gaps?goal=${encodeURIComponent(goal)}&interpret=${interpret}`);
 
+// A web photo of a missing piece. Show `thumbnail` (stable copy) and link to `page_url` (the source shop).
+export type WebPhoto = { title: string; thumbnail: string; image_url: string | null; page_url: string; source: string };
+export type GapPhotosResponse = { candidate_id: string; piece: string; images: WebPhoto[]; cached: boolean; message: string | null };
+
+// Loaded per card, after the ranking is shown: each web search takes about a second.
+export const fetchGapImages = (goal: string, candidateId: string, limit = 3) =>
+  request<GapPhotosResponse>(
+    `/api/bo3/gaps/${encodeURIComponent(candidateId)}/images?goal=${encodeURIComponent(goal)}&limit=${limit}`,
+  );
+
 const post = <T,>(path: string, body?: unknown) =>
   request<T>(path, {
     method: "POST",
