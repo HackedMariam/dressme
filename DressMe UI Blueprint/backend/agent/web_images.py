@@ -61,18 +61,29 @@ PIECE_FR = {
     "running sneakers": "baskets running", "stretch running leggings": "legging de sport",
     "tailored wool trousers": "pantalon classique", "technical hiking trousers": "pantalon de randonnée",
     "waterproof hiking boots": "chaussures de randonnée",
+    # Needs that only exist for men (agent/departments.py).
+    "a dark formal suit": "costume noir", "black leather oxford shoes": "chaussures derby cuir noir",
+    "a silk tie": "cravate en soie", "breathable running shorts": "short de running", "swim shorts": "short de bain",
+    "a light linen shirt": "chemise en lin", "a canvas beach bag": "sac de plage",
+    "a breathable linen shirt": "chemise en lin", "a fitted dress shirt": "chemise slim fit",
+    "leather chelsea boots": "bottines chelsea cuir",
 }
+# Added to the query so a man is not shown women's coats and the other way round. A mixed or unknown
+# department gets no word, which is the previous behaviour.
+DEPARTMENT_WORD = {"women": "femme", "men": "homme"}
 
 _lock = threading.Lock()
 _cache: dict[str, dict[str, Any]] | None = None     # query -> {"at": timestamp, "images": [...]}
 _recent_searches: list[float] = []
 
 
-def build_query(description: str) -> str:
-    """"a warm wool coat" -> "manteau en laine tunisie prix TND" (shop pages of Tunisian sellers)."""
+def build_query(description: str, department: str | None = None) -> str:
+    """"a warm wool coat" -> "manteau en laine tunisie prix TND", or "... femme tunisie prix TND" for women
+    (shop pages of Tunisian sellers)."""
     description = description.strip()
     name = PIECE_FR.get(description.lower()) or re.sub(r"^(a|an|the)\s+", "", description, flags=re.IGNORECASE)
-    return f"{name} {MARKET_WORDS}"
+    word = DEPARTMENT_WORD.get(department or "")
+    return " ".join(part for part in (name, word, MARKET_WORDS) if part)
 
 
 def _host(url: str) -> str:
@@ -167,9 +178,9 @@ def _search_web(query: str) -> list[dict[str, Any]]:
     )
 
 
-def search_images(description: str, limit: int = 3) -> dict[str, Any]:
+def search_images(description: str, limit: int = 3, department: str | None = None) -> dict[str, Any]:
     """Photos for one missing piece. Never raises: on any problem it answers with no images and a reason."""
-    query, limit = build_query(description), max(1, min(limit, 6))
+    query, limit = build_query(description, department), max(1, min(limit, 6))
     with _lock:
         cache = _load_cache()
         entry = cache.get(query)
@@ -195,6 +206,16 @@ def search_images(description: str, limit: int = 3) -> dict[str, Any]:
     if images is None:
         return {"query": query, "images": stale, "cached": bool(stale),
                 "message": f"Photo search unavailable right now ({type(failure).__name__})."}
+    if not images and DEPARTMENT_WORD.get(department or ""):
+        # Nothing with "homme"/"femme" (a tie, or a unisex hat or sandal that shops do not label): one more search
+        # without the word. Still Tunisian shops only, because clean_results applies the same filter.
+        with _lock:
+            fallback_allowed = _allowed_now()
+        if fallback_allowed:
+            try:
+                images = clean_results(_search_web(build_query(description, None)), 6)
+            except Exception:
+                images = []
     if images:
         with _lock:
             _load_cache()[query] = {"at": time.time(), "images": images}

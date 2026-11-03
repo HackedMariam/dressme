@@ -9,6 +9,10 @@ profile_source tells the UI how real the profile is:
     profile   built from the user's own `style_profiles` row
     default   signed-in user who has not filled in any preference yet: neutral values, no sample persona
     sample    data/sample_profile.json, for the demo user only
+
+department (women | men | both | None) is who the suggestions are for, from style_profiles.shopping_for or else
+profiles.gender (see agent/departments.py). The raw gender is deliberately NOT copied into the profile: the profile
+goes to the browser and to the language model, and only the derived department is needed there.
 """
 
 import json
@@ -19,6 +23,7 @@ from typing import Any
 
 import httpx
 
+from .departments import resolve_department
 from .wardrobe_source import is_demo_user
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -79,6 +84,7 @@ def build_profile(user_id: str, profile_row: dict[str, Any] | None, style_row: d
     avoided = [str(c).strip().lower() for c in style_row.get("avoided_colors") or []]
     has_preferences = bool(styles or colors or avoided or occasions)
     location = (profile_row or {}).get("location")
+    department, department_source = resolve_department(style_row.get("shopping_for"), (profile_row or {}).get("gender"))
     return {
         "user_id": user_id,
         "display_name": (profile_row or {}).get("display_name") or "",
@@ -87,6 +93,8 @@ def build_profile(user_id: str, profile_row: dict[str, Any] | None, style_row: d
         "preferred_colors": colors,
         "avoided_colors": avoided,
         "occasion_frequency": occasions,
+        "department": department,
+        "department_source": department_source,
         "profile_source": "profile" if has_preferences else "default",
     }
 

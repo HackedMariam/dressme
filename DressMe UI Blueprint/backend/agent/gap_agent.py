@@ -48,6 +48,10 @@ Rules:
 - Mention closest_owned_item only when redundancy_score >= 0.6: then say the user may already own something
   similar (name it). Below 0.6, do not mention closest_owned_item at all.
 - "Already covered" lists the goal's covered requirements (the `covered` field), not individual items.
+- The profile's `department` (women, men, both, or empty) says whose wardrobe the suggestions are for. The gaps and
+  their suggested items already follow it: never add a piece from another department on your own (no dress for a
+  man, no tie for a woman) and never guess a gender. If `department` is empty, you may say the user can set it in
+  their profile to get more fitting suggestions.
 - Be honest about uncertainty: the wardrobe analysis is real, but the ranker that orders gaps is trained on
   synthetic data until real user feedback is collected.
 - Reply in the user's language (English, French or Tunisian Arabic).

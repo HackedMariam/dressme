@@ -86,7 +86,7 @@ def feedback_groups(memory: AgentMemory, user_id: str) -> list[dict[str, Any]]:
 
     groups = []
     for goal, rated in by_goal.items():
-        candidates = compute_coverage(wardrobe, goal)["candidates"]
+        candidates = compute_coverage(wardrobe, goal, profile.get("department"))["candidates"]
         current = {c["candidate_id"]: c for c in score_candidates(goal, candidates, wardrobe, profile)} if candidates else {}
         ids, features, labels = [], [], []
         for candidate_id in sorted(set(rated) | set(current)):

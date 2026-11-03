@@ -79,7 +79,8 @@ def score_candidates(
     """Fill the six ranker features for each uncovered requirement."""
     season = GOALS[goal_id]["season"]
     in_season = list(wardrobe) if season == ALL_YEAR else [item for item in wardrobe if season in item.get("seasons", [])]
-    requirements = [get_requirement(goal_id, c["candidate_id"]) for c in candidates]
+    department = profile.get("department")
+    requirements = [get_requirement(goal_id, c["candidate_id"], department) for c in candidates]
     redundancy = redundancy_scores([r["description"] for r in requirements], wardrobe)
     preferred_styles = set(profile.get("preferred_styles", []))
     frequencies = profile.get("occasion_frequency", {})
@@ -138,7 +139,9 @@ class GapAgentTools:
         }
 
     def compute_coverage(self, goal: str) -> dict[str, Any]:
-        return {**compute_coverage(load_wardrobe(self.user_id), goal), "wardrobe_source": source_info(self.user_id)}
+        department = load_profile(self.user_id).get("department")
+        return {**compute_coverage(load_wardrobe(self.user_id), goal, department), "department": department,
+                "wardrobe_source": source_info(self.user_id)}
 
     def rank_gaps(self, goal: str) -> dict[str, Any]:
         wardrobe, profile = load_wardrobe(self.user_id), load_profile(self.user_id)
@@ -146,12 +149,13 @@ class GapAgentTools:
         if source["source"] in ("empty", "error"):
             # No pieces to analyse: say so instead of reporting every requirement as a gap.
             return {"goal": goal, "ranked_gaps": [], "covered": [], "wardrobe_source": source,
-                    "profile_source": profile.get("profile_source"), "note": source["message"]}
-        coverage = compute_coverage(wardrobe, goal)
+                    "profile_source": profile.get("profile_source"), "department": profile.get("department"),
+                    "note": source["message"]}
+        coverage = compute_coverage(wardrobe, goal, profile.get("department"))
         if not coverage["candidates"]:
             return {"goal": goal, "ranked_gaps": [], "covered": coverage["covered"],
                     "wardrobe_source": source, "profile_source": profile.get("profile_source"),
-                    "note": "Every requirement for this goal is covered."}
+                    "department": profile.get("department"), "note": "Every requirement for this goal is covered."}
 
         scored = score_candidates(goal, coverage["candidates"], wardrobe, profile)
         model_path = active_model_path(self.user_id)
@@ -165,6 +169,7 @@ class GapAgentTools:
             "goal": goal,
             "wardrobe_source": source,
             "profile_source": profile.get("profile_source"),
+            "department": profile.get("department"),   # who the suggestions are for: women | men | both | None
             "goal_label": coverage["goal_label"],
             "season": coverage["season"],
             "ranker_model": model_path.name,

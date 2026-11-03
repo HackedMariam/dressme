@@ -2,6 +2,8 @@
 
 from typing import Any, Mapping, Sequence
 
+from .departments import adapt, all_variants
+
 # Each requirement lists the owned items that satisfy it (`match`), how many are
 # needed, and priors used later as ranker features. `season_relevance` is a
 # domain prior for the goal's season in a Tunisian climate.
@@ -515,7 +517,12 @@ def _matches(item: Mapping[str, Any], requirement: Mapping[str, Any], season: st
     return any(_condition_met(item, condition) for condition in requirement["match"])
 
 
-def compute_coverage(wardrobe: Sequence[Mapping[str, Any]], goal_id: str) -> dict[str, Any]:
+def requirements_for(goal_id: str, department: str | None = None) -> list[dict[str, Any]]:
+    """The needs of a goal for a department (women | men | both). None keeps the original rules."""
+    return adapt(GOALS[goal_id]["requirements"], goal_id, department)
+
+
+def compute_coverage(wardrobe: Sequence[Mapping[str, Any]], goal_id: str, department: str | None = None) -> dict[str, Any]:
     """Compare the wardrobe with a goal's requirements and return uncovered needs."""
     if goal_id not in GOALS:
         raise ValueError(f"Unknown goal {goal_id!r}. Choose one of: {', '.join(GOALS)}.")
@@ -523,7 +530,7 @@ def compute_coverage(wardrobe: Sequence[Mapping[str, Any]], goal_id: str) -> dic
     season = goal["season"]
 
     covered, candidates = [], []
-    for requirement in goal["requirements"]:
+    for requirement in requirements_for(goal_id, department):
         matched = [item for item in wardrobe if _matches(item, requirement, season)]
         required = requirement["min_count"]
         deficit = max(0, required - len(matched)) / required
@@ -547,8 +554,13 @@ def compute_coverage(wardrobe: Sequence[Mapping[str, Any]], goal_id: str) -> dic
     }
 
 
-def get_requirement(goal_id: str, requirement_id: str) -> dict[str, Any]:
-    for requirement in GOALS[goal_id]["requirements"]:
+def get_requirement(goal_id: str, requirement_id: str, department: str | None = None) -> dict[str, Any]:
+    for requirement in requirements_for(goal_id, department):
+        if requirement["id"] == requirement_id:
+            return requirement
+    # A need of another department (for example a stored answer about "formal_suit" for a user who changed
+    # department): still known, so it is found rather than failing.
+    for requirement in all_variants(goal_id, GOALS[goal_id]["requirements"]):
         if requirement["id"] == requirement_id:
             return requirement
     raise KeyError(requirement_id)

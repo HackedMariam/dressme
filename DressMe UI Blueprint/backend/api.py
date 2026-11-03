@@ -145,12 +145,13 @@ def gap_images(candidate_id: str, goal: str = "winter_work", limit: int = 3,
     ranking must not wait for six of them. The search text comes from the rules, never from the browser."""
     if goal not in GOALS:
         raise HTTPException(404, f"Unknown goal {goal!r}.")
+    department = load_profile(user_id).get("department")
     try:
-        requirement = get_requirement(goal, candidate_id)
+        requirement = get_requirement(goal, candidate_id, department)
     except KeyError:
         raise HTTPException(404, f"{candidate_id!r} is not a requirement of {goal!r}.") from None
-    return {"candidate_id": candidate_id, "piece": requirement["description"],
-            **search_images(requirement["description"], limit)}
+    return {"candidate_id": candidate_id, "piece": requirement["description"], "department": department,
+            **search_images(requirement["description"], limit, department)}
 
 
 @app.post("/api/bo3/feedback")
@@ -163,7 +164,7 @@ def feedback(request: FeedbackRequest, user_id: str = Depends(current_user)) -> 
 
     # Store the features the server computes, not values sent by the browser.
     wardrobe, profile = load_wardrobe(user_id), load_profile(user_id)
-    candidates = compute_coverage(wardrobe, request.goal)["candidates"]
+    candidates = compute_coverage(wardrobe, request.goal, profile.get("department"))["candidates"]
     scored = {c["candidate_id"]: c for c in score_candidates(request.goal, candidates, wardrobe, profile)}
     if request.candidate_id not in scored:
         raise HTTPException(404, f"{request.candidate_id!r} is not a current gap for {request.goal!r}.")
