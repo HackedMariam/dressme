@@ -99,6 +99,11 @@ $bo1 = Join-Path $Root "backend"
 Start-DressMeService "bo1" $bo1 (Find-Python $bo1 $env:DRESSME_PY_BO1) `
     @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000") 8000
 
+# BO3 : suggestions du dashboard, Wardrobe Gaps, photos de boutiques tunisiennes (le proxy Vite envoie /api/bo3 ici)
+$bo3 = Join-Path $Root "DressMe UI Blueprint"
+Start-DressMeService "bo3" $bo3 (Find-Python (Join-Path $bo3 "backend") $env:DRESSME_PY_BO3) `
+    @("-m", "uvicorn", "api:app", "--app-dir", "backend", "--host", "127.0.0.1", "--port", "8001") 8001
+
 Start-DressMeService "helpmepack" $Root (Find-Python $Root $env:DRESSME_PY_PACKING) `
     @("-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8020") 8020
 
@@ -118,6 +123,7 @@ Start-DressMeService "orchestrator" $orchestrator (Find-Python $orchestrator $en
 $checks = [ordered]@{
     "ollama"       = "http://127.0.0.1:11434/api/version"
     "bo1"          = "http://127.0.0.1:8000/api/health"
+    "bo3"          = "http://127.0.0.1:8001/api/health"
     "helpmepack"   = "http://127.0.0.1:8020/api/health"
     "purchase"     = "http://127.0.0.1:8040/health"
     "stylist"      = "http://127.0.0.1:8061/api/graph"

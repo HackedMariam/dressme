@@ -486,6 +486,36 @@ def avatar_tryon_image(item_id: str, user: User = Depends(current_user)) -> Resp
     return _avatar_errors(lambda: _file(avatar.load_tryon(store, user.id, item_id, "png"), "image/png", "try-on"))
 
 
+@app.post("/api/avatar/tryon-garment")
+async def avatar_tryon_garment(group: str = Form(...), image_url: str | None = Form(None),
+                               file: UploadFile | None = File(None),
+                               user: User = Depends(current_user)) -> dict[str, Any]:
+    """Try on a piece the user does not own yet (a shop photo, or a link to one). 2D only (about $0.075), background job.
+    The result is read from GET /api/avatar/tryon/{tryon_id}/image."""
+    category = avatar.tryon_category_for_group(group)
+    if category is None:
+        raise HTTPException(422, "Try-on works for tops, jackets, bottoms and dresses (not shoes, bags or accessories).")
+    if file is None and not image_url:
+        raise HTTPException(400, "Send a garment photo or an image link.")
+    data = await _read_upload(file) if file is not None else None
+
+    def start() -> dict:
+        garment = data if data is not None else avatar.fetch_remote_image(image_url or "")
+        photo = avatar.load_photo(store, user.id)
+        if photo is None:
+            raise avatar.AvatarError(409, "Create your 3D avatar first.")
+        avatar.check_quota(user.id, "try-ons", config.AVATAR_TRYONS_PER_HOUR, 3600)
+        tryon_id = f"shop-{uuid.uuid4().hex[:16]}"
+
+        def work() -> None:
+            dressed = avatar.try_on_image(photo, avatar.normalize_photo(garment), category)
+            avatar.save_tryon(store, user.id, tryon_id, dressed, "png")
+
+        return {"tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work)}
+
+    return await run_in_threadpool(lambda: _avatar_errors(start))
+
+
 def _get_or_404(user: User, item_id: str) -> dict:
     item = store.get_item(user.id, item_id)
     if not item:

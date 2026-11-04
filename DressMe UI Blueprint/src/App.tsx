@@ -10,6 +10,7 @@ import StyleProfile from "./features/profile/StyleProfile";
 import Settings from "./features/settings/Settings";
 import DashboardPage from "./features/dashboard/DashboardPage";
 import FindSimilarPage from "./features/purchase/FindSimilarPage";
+import ShopNotifications from "./features/shop/ShopNotifications";
 import ShouldIBuyPage from "./features/purchase/ShouldIBuyPage";
 import StylistPage from "./features/stylist/StylistPage";
 import AvatarPage from "./features/avatar/AvatarPage";
@@ -875,7 +876,7 @@ function AuthenticatedApp() {
 
   const renderPage = () => {
     switch (page) {
-      case "dashboard": return <DashboardPage onOpenGaps={() => setPage("wardrobe-gaps")} />;
+      case "dashboard": return <DashboardPage onOpenGaps={() => setPage("wardrobe-gaps")} onOpenAvatar={() => setPage("avatar")} />;
       case "wardrobe": return <WardrobePage />;
       case "wardrobe-gaps": return <WardrobeGapsPage />;
       case "outfit-studio": return <OutfitStudio />;
@@ -885,7 +886,7 @@ function AuthenticatedApp() {
       case "ai-stylist": return <StylistPage />;
       case "avatar": return <AvatarPage />;
       case "style-profile": return <StyleProfile />;
-      case "find-similar": return <FindSimilarPage />;
+      case "find-similar": return <FindSimilarPage onOpenAvatar={() => setPage("avatar")} />;
       case "settings": return <Settings />;
     }
   };
@@ -966,6 +967,7 @@ function AuthenticatedApp() {
             </div>
           )}
           {renderPage()}
+          <ShopNotifications onOpen={() => setPage("dashboard")} />
           </WardrobeProvider>
         </div>
       </main>

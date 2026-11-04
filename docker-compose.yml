@@ -1,0 +1,19 @@
+services:
+  rag-api:
+    build:
+      context: ./rag_backend
+    ports:
+      - "8010:8000"
+    env_file:
+      - .env
+    environment:
+      RAG_DATA_DIR: /data
+    volumes:
+      - rag_data:/data
+      - huggingface_cache:/root/.cache/huggingface
+      - ./rag_backend/ingestion/pdfs:/app/ingestion/pdfs:ro
+    restart: unless-stopped
+
+volumes:
+  rag_data:
+  huggingface_cache:

@@ -285,3 +285,35 @@ def test_a_job_belongs_to_its_user():
 def test_item_ids_from_the_url_cannot_reach_other_folders(client):
     _create(client)
     assert client.get("/api/avatar/tryon/..%2Fphoto/model").status_code == 404
+
+
+def _garment(client, wait=True, **form):
+    reply = client.post("/api/avatar/tryon-garment", data=form, files={"file": ("shop.png", _png(), "image/png")})
+    job = _wait(client, reply.json()["job_id"]) if wait and reply.status_code == 200 else None
+    return reply, job
+
+
+def test_a_shop_photo_is_tried_on_in_2d_only_and_stored_privately(client, fal):
+    _create(client)
+    runs = len(fal.runs)
+    reply, job = _garment(client, group="Outerwear")
+    assert reply.status_code == 200 and job["status"] == "done", job
+    assert fal.models()[runs:] == [FASHN] and fal.runs[-1][1]["category"] == "tops"    # no 3D step: cheaper
+    tryon_id = reply.json()["tryon_id"]
+    assert tryon_id.startswith("shop-")
+    assert client.get(f"/api/avatar/tryon/{tryon_id}/image").status_code == 200
+
+
+def test_a_shop_photo_try_on_needs_an_avatar_and_a_supported_group(client, fal):
+    assert _garment(client, group="Tops")[0].status_code == 409
+    _create(client)
+    runs = len(fal.runs)
+    assert _garment(client, group="Shoes")[0].status_code == 422 and len(fal.runs) == runs
+    assert client.post("/api/avatar/tryon-garment", data={"group": "Tops"}).status_code == 400
+
+
+@pytest.mark.parametrize("url", ["http://example.com/a.jpg", "https://127.0.0.1/a.jpg", "https://localhost/a.jpg",
+                                 "https://169.254.169.254/latest/meta-data"])
+def test_remote_garment_images_cannot_reach_the_servers_own_network(url):
+    with pytest.raises(avatar.AvatarError):
+        avatar.fetch_remote_image(url)

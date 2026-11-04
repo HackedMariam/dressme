@@ -71,6 +71,44 @@ def normalize_photo(data: bytes) -> bytes:
     return buffer.getvalue()
 
 
+MAX_REMOTE_IMAGE = 8 * 1024 * 1024
+
+
+def tryon_category_for_group(group: str) -> str | None:
+    return TRYON_CATEGORY.get(group)
+
+
+def fetch_remote_image(url: str) -> bytes:
+    """Download a shop photo for a try-on. https only, public hosts only, no redirects, size capped:
+    the URL comes from the browser, so it must never be able to reach the server's own network."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise AvatarError(400, "The garment image must be an https link.")
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(parsed.hostname, parsed.port or 443)}
+    except OSError as error:
+        raise AvatarError(400, "The garment image host could not be resolved.") from error
+    if not addresses or any(not ipaddress.ip_address(a).is_global for a in addresses):
+        raise AvatarError(400, "The garment image must be on a public website.")
+    try:
+        with httpx.stream("GET", url, timeout=15, follow_redirects=False,
+                          headers={"User-Agent": "Mozilla/5.0 DressMe"}) as response:
+            if response.status_code != 200 or not response.headers.get("content-type", "").startswith("image/"):
+                raise AvatarError(400, "The garment link is not an image.")
+            data = b""
+            for chunk in response.iter_bytes():
+                data += chunk
+                if len(data) > MAX_REMOTE_IMAGE:
+                    raise AvatarError(400, "The garment image is too large.")
+    except httpx.HTTPError as error:
+        raise AvatarError(502, "Could not download the garment image.") from error
+    return data
+
+
 def _data_uri(jpeg: bytes) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(normalize_photo(jpeg)).decode()
 

@@ -217,5 +217,14 @@ export const api = {
   avatarTryOnModel: (itemId: string) => requestBlob(`/api/avatar/tryon/${encodeURIComponent(itemId)}/model`),
 
   avatarTryOnImage: (itemId: string) => requestBlob(`/api/avatar/tryon/${encodeURIComponent(itemId)}/image`),
+
+  // A piece the user does not own yet: their own shop photo, or the link of a shop photo. 2D result, one job to poll.
+  avatarTryOnGarment: (garment: { file?: File; imageUrl?: string }, group: string) => {
+    const form = new FormData()
+    form.append("group", group)
+    if (garment.file) form.append("file", garment.file, garment.file.name)
+    else if (garment.imageUrl) form.append("image_url", garment.imageUrl)
+    return request<{ tryon_id: string; job_id: string }>("/api/avatar/tryon-garment", { method: "POST", body: form })
+  },
 }
 
