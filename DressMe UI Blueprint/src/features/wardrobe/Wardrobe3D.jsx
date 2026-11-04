@@ -13,8 +13,9 @@ const SHELF_H = { bag: 0.36, hat: 0.24, scarf: 0.34, umbrella: 0.42 }
 const FAN = -0.62                              // rotation of hanging items, like flipping through a rack
 
 // perceived lightness, used to arrange each section from light to dark like a real closet
-const lightness = (hex = '#888888') => {
-  const n = parseInt(hex.slice(1), 16) || 0
+// The colour is null for items whose colour was not detected: those sit in the middle of the range.
+const lightness = (hex) => {
+  const n = parseInt((typeof hex === 'string' && hex.startsWith('#') ? hex : '#888888').slice(1), 16) || 0
   return 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)
 }
 const fits = (i, f) => (!f.season || (i.seasons || []).includes(f.season))

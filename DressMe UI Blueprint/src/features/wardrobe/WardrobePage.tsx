@@ -4,6 +4,7 @@ import { COLORS, TAXONOMY, cap, formatDate, seasonLabel } from "../../lib/taxono
 import type { SkippedItem, WardrobeItem } from "../../lib/types"
 import { useSpeech } from "../../lib/useSpeech"
 import ItemDrawer from "./ItemDrawer"
+import ViewBoundary from "./ViewBoundary"
 import LiveScan from "./LiveScan"
 import { useWardrobe } from "./WardrobeProvider"
 
@@ -488,7 +489,9 @@ export default function WardrobePage({ addSignal = 0 }: { addSignal?: number }) 
             </div>
           }
         >
-          <Wardrobe3D items={items} selectedId={selectedId} onSelect={setSelectedId} />
+          <ViewBoundary onBack={() => setView("grid")}>
+            <Wardrobe3D items={items} selectedId={selectedId} onSelect={setSelectedId} />
+          </ViewBoundary>
         </Suspense>
       )}
 
