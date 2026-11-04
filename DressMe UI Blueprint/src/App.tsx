@@ -60,11 +60,11 @@ function AuthenticatedApp() {
       case "dashboard": return <DashboardPage onNavigate={goTo} />;
       case "wardrobe": return <WardrobePage addSignal={addSignal} />;
       case "wardrobe-gaps": return <WardrobeGapsPage />;
-      case "help-me-pack": return <HelpMePack onOpenWardrobe={() => goTo("wardrobe")} />;
+      case "help-me-pack": return <HelpMePack onOpenWardrobe={() => goTo("wardrobe")} onOpenShop={() => goTo("wardrobe-gaps")} />;
       case "should-i-buy": return <ShouldIBuyPage />;
       case "outfit-builder": return <OutfitBuilderPage onNavigate={goTo} />;
       case "ai-stylist": return <StylistPage />;
-      case "avatar": return <AvatarPage />;
+      case "avatar": return <AvatarPage onNavigate={goTo} />;
       case "style-profile": return <StyleProfile onNavigate={goTo} />;
       case "find-similar": return <FindSimilarPage onOpenAvatar={() => goTo("avatar")} />;
       case "settings": return <Settings onNavigate={goTo} />;

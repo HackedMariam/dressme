@@ -349,3 +349,23 @@ def test_custom_llm_tool_loop_executes_scripted_tools() -> None:
     assert agent.state.optimization_runs == 1
     assert "Scripted LLM final response." in response.message
     assert response.errors == []
+
+
+def test_weather_needs_the_wardrobe_cannot_fill_are_reported_instead_of_blocking_the_trip() -> None:
+    import pandas as pd
+
+    from packing_backend import optimizer
+
+    shirt = {"item_id": "a", "name": "Shirt", "category": "top", "item_type": "t-shirt"}
+    raincoat = {"item_id": "b", "name": "Raincoat", "category": "outerwear", "item_type": "raincoat"}
+    day = {"day_number": 1, "weather": "rainy", "needs_rain_protection": True, "needs_warm_layer": False,
+           "temperature_c": 15}
+    trips = pd.DataFrame([day])
+
+    no_rain_gear = pd.DataFrame([shirt])
+    available = optimizer.available_roles(optimizer.build_item_roles(no_rain_gear))
+    assert "rain" in optimizer.required_roles_for_day(day)                     # the weather asks for it...
+    assert "rain" not in optimizer.required_roles_for_day(day, available)      # ...but it cannot be required
+    assert optimizer.unmet_roles(no_rain_gear, trips) == {"rain": [1]}         # ...and the user is told
+
+    assert optimizer.unmet_roles(pd.DataFrame([shirt, raincoat]), trips) == {}

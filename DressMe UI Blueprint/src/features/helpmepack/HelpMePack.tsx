@@ -15,6 +15,8 @@ import {
 } from "../../api/tripAgent";
 import { useAuth } from "../auth/AuthProvider";
 import { useUserData } from "../profile/UserDataProvider";
+import { useWardrobe } from "../wardrobe/WardrobeProvider";
+import { ChoiceGroup, FieldLabel, HowItWorks, TripSummary, WardrobeReadiness } from "./TripFormParts";
 import { dayLabels, readableSuggestion, recoveryItems, recoveryReason } from "./recovery";
 import OutfitRepeatOption from "./OutfitRepeatOption";
 
@@ -71,6 +73,13 @@ const BAG_OPTIONS = [
   "2 Checked Bags",
   "No Limit",
 ];
+
+const UNMET_NEED_LABELS: Record<string, { label: string; suggestion: string }> = {
+  rain: { label: "Rain protection", suggestion: "a waterproof jacket or raincoat" },
+  warm: { label: "A warm layer", suggestion: "a sweater, fleece or hoodie" },
+  outerwear: { label: "A jacket or coat", suggestion: "a jacket or coat" },
+  sun: { label: "Sun protection", suggestion: "a hat or sunglasses" },
+};
 
 const SAMPLE_AI_TEXT =
   "I'm going to Paris for 5 days in November. I'll be sightseeing, shopping, and attending a formal dinner. I have an 8 kg luggage limit.";
@@ -190,9 +199,16 @@ function protectionBadges(requirement: DailyRequirement | undefined) {
   return badges;
 }
 
-export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => void }) {
+export default function HelpMePack({
+  onOpenWardrobe,
+  onOpenShop,
+}: {
+  onOpenWardrobe: () => void;
+  onOpenShop?: () => void;
+}) {
   const { user } = useAuth();
   const { preferences } = useUserData();
+  const { items: wardrobeItems } = useWardrobe();
   const preferredDressCode = preferences?.preferred_styles?.some((style) => ["formal", "elegant"].includes(style.toLowerCase()))
     ? "Formal"
     : preferences?.preferred_styles?.some((style) => ["casual", "sporty"].includes(style.toLowerCase()))
@@ -428,8 +444,15 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
   };
 
   const showForm = !trip || trip.status === "needs_clarification" || editing;
+  const tripDays =
+    startDate && endDate && endDate >= startDate
+      ? Math.round((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000) + 1
+      : null;
   const capsule = trip?.capsule || null;
   const weather = trip?.weather || null;
+  const unmetNeeds = Object.entries(
+    (capsule?.metadata?.unmet_needs as Record<string, number[]> | undefined) ?? {},
+  ).filter(([role]) => role in UNMET_NEED_LABELS);
   const syntheticWeather =
     weather?.source === "synthetic_fallback" ||
     Boolean(weather?.days.some((day) => day.synthetic));
@@ -459,7 +482,7 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
       <div>
         <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Help Me Pack</h1>
         <p className="text-[#8C8A82] text-sm mt-1">
-          Smart packing optimized by your Trip Agent and deterministic OR-Tools solver
+          Tell us about your trip. We build the packing list from the clothes you already own, using the real weather.
         </p>
       </div>
 
@@ -489,38 +512,34 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
       )}
 
       {showForm && (
-        <div className="grid grid-cols-[1fr_360px] gap-6">
-          <div className="bg-[#F0EFEA] rounded-xl p-8 space-y-5">
+        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+          <div className="space-y-7 rounded-2xl border border-[#E2E0D8] bg-white p-7">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h2 className="font-display text-xl font-medium text-[#1C1C1C]">
-                  {editing ? "Edit Trip" : "Trip Details"}
+                  {editing ? "Edit your trip" : "Plan your trip"}
                 </h2>
-                <p className="text-xs text-[#8C8A82] mt-1">
-                  Fill the form, or describe the trip and let the agent extract it.
+                <p className="mt-1 text-xs text-[#8C8A82]">
+                  Fill in the details, or just describe the trip in your own words.
                 </p>
               </div>
-              <div className="flex rounded-lg border border-[#E2E0D8] bg-white p-1">
+              <div className="flex rounded-lg border border-[#E2E0D8] bg-[#FAF9F6] p-1">
                 <button
                   onClick={() => setInputMode("manual")}
                   className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    inputMode === "manual"
-                      ? "bg-[#1C1C1C] text-white"
-                      : "text-[#8C8A82] hover:text-[#1C1C1C]"
+                    inputMode === "manual" ? "bg-[#1C1C1C] text-white" : "text-[#8C8A82] hover:text-[#1C1C1C]"
                   }`}
                 >
-                  Manual form
+                  Fill the form
                 </button>
                 <button
                   onClick={() => setInputMode("ai")}
                   disabled={editing}
                   className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    inputMode === "ai"
-                      ? "bg-[#1C1C1C] text-white"
-                      : "text-[#8C8A82] hover:text-[#1C1C1C]"
+                    inputMode === "ai" ? "bg-[#1C1C1C] text-white" : "text-[#8C8A82] hover:text-[#1C1C1C]"
                   } disabled:cursor-not-allowed disabled:opacity-40`}
                 >
-                  AI description
+                  Describe it
                 </button>
               </div>
             </div>
@@ -528,103 +547,67 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
             {inputMode === "manual" ? (
               <>
                 <div>
-                  <label className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest block mb-2">
-                    Destination
-                  </label>
+                  <FieldLabel>Where are you going?</FieldLabel>
                   <input
                     value={destination}
                     onChange={(event) => setDestination(event.target.value)}
-                    placeholder="City or country"
-                    className="w-full px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
+                    placeholder="City or country, e.g. Paris"
+                    className="w-full rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] px-4 py-3 text-sm text-[#1C1C1C] outline-none transition-colors focus:border-[#556B2F]"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest block mb-2">
-                      Start date
-                    </label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      min={inputDate(-1)}
-                      max={inputDate(FORECAST_DAYS_AHEAD)}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setStartDate(value);
-                        // A trip cannot end before it starts: move the end date along.
-                        if (value && endDate && endDate < value) setEndDate(value);
-                      }}
-                      className="w-full px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
-                    />
+                <div>
+                  <FieldLabel hint={tripDays ? `${tripDays} day${tripDays === 1 ? "" : "s"}` : undefined}>
+                    When?
+                  </FieldLabel>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <span className="mb-1 block text-xs text-[#8C8A82]">From</span>
+                      <input
+                        type="date"
+                        value={startDate}
+                        min={inputDate(-1)}
+                        max={inputDate(FORECAST_DAYS_AHEAD)}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setStartDate(value);
+                          // A trip cannot end before it starts: move the end date along.
+                          if (value && endDate && endDate < value) setEndDate(value);
+                        }}
+                        className="w-full rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] px-4 py-3 text-sm text-[#1C1C1C] outline-none transition-colors focus:border-[#556B2F]"
+                      />
+                    </div>
+                    <div>
+                      <span className="mb-1 block text-xs text-[#8C8A82]">To</span>
+                      <input
+                        type="date"
+                        value={endDate}
+                        min={startDate && startDate > inputDate(-1) ? startDate : inputDate(-1)}
+                        max={inputDate(FORECAST_DAYS_AHEAD)}
+                        onChange={(event) => setEndDate(event.target.value)}
+                        className="w-full rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] px-4 py-3 text-sm text-[#1C1C1C] outline-none transition-colors focus:border-[#556B2F]"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest block mb-2">
-                      End date
-                    </label>
-                    <input
-                      type="date"
-                      value={endDate}
-                      min={startDate && startDate > inputDate(-1) ? startDate : inputDate(-1)}
-                      max={inputDate(FORECAST_DAYS_AHEAD)}
-                      onChange={(event) => setEndDate(event.target.value)}
-                      className="w-full px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
-                    />
-                  </div>
+                  <p className="mt-2 text-xs text-[#8C8A82]">
+                    Weather forecasts are available from {formatDate(inputDate(-1))} to {formatDate(inputDate(FORECAST_DAYS_AHEAD))}.
+                  </p>
                 </div>
 
-                <p className="-mt-2 text-xs text-[#8C8A82]">
-                  Real weather forecasts cover {formatDate(inputDate(-1))} – {formatDate(inputDate(FORECAST_DAYS_AHEAD))}.
-                </p>
-
-                {[
-                  {
-                    label: "Trip Type",
-                    value: tripType,
-                    set: setTripType,
-                    opts: TRIP_TYPE_OPTIONS,
-                  },
-                  {
-                    label: "Dress Code",
-                    value: dresscode,
-                    set: setDresscode,
-                    opts: DRESS_CODE_OPTIONS,
-                  },
-                  {
-                    label: "Luggage Limit",
-                    value: bags,
-                    set: setBags,
-                    opts: BAG_OPTIONS,
-                  },
-                ].map((field) => (
-                  <div key={field.label}>
-                    <label className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest block mb-2">
-                      {field.label}
-                    </label>
-                    <select
-                      value={field.value}
-                      onChange={(event) => field.set(event.target.value)}
-                      className="w-full px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
-                    >
-                      {field.opts.map((option) => (
-                        <option key={option}>{option}</option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
+                <ChoiceGroup label="What kind of trip?" options={TRIP_TYPE_OPTIONS} value={tripType} onChange={setTripType} />
+                <ChoiceGroup label="Dress code" options={DRESS_CODE_OPTIONS} value={dresscode} onChange={setDresscode} />
+                <ChoiceGroup label="Luggage" options={BAG_OPTIONS} value={bags} onChange={setBags} />
               </>
             ) : (
               <>
                 <div>
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <label className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest">
-                      Describe your trip
-                    </label>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="text-sm font-semibold text-[#1C1C1C]">Describe your trip</label>
                     <button
                       onClick={() => setAiText(SAMPLE_AI_TEXT)}
                       className="text-xs font-semibold text-[#556B2F] hover:underline"
                     >
-                      Use example
+                      Use an example
                     </button>
                   </div>
                   <textarea
@@ -632,67 +615,47 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
                     onChange={(event) => setAiText(event.target.value)}
                     rows={7}
                     placeholder="I'm going to Paris for 5 days in November. I'll be sightseeing, shopping, and attending a formal dinner. I have an 8 kg luggage limit."
-                    className="w-full resize-none px-4 py-3 bg-white border border-[#E2E0D8] rounded-lg text-sm text-[#1C1C1C] outline-none focus:border-[#556B2F] transition-colors"
+                    className="w-full resize-none rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] px-4 py-3 text-sm text-[#1C1C1C] outline-none transition-colors focus:border-[#556B2F]"
                   />
                 </div>
-                <div className="rounded-lg bg-white/60 border border-[#E2E0D8] px-4 py-3">
-                  <p className="text-xs text-[#8C8A82]">
-                    The agent will extract destination, dates, activities, dress code, and luggage
-                    limit. If something essential is missing, it will ask a follow-up question.
-                  </p>
-                </div>
+                <p className="rounded-xl bg-[#F0EFEA] px-4 py-3 text-xs text-[#8C8A82]">
+                  We pick out the destination, dates, activities, dress code and luggage limit. If something
+                  essential is missing, we will ask you.
+                </p>
               </>
             )}
 
-            <button
-              onClick={inputMode === "manual" ? submitManual : submitAi}
-              disabled={loading}
-              className="w-full bg-[#1C1C1C] hover:bg-[#333] disabled:bg-[#8C8A82] text-white font-semibold py-3.5 rounded-lg transition-colors mt-2"
-            >
-              {loading
-                ? "Trip Agent is working…"
-                : editing
-                  ? "Update & Reoptimize"
-                  : "Generate Pack List"}
-            </button>
-            {sessionId && (
+            <div>
               <button
-                onClick={startNewTrip}
-                className="w-full text-xs text-[#8C8A82] hover:text-[#1C1C1C] transition-colors"
+                onClick={inputMode === "manual" ? submitManual : submitAi}
+                disabled={loading}
+                className="w-full rounded-xl bg-[#556B2F] py-3.5 font-semibold text-white transition-colors hover:bg-[#6B8A3A] disabled:bg-[#8C8A82]"
               >
-                Start a new trip instead
+                {loading ? "Preparing your plan…" : editing ? "Update my plan" : "Create my packing list"}
               </button>
-            )}
+              {sessionId && (
+                <button
+                  onClick={startNewTrip}
+                  className="mt-3 w-full text-xs text-[#8C8A82] transition-colors hover:text-[#1C1C1C]"
+                >
+                  Start a new trip instead
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="bg-[#1C1C1C] rounded-xl overflow-hidden h-48">
-              <img
-                src="https://images.unsplash.com/photo-1683392969197-17547ac3e06e?w=600&h=800&fit=crop&auto=format"
-                alt="Travel fashion"
-                className="w-full h-full object-cover opacity-60"
-              />
-            </div>
-            <div className="bg-[#F0EFEA] rounded-xl p-5">
-              <p className="text-xs font-semibold text-[#8C8A82] uppercase tracking-widest mb-3">
-                Packing Intelligence
-              </p>
-              {[
-                "Removes redundant items",
-                "Maximizes outfit combinations",
-                "Weather-aware selection",
-                "Daily look generator",
-              ].map((feature) => (
-                <div
-                  key={feature}
-                  className="flex items-center gap-2 py-2 border-b border-[#E2E0D8] last:border-0"
-                >
-                  <span className="text-[#556B2F] text-sm">✓</span>
-                  <span className="text-sm text-[#1C1C1C]">{feature}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <aside className="space-y-4 self-start lg:sticky lg:top-6">
+            <TripSummary
+              destination={destination}
+              dates={startDate && endDate ? `${formatDate(startDate)} - ${formatDate(endDate)}` : ""}
+              days={tripDays}
+              tripType={tripType}
+              dressCode={dresscode}
+              bags={bags}
+            />
+            <WardrobeReadiness count={wardrobeItems.length} onOpenWardrobe={onOpenWardrobe} />
+            <HowItWorks />
+          </aside>
         </div>
       )}
 
@@ -803,6 +766,33 @@ export default function HelpMePack({ onOpenWardrobe }: { onOpenWardrobe: () => v
             </div>
             {capsule?.metadata?.weight_estimated === true && (
               <p className="mt-3 text-xs text-amber-200">Garment weights and compatibility are estimates based on available wardrobe data.</p>
+            )}
+
+            {unmetNeeds.length > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-3">
+                <p className="text-xs font-semibold text-amber-200">
+                  Your wardrobe is missing something for this weather
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {unmetNeeds.map(([role, days]) => (
+                    <li key={role} className="text-xs text-amber-100/80">
+                      <b>{UNMET_NEED_LABELS[role].label}</b> would help on {dayLabels(days).toLowerCase()}: consider{" "}
+                      {UNMET_NEED_LABELS[role].suggestion}.
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[11px] text-amber-100/60">
+                  The packing list below is the best you can do with the clothes you own.
+                </p>
+                {onOpenShop && (
+                  <button
+                    onClick={onOpenShop}
+                    className="mt-2 rounded-md bg-amber-200 px-3 py-1.5 text-xs font-semibold text-[#1C1C1C] hover:bg-amber-100"
+                  >
+                    See what to buy
+                  </button>
+                )}
+              </div>
             )}
 
             {syntheticWeather && (

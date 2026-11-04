@@ -151,8 +151,22 @@ def build_item_roles(wardrobe):
     }
 
 
-def required_roles_for_day(day):
-    """Rôles obligatoires d'une journée (météo + température)."""
+def available_roles(item_roles):
+    """Rôles que la garde-robe peut réellement remplir (au moins un article)."""
+    available = set()
+    for roles in item_roles.values():
+        available.update(roles)
+    return available
+
+
+def required_roles_for_day(day, available=None):
+    """Rôles obligatoires d'une journée (météo + température).
+
+    Si `available` est donné, les rôles qu'aucun article de la garde-robe
+    ne peut remplir (ex. pas d'imperméable) ne sont pas exigés : sinon la
+    journée serait toujours infaisable. Ils sont signalés à part par
+    `unmet_roles`, pour dire à l'utilisateur ce qu'il lui manque.
+    """
     required = set()
 
     if truth(day.get("needs_outerwear")):
@@ -175,11 +189,23 @@ def required_roles_for_day(day):
     if temperature <= 10:
         required.add("warm")
 
+    if available is not None:
+        required &= available
     return required
 
 
-def outfit_covers_weather(item_ids, day, item_roles):
-    required = required_roles_for_day(day)
+def unmet_roles(wardrobe, trips):
+    """Rôles météo exigés par le voyage mais absents de la garde-robe : {rôle: [jours]}."""
+    available = available_roles(build_item_roles(wardrobe))
+    unmet = {}
+    for _, trip in trips.iterrows():
+        for role in sorted(required_roles_for_day(trip) - available):
+            unmet.setdefault(role, []).append(int(trip["day_number"]))
+    return unmet
+
+
+def outfit_covers_weather(item_ids, day, item_roles, available=None):
+    required = required_roles_for_day(day, available)
     covered = set()
     for item_id in item_ids:
         covered.update(item_roles.get(str(item_id), set()))
@@ -364,10 +390,12 @@ def generate_outfits(wardrobe, trip, compatibility, item_roles,
         for role in ROLES
     }
 
-    required = required_roles_for_day(trip)
+    available = available_roles(item_roles)
+    required = required_roles_for_day(trip, available)
 
-    # Un rôle obligatoire sans article disponible rend la journée
-    # infaisable : on le signale au lieu de produire une tenue inadéquate.
+    # Un rôle que la garde-robe ne peut pas remplir n'est pas exigé (voir
+    # unmet_roles) : on prépare la meilleure valise possible et on signale ce
+    # qui manque, au lieu de ne rien proposer.
     if any(not pools.get(role) for role in required):
         return []
 
@@ -429,7 +457,7 @@ def generate_outfits(wardrobe, trip, compatibility, item_roles,
                 continue
 
             # Couverture météo obligatoire (contrainte, pas bonus).
-            if not outfit_covers_weather(ids, trip, item_roles):
+            if not outfit_covers_weather(ids, trip, item_roles, available):
                 continue
 
             # Cohérence activité / style (contrainte dure).

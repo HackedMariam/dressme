@@ -913,7 +913,11 @@ class TripTools:
 
         for requirement in requirements:
             trip_row = requirement.model_dump(mode="python")
-            required_roles = optimizer.required_roles_for_day(trip_row)
+            # Roles no wardrobe item can fill (rain gear...) are reported with the plan (unmet_needs), they no
+            # longer block it: only what is still blocking is listed here as missing.
+            required_roles = optimizer.required_roles_for_day(
+                trip_row, {role for role, ids in role_pools.items() if ids}
+            )
             for role in sorted(required_roles):
                 if not role_pools.get(role):
                     missing_role_days.setdefault(role, []).append(requirement.day_number)

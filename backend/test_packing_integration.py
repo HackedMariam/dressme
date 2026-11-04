@@ -123,7 +123,7 @@ def test_preflight_does_not_require_identity(setup):
     assert response.headers["access-control-allow-origin"] == "http://localhost:8443"
 
 
-def test_missing_raincoat_can_recover_same_trip(setup, monkeypatch):
+def test_missing_raincoat_is_reported_and_covered_once_added(setup, monkeypatch):
     client, items = setup
     items[:] = [
         {"id": "shirt", "name": "Shirt", "category": "top"},
@@ -146,20 +146,12 @@ def test_missing_raincoat_can_recover_same_trip(setup, monkeypatch):
         "activities": ["sightseeing"], "max_luggage_weight_kg": 8}})
     assert created.status_code == 200, created.text
     body = created.json()
-    assert body["status"] == "infeasible"
-    assert len(body["missing_items"]) == 1
-    recommendation = body["missing_items"][0]
-    assert recommendation["key"] == "rain"
-    assert recommendation["days"] == [1, 2]
-    assert set(recommendation["covers"]) == {"rain protection", "outerwear"}
+    # No raincoat: the weather still gets a plan made of the clothes owned, and the gap is reported.
+    assert body["status"] == "optimized", body
+    assert "rain" in body["capsule"]["metadata"]["unmet_needs"]
     session_id = body["session_id"]
     restored = client.get(f"/api/trips/{session_id}", headers=headers).json()
-    assert restored["missing_items"] == body["missing_items"]
-
-    unchanged = client.patch(f"/api/trips/{session_id}", headers=headers,
-                             json={"updates": {}, "reoptimize": True}).json()
-    assert unchanged["status"] == "infeasible"
-    assert unchanged["missing_items"] == body["missing_items"]
+    assert restored["capsule"]["metadata"]["unmet_needs"] == body["capsule"]["metadata"]["unmet_needs"]
 
     items.append({"id": "rain-jacket", "name": "Yellow Hooded Rain Jacket", "category": "jacket",
                   "material": "waterproof fabric", "description": "A bright yellow hooded rain jacket made from waterproof fabric.",
@@ -171,6 +163,7 @@ def test_missing_raincoat_can_recover_same_trip(setup, monkeypatch):
     assert result["session_id"] == session_id
     assert result["status"] == "optimized", result
     assert "rain-jacket" in {item["item_id"] for item in result["capsule"]["selected_items"]}
+    assert "rain" not in result["capsule"]["metadata"]["unmet_needs"]    # the new jacket covers it
     assert result["missing_items"] == []
 
 
@@ -203,7 +196,7 @@ def test_missing_base_outfit_is_reported_with_alternatives(setup):
     assert result["can_repeat_outfits"] is False
 
 
-def test_allowing_repeats_keeps_rain_requirement_and_persists_choice(setup, monkeypatch):
+def test_allowing_repeats_persists_choice_and_reports_missing_rain_gear(setup, monkeypatch):
     client, items = setup
     items[:] = [{"id": "shirt", "name": "Shirt", "category": "top"},
                 {"id": "pants", "name": "Trousers", "category": "pants"},
@@ -221,12 +214,13 @@ def test_allowing_repeats_keeps_rain_requirement_and_persists_choice(setup, monk
         "destination": "Rome", "start_date": "2027-06-01", "end_date": "2027-06-02",
         "activities": ["sightseeing"], "max_luggage_weight_kg": 8}}).json()
     session = created["session_id"]
-    assert created["status"] == "infeasible" and created["can_repeat_outfits"] is False
+    # One shirt for two days: without repeats there is no variety, and repeating is the way out.
+    assert created["status"] == "infeasible" and created["can_repeat_outfits"] is True
     attempted = client.patch(f"/api/trips/{session}", headers=headers,
                              json={"updates": {"allow_outfit_repeats": True}, "reoptimize": True}).json()
-    assert attempted["status"] == "infeasible"
+    assert attempted["status"] == "optimized"
     assert attempted["trip_details"]["allow_outfit_repeats"] is True
-    assert any(item["key"] == "rain" for item in attempted["missing_items"])
+    assert "rain" in attempted["capsule"]["metadata"]["unmet_needs"]
 
     items.append({"id": "coat", "name": "Waterproof jacket", "category": "jacket"})
     retried = client.patch(f"/api/trips/{session}", headers=headers,
@@ -234,6 +228,7 @@ def test_allowing_repeats_keeps_rain_requirement_and_persists_choice(setup, monk
     assert retried["status"] == "optimized", retried
     assert retried["trip_details"]["allow_outfit_repeats"] is True
     assert retried["capsule"]["metadata"]["allow_outfit_repeats"] is True
+    assert "rain" not in retried["capsule"]["metadata"]["unmet_needs"]
 
 
 @pytest.mark.parametrize("description, is_rainwear", [

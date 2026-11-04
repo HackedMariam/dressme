@@ -34,7 +34,7 @@ def run_optimization(
     if max_weight_g <= 0:
         raise ValueError("max_weight_g must be positive")
     frame = requirements_to_dataframe(requirements)
-    return optimizer.optimize_packing(
+    result = optimizer.optimize_packing(
         wardrobe=wardrobe,
         trips=frame,
         compatibility_df=compatibility,
@@ -44,6 +44,9 @@ def run_optimization(
         random_seed=random_seed,
         allow_outfit_repeats=allow_outfit_repeats,
     )
+    # What the weather asks for but the wardrobe cannot provide (e.g. rain protection): {role: [days]}.
+    result["unmet_roles"] = optimizer.unmet_roles(wardrobe, frame)
+    return result
 
 
 def _safe_value(value: Any) -> Any:
@@ -223,6 +226,8 @@ def build_capsule(
             "weight_estimated": any(item.weight_estimated for item in selected_items),
             "compatibility_estimated": any(item.weight_estimated for item in selected_items),
             "allow_outfit_repeats": trip.allow_outfit_repeats,
+            # {role: [days]} the weather needs but the wardrobe cannot cover (rain, warm, outerwear, sun).
+            "unmet_needs": result.get("unmet_roles") or {},
         },
     )
 
