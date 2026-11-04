@@ -7,6 +7,31 @@ const STABLE_MS = 1400    // how long the same item must hold steady before we s
 const COOLDOWN_MS = 2200  // after a capture, ignore detections for this long (lets you swap items)
 const MIN_CONFIDENCE = 0.35  // below this it is background noise; between this and the server's bar you get a question
 
+// Browsers report camera problems with technical names: say what to do about them.
+function cameraMessage(e) {
+  switch (e?.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'Camera access is blocked. Click the camera icon in the address bar, allow it, then reopen Live scan.'
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'No camera was found on this device.'
+    case 'NotReadableError':
+    case 'AbortError':
+      return 'The camera is being used by another app or tab (Teams, Zoom, another browser tab). Close it and try again.'
+    default:
+      return e?.message || "Can't access the camera."
+  }
+}
+
+function detectionMessage(e) {
+  if (e?.status === 401) return 'Your session expired. Sign in again.'
+  if (e?.status === 502 || e?.status === 503 || e?.status === 0 || e?.name === 'TypeError') {
+    return 'The detection service does not answer. Check that the backend is running (port 8000).'
+  }
+  return `Detection failed: ${e?.message || 'unknown error'}`
+}
+
 // Live camera scan: polls /api/items/quick-detect (fast, YOLO-only) to track whatever is
 // in frame, and once the same item has been held steady for STABLE_MS, saves it instantly
 // via /api/items/analyze?fast=true (rule-based classification) so there's no multi-second
@@ -35,7 +60,15 @@ export default function LiveScan({ onAdded, onClose }) {
 
   useEffect(() => {
     let cancelled = false
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false })
+    let failures = 0   // consecutive failed detection requests: shown to the user instead of staying silent
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus('error')
+      setError('This browser cannot use the camera here. Open DressMe on http://localhost or over https, in Chrome, Edge or Safari.')
+      return
+    }
+    // Phones prefer the back camera; a laptop has only one, so fall back to any camera.
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false })
+      .catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }))
       .then((stream) => {
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return }
         streamRef.current = stream
@@ -46,7 +79,7 @@ export default function LiveScan({ onAdded, onClose }) {
         setStatus('scanning')
         pollRef.current = setInterval(tick, POLL_MS)
       })
-      .catch((e) => { setStatus('error'); setError(e.message || "Can't access the camera") })
+      .catch((e) => { setStatus('error'); setError(cameraMessage(e)) })
 
     async function tick() {
       if (busyRef.current) return
@@ -62,9 +95,17 @@ export default function LiveScan({ onAdded, onClose }) {
         const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.7))
         if (!blob || cancelled) return
         const { detections } = await api.quickDetect(blob)
+        failures = 0
         if (!cancelled) handleDetection(detections[0] || null, canvas.width, canvas.height)
-      } catch {
-        // transient network hiccup — just keep scanning
+      } catch (e) {
+        // One failed request is a network hiccup: keep scanning. Several in a row is a real problem to tell the user.
+        failures += 1
+        if (failures >= 3 && !cancelled) {
+          setBox(null)
+          setProgress(0)
+          setHint(detectionMessage(e))
+          setStatus('scanning')
+        }
       } finally {
         busyRef.current = false
       }
@@ -212,6 +253,7 @@ export default function LiveScan({ onAdded, onClose }) {
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-white">
               <p>Can't reach the camera.</p>
               <p className="text-white/60">{error}</p>
+              <p className="text-white/60">You can still add clothes from photos with &quot;Add clothing&quot;.</p>
             </div>
           ) : (
             <>
