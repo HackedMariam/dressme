@@ -1,5 +1,6 @@
 import { useAuth } from "../auth/AuthProvider"
 import { userInitial } from "../profile/types"
+import { OwnAvatar } from "../profile/UserAvatar"
 import { useUserData } from "../profile/UserDataProvider"
 import { NAV_GROUPS, type Page } from "./navigation"
 
@@ -68,9 +69,7 @@ export default function Sidebar({
       </nav>
 
       <div className="flex items-center gap-3 border-t border-white/10 px-7 py-5">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#556B2F]/30 text-xs font-semibold text-[#8FAE5A]">
-          {userInitial(profile?.display_name, user?.email)}
-        </div>
+        <OwnAvatar initial={userInitial(profile?.display_name, user?.email)} size={36} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium text-white/80">{displayName}</p>
           <button

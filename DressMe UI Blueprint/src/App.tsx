@@ -65,9 +65,9 @@ function AuthenticatedApp() {
       case "outfit-builder": return <OutfitBuilderPage onNavigate={goTo} />;
       case "ai-stylist": return <StylistPage />;
       case "avatar": return <AvatarPage />;
-      case "style-profile": return <StyleProfile />;
+      case "style-profile": return <StyleProfile onNavigate={goTo} />;
       case "find-similar": return <FindSimilarPage onOpenAvatar={() => goTo("avatar")} />;
-      case "settings": return <Settings />;
+      case "settings": return <Settings onNavigate={goTo} />;
     }
   };
 
