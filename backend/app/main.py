@@ -718,7 +718,7 @@ async def shopping_assistant_evaluate(
             raise HTTPException(422, "Provide either image_file or image_url.")
 
         def _run():
-            engine = DressMeInferenceEngine(skip_llm=False)
+            engine = DressMeInferenceEngine(skip_llm=False, user_id=user.id)   # the signed-in user's own closet
             return engine.evaluate(
                 image_path=tmp_path,
                 price=float(price or 0),

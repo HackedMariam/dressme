@@ -161,4 +161,11 @@ export interface PurchaseEvaluationResult {
     uncertainties?: string[]
   }
   stylist_interpretation?: string
+  /** The stylist's answer, one list of short plain-text lines per section (the page writes the titles). */
+  stylist_sections?: {
+    verdict?: string[]
+    why_it_works?: string[]
+    ready_to_wear?: string[]
+    final_advice?: string[]
+  }
 }

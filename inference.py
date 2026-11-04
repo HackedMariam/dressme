@@ -146,44 +146,76 @@ class DressMeInferenceEngine:
             return "dinner", ["formal", "evening"]
         return "casual_outing", ["casual"]
 
-    def _interpret_with_gpt(self, summary_payload: Dict[str, Any]) -> Optional[str]:
-        """Interprets raw agent JSON using GPT-4 into a styled, user-friendly recommendation."""
+    # The sections of the stylist's answer, in the order the UI shows them. The UI draws each one in its own zone and
+    # writes the label itself (in bold), so the model returns plain text per section, with no markdown and no labels.
+    SECTION_KEYS = ("verdict", "why_it_works", "ready_to_wear", "final_advice")
+    SECTION_TITLES = {"verdict": "The Verdict", "why_it_works": "Why It Works", "ready_to_wear": "Ready-to-Wear Outfits",
+                      "final_advice": "Stylist's Final Advice"}
+
+    @classmethod
+    def _clean_section(cls, value: Any) -> List[str]:
+        """A section as a list of short plain-text lines (the model may answer with a string or a list)."""
+        if isinstance(value, str):
+            value = [part for part in re.split(r"\n+", value)]
+        if not isinstance(value, list):
+            return []
+        lines = []
+        for entry in value:
+            text = re.sub(r"[*_`#]+", "", str(entry))
+            text = re.sub(r"^\s*(?:[-\u2022]|\d+[.)])\s*", "", text).strip()
+            if text:
+                lines.append(text)
+        return lines
+
+    def _interpret_sections(self, summary_payload: Dict[str, Any]) -> Optional[Dict[str, List[str]]]:
+        """Asks the LLM for the styling recommendation as four separate sections (JSON), or None if unavailable."""
         if not self.openai_client:
             return None
 
         system_prompt = (
             "You are DressMe Shopping Assistant, an expert personal stylist and wardrobe consultant. "
-            "Your role is to interpret raw technical decision data (vision analysis, redundancy scores, "
-            "outfit combinations, wardrobe gaps, and budget math) into an elegant, clear, and actionable advice "
-            "for the shopper. Do NOT use emojis. Maintain a chic, professional, and clear tone."
+            "You turn raw technical decision data (vision analysis, redundancy scores, outfit combinations, wardrobe "
+            "gaps and budget math) into clear, actionable advice for the shopper. Chic, professional, concise tone. "
+            "Never use emojis, markdown, asterisks or section titles inside the text: the app adds the titles."
         )
-
         user_content = (
             f"User Question: \"{summary_payload['user_query']}\"\n\n"
-            f"Here is the technical evaluation data from the agent tools:\n"
-            f"{json.dumps(summary_payload, indent=2)}\n\n"
-            f"Please write a structured styling recommendation with:\n"
-            f"1. **The Verdict**: Clear BUY / CONSIDER / DON'T BUY with confidence rating.\n"
-            f"2. **Why It Works (or Doesn't)**: Plain-language summary of redundancy, wardrobe gap, and budget.\n"
-            f"3. **Ready-to-Wear Outfits**: Explicit combinations using existing pieces in their closet.\n"
-            f"4. **Stylist's Final Advice**: Practical tips on wearing and versatility.\n\n"
-            f"Remember: Do not include emojis."
+            f"Technical evaluation data from the agent tools:\n{json.dumps(summary_payload, indent=2)}\n\n"
+            "Answer with ONLY a JSON object with exactly these keys, each a list of short plain-text strings:\n"
+            '- "verdict": one string: BUY, CONSIDER or DON\'T BUY, then the confidence rating and a one-sentence reason.\n'
+            '- "why_it_works": 3 to 4 strings summarising redundancy, wardrobe gap and budget in plain language.\n'
+            '- "ready_to_wear": 2 to 3 strings, each one outfit built from the closet pieces named in '
+            '"matching_outfits" plus the candidate item (use the exact piece names).\n'
+            '- "final_advice": 2 to 3 practical tips on wearing and versatility.'
         )
-
         try:
             response = self.openai_client.chat.completions.create(
                 model=self.model_id,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                temperature=0.7,
-                max_tokens=450,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}],
+                temperature=0.5,
+                max_tokens=700,
+                response_format={"type": "json_object"},
             )
-            return response.choices[0].message.content.strip()
+            data = json.loads(response.choices[0].message.content or "{}")
         except Exception as e:
             print(f"[LLM Warning] OpenAI interpretation failed: {e}")
             return None
+        sections = {key: self._clean_section(data.get(key)) for key in self.SECTION_KEYS}
+        return sections if any(sections.values()) else None
+
+    @classmethod
+    def _sections_to_text(cls, sections: Dict[str, List[str]]) -> str:
+        """Plain-text version of the sections (command line output, older clients)."""
+        blocks = []
+        for key in cls.SECTION_KEYS:
+            if sections.get(key):
+                blocks.append(cls.SECTION_TITLES[key] + "\n" + "\n".join(f"- {line}" for line in sections[key]))
+        return "\n\n".join(blocks)
+
+    def _interpret_with_gpt(self, summary_payload: Dict[str, Any]) -> Optional[str]:
+        """The styling recommendation as plain text (kept for the command line and older callers)."""
+        sections = self._interpret_sections(summary_payload)
+        return self._sections_to_text(sections) if sections else None
 
     def evaluate(
         self,
@@ -311,9 +343,10 @@ class DressMeInferenceEngine:
 
         # 6. Generate GPT-4 styling interpretation if enabled
         if not self.skip_llm and self.openai_client:
-            interpretation = self._interpret_with_gpt(payload)
-            if interpretation:
-                payload["stylist_interpretation"] = interpretation
+            sections = self._interpret_sections(payload)
+            if sections:
+                payload["stylist_sections"] = sections
+                payload["stylist_interpretation"] = self._sections_to_text(sections)
 
         return payload
 

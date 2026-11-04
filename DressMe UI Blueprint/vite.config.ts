@@ -53,7 +53,7 @@ export default defineConfig(({ mode }) => {
     server: {
       // HTTPS when .cert/ exists (run scripts/make-dev-cert.ps1): the browser only gives the camera to http://localhost
       // or to https pages, so the Live scan needs it on any other address (LAN IP, phone).
-      https: fs.existsSync(path.resolve(__dirname, '.cert/dev.key')) && fs.existsSync(path.resolve(__dirname, '.cert/dev.crt'))
+      https: process.env.DEV_HTTPS !== '0' && fs.existsSync(path.resolve(__dirname, '.cert/dev.key')) && fs.existsSync(path.resolve(__dirname, '.cert/dev.crt'))
         ? {
             key: fs.readFileSync(path.resolve(__dirname, '.cert/dev.key')),
             cert: fs.readFileSync(path.resolve(__dirname, '.cert/dev.crt')),

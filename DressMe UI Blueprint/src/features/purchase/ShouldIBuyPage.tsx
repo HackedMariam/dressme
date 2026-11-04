@@ -25,6 +25,36 @@ const VERDICT_THEME: Record<string, { bg: string; text: string; badge: string; l
   },
 }
 
+// One piece of a possible outfit: its picture (or its name when there is none) and a caption.
+function OutfitTile({ image, label, highlight = false }: { image: string; label: string; highlight?: boolean }) {
+  return (
+    <div className="w-24 text-center">
+      <div
+        className={`flex aspect-[4/5] items-center justify-center overflow-hidden rounded-lg bg-white ${
+          highlight ? "border-2 border-[#556B2F]" : "border border-[#E2E0D8]"
+        }`}
+      >
+        {image ? (
+          <img src={image} alt={label} className="h-full w-full object-contain p-1" />
+        ) : (
+          <span className="px-1 text-[10px] leading-tight text-[#8C8A82]">{label}</span>
+        )}
+      </div>
+      <p className={`mt-1 line-clamp-2 text-[11px] leading-tight ${highlight ? "font-semibold text-[#556B2F]" : "text-[#1C1C1C]"}`}>
+        {label}
+      </p>
+    </div>
+  )
+}
+
+// The zones of the stylist's answer, in order. The backend sends the text; these titles are the page's.
+const SECTION_TITLES = [
+  ["verdict", "The Verdict"],
+  ["why_it_works", "Why It Works"],
+  ["ready_to_wear", "Ready-to-Wear Outfits"],
+  ["final_advice", "Stylist's Final Advice"],
+] as const
+
 export default function ShouldIBuyPage() {
   const { items, health, addItems } = useWardrobe()
 
@@ -147,6 +177,10 @@ export default function ShouldIBuyPage() {
   const verdictTheme = VERDICT_THEME[verdict] || VERDICT_THEME.CONSIDER
   const toolEvidence = evalResult?.tool_evidence
   const candidate = evalResult?.candidate_item
+  const sections = SECTION_TITLES.flatMap(([key, title]) => {
+    const lines = evalResult?.stylist_sections?.[key] ?? []
+    return lines.length ? [{ key, title, lines }] : []
+  })
 
   return (
     <div className="space-y-6">
@@ -256,7 +290,7 @@ export default function ShouldIBuyPage() {
             </label>
             <div className="mt-2 grid grid-cols-2 gap-3">
               <div>
-                <span className="text-xs text-[#8C8A82]">Item Price ($)</span>
+                <span className="text-xs text-[#8C8A82]">Item Price</span>
                 <input
                   type="number"
                   min="0"
@@ -268,7 +302,7 @@ export default function ShouldIBuyPage() {
                 />
               </div>
               <div>
-                <span className="text-xs text-[#8C8A82]">My Budget ($)</span>
+                <span className="text-xs text-[#8C8A82]">My Budget</span>
                 <input
                   type="number"
                   min="0"
@@ -288,7 +322,7 @@ export default function ShouldIBuyPage() {
             onClick={() => void runEvaluation()}
             className="w-full rounded-xl bg-[#556B2F] py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#6B8A3A] disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {busy ? "Analysing Item & Wardrobe..." : "✦ Evaluate With Fashion Assistant"}
+            {busy ? "Analysing Item & Wardrobe..." : "Should I buy this?"}
           </button>
         </div>
 
@@ -296,10 +330,9 @@ export default function ShouldIBuyPage() {
         <div className="space-y-5">
           {!evalResult && !busy && (
             <div className="flex min-h-[380px] flex-col items-center justify-center rounded-2xl border border-[#E2E0D8] bg-[#FAF9F6] p-10 text-center text-[#8C8A82]">
-              <span className="text-4xl">🛍️</span>
-              <p className="mt-3 font-medium text-[#1C1C1C]">Ready for evaluation</p>
+              <p className="font-medium text-[#1C1C1C]">Ready for evaluation</p>
               <p className="mt-1 max-w-sm text-sm">
-                Attach an item image on the left, set your optional prompt and budget, then click Evaluate to see if it fills a wardrobe gap.
+                Attach an item image on the left, set your optional prompt and budget, then click "Should I buy this?" to see if it fills a wardrobe gap.
               </p>
             </div>
           )}
@@ -360,16 +393,41 @@ export default function ShouldIBuyPage() {
                 </div>
               )}
 
-              {/* Personal Stylist Interpretation */}
-              {evalResult.stylist_interpretation && (
-                <div className="rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#556B2F]">
-                    Personal Stylist Verdict
-                  </p>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#1C1C1C]">
-                    {evalResult.stylist_interpretation}
-                  </p>
+              {/* The stylist's answer: one zone per section, the label written by the page in bold */}
+              {sections.length > 0 ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {sections.map((section) => (
+                    <div
+                      key={section.key}
+                      className={`rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-4 ${
+                        section.key === "verdict" ? "md:col-span-2" : ""
+                      }`}
+                    >
+                      <p className="text-sm font-bold text-[#1C1C1C]">{section.title}</p>
+                      {section.lines.length === 1 ? (
+                        <p className="mt-2 text-sm leading-relaxed text-[#1C1C1C]">{section.lines[0]}</p>
+                      ) : (
+                        <ul className="mt-2 space-y-1.5">
+                          {section.lines.map((line, index) => (
+                            <li key={index} className="flex items-start gap-2 text-sm leading-relaxed text-[#1C1C1C]">
+                              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#556B2F]" />
+                              <span>{line}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                evalResult.stylist_interpretation && (
+                  <div className="rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-4">
+                    <p className="text-sm font-bold text-[#1C1C1C]">Stylist's Verdict</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#1C1C1C]">
+                      {evalResult.stylist_interpretation}
+                    </p>
+                  </div>
+                )
               )}
 
               {/* Metrics */}
@@ -462,34 +520,35 @@ export default function ShouldIBuyPage() {
                 </div>
               )}
 
-              {/* Ready-to-wear outfit pairings */}
+              {/* Possible outfits: the pieces are shown as pictures, with the new piece first */}
               {toolEvidence?.matching_outfits && toolEvidence.matching_outfits.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#8C8A82]">
-                    Compatible Outfits From Closet
+                    Possible Outfits
                   </p>
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 space-y-3">
                     {toolEvidence.matching_outfits.map((combo, idx) => (
-                      <div key={idx} className="rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-3 text-sm">
-                        <div className="flex items-center justify-between text-xs text-[#556B2F] font-semibold">
-                          <span>Outfit Combination #{idx + 1}</span>
-                          {combo.compatibility_score && (
-                            <span>{Math.round(combo.compatibility_score)}% match</span>
-                          )}
+                      <div key={idx} className="rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-3">
+                        <div className="flex items-center justify-between text-xs font-semibold text-[#556B2F]">
+                          <span>Outfit {idx + 1}</span>
+                          {combo.compatibility_score != null && <span>{Math.round(combo.compatibility_score)}% match</span>}
                         </div>
-                        <p className="mt-1 text-xs text-[#1C1C1C]">{combo.description}</p>
-                        {combo.paired_items && combo.paired_items.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {combo.paired_items.map((pi, pj) => (
-                              <span
+                        {combo.description && <p className="mt-1 text-xs text-[#1C1C1C]">{combo.description}</p>}
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          {preview && (
+                            <OutfitTile image={preview} label="New piece" highlight />
+                          )}
+                          {(combo.paired_items ?? []).map((pi, pj) => {
+                            const owned = items.find((entry) => entry.id === pi.item_id)
+                            return (
+                              <OutfitTile
                                 key={pj}
-                                className="rounded-md border border-[#E2E0D8] bg-white px-2 py-0.5 text-[11px] text-[#1C1C1C]"
-                              >
-                                {pi.name || pi.category} ({pi.color})
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                                image={owned?.cutout_url ? asset(owned.cutout_url) : ""}
+                                label={owned?.name || pi.name || pi.category}
+                              />
+                            )
+                          })}
+                        </div>
                       </div>
                     ))}
                   </div>
