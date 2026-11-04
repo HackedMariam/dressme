@@ -369,3 +369,68 @@ def test_weather_needs_the_wardrobe_cannot_fill_are_reported_instead_of_blocking
     assert optimizer.unmet_roles(no_rain_gear, trips) == {"rain": [1]}         # ...and the user is told
 
     assert optimizer.unmet_roles(pd.DataFrame([shirt, raincoat]), trips) == {}
+
+
+def test_a_known_category_is_not_overridden_by_words_in_the_description() -> None:
+    import pandas as pd
+
+    from packing_backend import optimizer
+
+    # "low-top" in the description must not turn a pair of shoes into a top (two pairs of shoes in one outfit).
+    sneakers = {"item_id": "s", "name": "White Sneakers", "category": "shoes", "item_type": "sneakers",
+                "description": "Clean low-top leather sneakers"}
+    roles = optimizer.build_item_roles(pd.DataFrame([sneakers]))["s"]
+    assert roles == {"shoes"}
+    # Without a structured category the free text is still used.
+    assert "top" in optimizer.roles_of({"name": "Cotton shirt", "category": "", "item_type": ""})
+
+
+def test_outfits_have_no_redundant_layer_and_one_outer_layer() -> None:
+    import pandas as pd
+
+    from packing_backend import optimizer
+
+    def piece(item_id, category, item_type, **extra):
+        return {"item_id": item_id, "name": item_id, "category": category, "item_type": item_type,
+                "style": "casual", "formality_level": 2, "versatility": 3, "warmth_level": 3,
+                "water_resistance": 0, "weight_g": 300, **extra}
+
+    wardrobe = pd.DataFrame([
+        piece("tee", "top", "t-shirt"), piece("jeans", "bottom", "jeans"), piece("shoes", "shoes", "sneakers"),
+        piece("hoodie", "outerwear", "hoodie"), piece("cardi", "top", "cardigan"), piece("coat", "outerwear", "coat"),
+    ])
+    day = pd.Series({"day_number": 1, "weather": "cloudy", "activity": "sightseeing", "required_style": "casual",
+                     "temperature_c": 8, "needs_outerwear": True, "needs_warm_layer": True,
+                     "needs_rain_protection": False, "needs_sun_protection": False, "precipitation_mm": 0})
+    roles = optimizer.build_item_roles(wardrobe)
+    outfits = optimizer.generate_outfits(wardrobe, day, {}, roles, max_candidates=200)
+    assert outfits
+    for outfit in outfits:
+        cats = [wardrobe.set_index("item_id").loc[i, "category"] for i in outfit["item_ids"]]
+        assert cats.count("outerwear") <= 1                                  # one outer layer
+        assert not ("hoodie" in outfit["item_ids"] and "cardi" in outfit["item_ids"])   # no stacking for nothing
+
+
+def test_formal_days_avoid_casual_pieces_when_a_dressy_outfit_exists() -> None:
+    import pandas as pd
+
+    from packing_backend import optimizer
+
+    def piece(item_id, category, item_type, formality):
+        return {"item_id": item_id, "name": item_id, "category": category, "item_type": item_type,
+                "style": "formal", "formality_level": formality, "versatility": 3, "warmth_level": 2,
+                "water_resistance": 0, "weight_g": 300}
+
+    wardrobe = pd.DataFrame([
+        piece("blouse", "top", "blouse", 4), piece("trousers", "bottom", "trousers", 4),
+        piece("jeans", "bottom", "jeans", 1), piece("heels", "shoes", "heels", 4),
+        piece("sneakers", "shoes", "sneakers", 1),
+    ])
+    day = pd.Series({"day_number": 1, "weather": "sunny", "activity": "formal-dinner", "required_style": "formal",
+                     "temperature_c": 22, "needs_outerwear": False, "needs_warm_layer": False,
+                     "needs_rain_protection": False, "needs_sun_protection": False, "precipitation_mm": 0})
+    roles = optimizer.build_item_roles(wardrobe)
+    outfits = optimizer.generate_outfits(wardrobe, day, {}, roles, max_candidates=200)
+    assert outfits
+    for outfit in outfits:
+        assert not {"jeans", "sneakers"} & set(outfit["item_ids"])

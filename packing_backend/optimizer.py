@@ -94,23 +94,27 @@ def roles_of(item):
 
     roles = set()
 
-    # Catégories principales (les champs structurés sont plus fiables).
-    if category == "top" or re.search(
+    # Catégories principales. Un champ `category` connu fait foi : le texte libre
+    # (nom, description) ne sert que si la catégorie manque, sinon « low-top
+    # sneakers » deviendrait un haut et une tenue aurait deux paires de chaussures.
+    structured = category in {"top", "bottom", "shoes", "dress", "outerwear", "accessory"}
+
+    if category == "top" or (not structured and re.search(
         r"\b(top|shirt|t-shirt|blouse|chemise|tee)\b", text
-    ):
+    )):
         roles.add("top")
-    if category == "bottom" or re.search(
+    if category == "bottom" or (not structured and re.search(
         r"\b(bottom|trousers|pants|jeans|skirt|shorts|jupe)\b", text
-    ):
+    )):
         roles.add("bottom")
-    if category == "shoes" or re.search(
+    if category == "shoes" or (not structured and re.search(
         r"\b(shoes|sneakers|boots|sandals|trainers|chaussures)\b", text
-    ):
+    )):
         roles.add("shoes")
     if (
         category == "dress"
         or item_type.endswith("-dress")
-        or re.search(r"\b(dress|robe|jumpsuit)\b", text)
+        or (not structured and re.search(r"\b(dress|robe|jumpsuit)\b", text))
     ):
         roles.add("onepiece")
 
@@ -345,7 +349,10 @@ def outfit_style_score(item_ids, trip, garment_map):
         # 2. Formalité : les contextes formels valorisent la formalité ; les
         #    contextes décontractés/sportifs pénalisent les pièces trop habillées.
         if required_style == "formal" or activity == "business-meeting":
-            score += 0.5 * formality
+            score += 1.5 * formality
+            # Un dîner ou une réunion formelle : pas de jean, baskets, sweat...
+            if item_type in {"jeans", "sneakers", "trainers", "hoodie", "t-shirt", "shorts", "joggers"}:
+                score -= 12.0
         elif required_style in {"casual", "sporty"}:
             score -= 0.3 * max(0.0, formality - 3)
 
@@ -372,6 +379,33 @@ def outfit_style_score(item_ids, trip, garment_map):
 # --------------------------------------------------
 # 5. GENERATE DAILY OUTFIT CANDIDATES
 # --------------------------------------------------
+
+CASUAL_TYPES = {"jeans", "sneakers", "trainers", "hoodie", "t-shirt", "shorts", "joggers", "sweatpants"}
+
+
+def is_real_outerwear(item):
+    """Manteau, veste, parka, imperméable : une vraie couche extérieure."""
+    category = str(item.get("category", "")).strip().lower()
+    item_type = str(item.get("item_type", "")).strip().lower()
+    return category == "outerwear" and item_type not in {
+        "hoodie", "cardigan", "sweater", "jumper", "fleece",
+    }
+
+
+def _has_redundant_layer(outfit, base_ids, required, item_roles):
+    """Vrai si une pièce ajoutée pour la météo n'apporte rien de plus."""
+    for item in outfit:
+        item_id = str(item["item_id"])
+        if item_id in base_ids:
+            continue
+        covered = set()
+        for other in outfit:
+            if other is not item:
+                covered.update(item_roles[str(other["item_id"])])
+        if required <= covered:
+            return True
+    return False
+
 
 def generate_outfits(wardrobe, trip, compatibility, item_roles,
                      max_candidates=500, rng=None):
@@ -464,6 +498,17 @@ def generate_outfits(wardrobe, trip, compatibility, item_roles,
             if not is_outfit_appropriate(ids, trip, garment_map):
                 continue
 
+            # Une tenue logique : pas de couche superflue (ex. un sweat à
+            # capuche ET un gilet alors que l'un des deux suffit) et une seule
+            # couche extérieure.
+            if _has_redundant_layer(outfit, base_ids, required, item_roles):
+                continue
+            if sum(
+                str(i.get("category", "")).strip().lower() == "outerwear"
+                for i in outfit
+            ) > 1:
+                continue
+
             # Températures basses : exiger une vraie couche chaude (et pas un
             # simple article dont le warmth_level est élevé, ex. un chapeau).
             if temperature <= 5 and not any(
@@ -486,19 +531,30 @@ def generate_outfits(wardrobe, trip, compatibility, item_roles,
                 if required_style and required_style != "nan"
             )
 
+            # Moyenne (et non somme) : sinon empiler des pièces augmenterait
+            # le score et produirait des tenues surchargées.
             versatility = sum(
                 float(i.get("versatility", 1) or 1)
                 for i in outfit
-            )
+            ) / len(outfit)
 
             style_fit = outfit_style_score(ids, trip, garment_map)
+
+            # Par temps froid ou humide, un vrai manteau/une veste vaut mieux
+            # qu'un simple gilet ou un sweat comme seule couche extérieure.
+            cold_bonus = 0.0
+            if (temperature <= 12 or "rain" in weather) and any(
+                is_real_outerwear(i) for i in outfit
+            ):
+                cold_bonus = 30.0
 
             # Score entier pour CP-SAT (compatibilité 0-1 -> 0-100).
             quality = round(
                 100 * compat
                 + 3 * style_matches
-                + 2 * versatility
+                + 6 * versatility
                 + style_fit
+                + cold_bonus
             )
 
             candidates[signature] = {
@@ -513,6 +569,20 @@ def generate_outfits(wardrobe, trip, compatibility, item_roles,
                 "day_number": int(trip["day_number"]),
                 "required_roles": sorted(required),
             }
+
+    # Jour formel : si la garde-robe permet une tenue sans pièce clairement
+    # décontractée (jean, baskets, sweat...), on n'en propose pas d'autre.
+    if required_style == "formal" or activity in {"business-meeting", "formal-dinner", "wedding", "gala"}:
+        dressy = {
+            signature: candidate
+            for signature, candidate in candidates.items()
+            if not any(
+                str(garment_map[item_id].get("item_type", "")).strip().lower() in CASUAL_TYPES
+                for item_id in signature
+            )
+        }
+        if dressy:
+            candidates = dressy
 
     # Échantillonnage aléatoire pour éviter le biais des premiers items
     # du fichier lorsque le plafond de candidats est atteint.
@@ -628,7 +698,10 @@ def optimize_packing(wardrobe, trips, compatibility_df,
         for candidates in daily_candidates.values()
         for outfit in candidates
     )
-    item_penalty = len(trips) * max_quality + 1
+    # Chaque pièce en plus coûte un huitième du meilleur score d'une tenue : on
+    # voyage léger, mais pas au prix de tenues illogiques (jean et baskets pour
+    # un dîner formel) quand la limite de poids n'est pas atteinte.
+    item_penalty = max(1, max_quality // 8)
 
     quality_term = sum(
         daily_candidates[day_idx][outfit_idx]["quality"]
