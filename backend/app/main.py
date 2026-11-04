@@ -553,17 +553,16 @@ def avatar_tryon_outfit(body: OutfitTryOnRequest, user: User = Depends(current_u
         photo = avatar.load_photo(store, user.id)
         if photo is None:
             raise avatar.AvatarError(409, "Create your 3D avatar first.")
-        for _ in garments:   # every garment is one paid call
+        units = avatar.try_on_units(len(garments))
+        for _ in range(units):   # every paid request counts once
             avatar.check_quota(user.id, "try-ons", config.AVATAR_TRYONS_PER_HOUR, 3600)
 
         def work() -> None:
-            current = photo
-            for item, category in garments:
-                cutout = store.download(f"{item_folder(user.id, item['id'])}/cutout.png")
-                current = avatar.try_on_image(current, cutout, category)
-            avatar.save_tryon(store, user.id, tryon_id, current, "png")
+            cutouts = [(store.download(f"{item_folder(user.id, item['id'])}/cutout.png"), category)
+                       for item, category in garments]
+            avatar.save_tryon(store, user.id, tryon_id, avatar.try_on_outfit(photo, cutouts), "png")
 
-        return {"cached": False, "tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work, quota=("try-ons", len(garments))),
+        return {"cached": False, "tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work, quota=("try-ons", units)),
                 "garments": len(garments)}
 
     return _avatar_errors(start)

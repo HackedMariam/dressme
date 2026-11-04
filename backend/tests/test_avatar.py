@@ -71,6 +71,8 @@ class FakeFal:
 def fal(monkeypatch, tmp_path):
     fake = FakeFal()
     monkeypatch.setattr(config, "FAL_KEY", "test-key")
+    monkeypatch.setattr(config, "WAVESPEED_API_KEY", "")      # a real key in .env must not reroute these tests
+    monkeypatch.setattr(config, "AVATAR_PROVIDER", "auto")
     monkeypatch.setattr(config, "LOCAL_DATA_DIR", tmp_path)
     monkeypatch.setattr(main, "store", LocalStore())
     monkeypatch.setattr(avatar, "_events", {})
@@ -380,3 +382,119 @@ def test_attempts_fal_refused_do_not_use_up_the_allowance_but_paid_failures_do(c
     for _ in range(config.AVATAR_CREATIONS_PER_DAY):
         assert _create(client)[0].status_code == 200
     assert _create(client, wait=False)[0].status_code == 429
+
+
+# ------------------------------------------------------------------------------------------ WaveSpeed provider
+WS_3D = "wavespeed-ai/hunyuan3d-v3/image-to-3d"
+WS_TRYON = "bria/virtual-try-on"
+
+
+class FakeWaveSpeed:
+    """Plays the WaveSpeed REST API and the CDN that serves the generated files."""
+
+    def __init__(self):
+        self.runs: list[tuple[str, dict]] = []
+        self.refuse: tuple[int, dict] | None = None     # every API call answers with this error
+
+    def models(self) -> list[str]:
+        return [model for model, _ in self.runs]
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        host, path = request.url.host, request.url.path
+        if host == "cdn.ws.test":
+            assert "authorization" not in request.headers          # files are public: the API key is not sent
+            return httpx.Response(200, content=GLB if path.endswith(".glb") else _png((200, 10, 10)))
+        assert request.headers["authorization"] == "Bearer ws-key"
+        if self.refuse:
+            return httpx.Response(self.refuse[0], json=self.refuse[1])
+        if request.method == "POST":
+            model = path.removeprefix("/api/v3/")
+            self.runs.append((model, json.loads(request.content)))
+            return httpx.Response(200, json={"code": 200, "data": {"id": f"t{len(self.runs)}"}})
+        task = int(path.split("/")[-2].removeprefix("t"))
+        model = self.runs[task - 1][0]
+        extension = "glb" if model == WS_3D else "png"
+        return httpx.Response(200, json={"code": 200, "data": {
+            "status": "completed", "outputs": [f"https://cdn.ws.test/t{task}.{extension}"]}})
+
+
+@pytest.fixture
+def wavespeed(monkeypatch, tmp_path):
+    fake = FakeWaveSpeed()
+    monkeypatch.setattr(config, "FAL_KEY", "")
+    monkeypatch.setattr(config, "WAVESPEED_API_KEY", "ws-key")
+    monkeypatch.setattr(config, "AVATAR_PROVIDER", "auto")
+    monkeypatch.setattr(config, "LOCAL_DATA_DIR", tmp_path)
+    monkeypatch.setattr(main, "store", LocalStore())
+    monkeypatch.setattr(avatar, "_events", {})
+    monkeypatch.setattr(avatar, "_jobs", {})
+    monkeypatch.setattr(avatar, "_wavespeed_client", lambda: avatar.WaveSpeedClient(
+        "ws-key", 5, transport=httpx.MockTransport(fake.handler), poll_interval=0))
+    return fake
+
+
+@pytest.fixture
+def ws_client(wavespeed):
+    return TestClient(main.app)
+
+
+def test_the_provider_follows_the_keys_and_the_setting(monkeypatch):
+    monkeypatch.setattr(config, "AVATAR_PROVIDER", "auto")
+    monkeypatch.setattr(config, "FAL_KEY", "")
+    monkeypatch.setattr(config, "WAVESPEED_API_KEY", "")
+    assert avatar.provider() == "none" and not avatar.is_configured()
+    monkeypatch.setattr(config, "FAL_KEY", "f")
+    assert avatar.provider() == "fal"
+    monkeypatch.setattr(config, "WAVESPEED_API_KEY", "w")
+    assert avatar.provider() == "wavespeed"                      # auto prefers the cheaper provider
+    monkeypatch.setattr(config, "AVATAR_PROVIDER", "fal")
+    assert avatar.provider() == "fal"
+    monkeypatch.setattr(config, "FAL_KEY", "")
+    assert avatar.provider() == "none"                           # asked for fal but no fal key
+
+
+def test_wavespeed_builds_the_3d_avatar_from_the_photo(ws_client, wavespeed):
+    reply, job = _create(ws_client)
+    assert reply.status_code == 200 and job["status"] == "done", job
+    model, inputs = wavespeed.runs[0]
+    assert model == WS_3D and inputs["generate_type"] == "Normal"
+    assert inputs["image"].startswith("data:image/jpeg;base64,")
+    assert sorted(main.store.private_list(config.LOCAL_USER_ID)) == ["avatar.glb", "meta.json", "photo.jpg"]
+    assert ws_client.get("/api/avatar/model").content.startswith(b"glTF")
+
+
+def test_wavespeed_puts_a_whole_outfit_on_the_user_in_one_request(ws_client, wavespeed):
+    ids = [_add_item("Outerwear", "Coat"), _add_item("Tops", "Shirt"), _add_item("Bottoms", "Trousers")]
+    _create(ws_client)
+    runs = len(wavespeed.runs)
+    reply, job = _outfit(ws_client, ids)
+    assert reply.status_code == 200 and job["status"] == "done", job
+    assert wavespeed.models()[runs:] == [WS_TRYON]                           # three garments, one paid request
+    assert len(wavespeed.runs[-1][1]["reference_images"]) == 3
+    assert ws_client.get(f"/api/avatar/tryon/{reply.json()['tryon_id']}/image").status_code == 200
+
+
+def test_wavespeed_shop_garment_try_on(ws_client, wavespeed):
+    _create(ws_client)
+    reply, job = _garment(ws_client, group="Tops")
+    assert reply.status_code == 200 and job["status"] == "done", job
+    assert len(wavespeed.runs[-1][1]["reference_images"]) == 1
+
+
+def test_a_refused_wavespeed_key_is_explained_and_costs_no_attempt(ws_client, wavespeed):
+    wavespeed.refuse = (401, {"code": 401, "message": "Invalid API key"})
+    for _ in range(config.AVATAR_CREATIONS_PER_DAY + 1):
+        reply, job = _create(ws_client)
+        assert reply.status_code == 200 and job["status"] == "failed"
+        assert "WAVESPEED_API_KEY" in job["error"]
+    wavespeed.refuse = (400, {"code": 400, "message": "Invalid request body: image too small"})
+    assert "rejected the image" in _create(ws_client)[1]["error"]
+
+
+def test_outfit_quota_counts_paid_requests_not_garments(monkeypatch):
+    monkeypatch.setattr(config, "AVATAR_PROVIDER", "wavespeed")
+    monkeypatch.setattr(config, "WAVESPEED_API_KEY", "w")
+    assert [avatar.try_on_units(n) for n in (1, 3, 4)] == [1, 1, 2]
+    monkeypatch.setattr(config, "AVATAR_PROVIDER", "fal")
+    monkeypatch.setattr(config, "FAL_KEY", "f")
+    assert [avatar.try_on_units(n) for n in (1, 3, 4)] == [1, 3, 4]

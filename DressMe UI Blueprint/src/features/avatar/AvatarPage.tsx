@@ -163,7 +163,7 @@ export default function AvatarPage({ onNavigate }: { onNavigate?: (page: Page) =
       {job && (
         <div className="rounded-xl border border-[#556B2F]/30 bg-[#E8EDE0] px-4 py-3 text-sm text-[#1C1C1C]">
           <span className="mr-2 inline-block animate-pulse">✦</span>
-          {building ? "Building your 3D avatar" : "A try-on is running"}… this takes one to two minutes ({elapsed}s). You can stay on this page.
+          {building ? "Building your 3D avatar" : "A try-on is running"}… this takes one to three minutes ({elapsed}s). You can stay on this page.
         </div>
       )}
 
@@ -294,7 +294,7 @@ export default function AvatarPage({ onNavigate }: { onNavigate?: (page: Page) =
                     </button>
                   )}
                 </div>
-                <p className="mt-2 text-xs text-[#8C8A82]">Takes one to two minutes. It costs about $0.50 of AI credit.</p>
+                <p className="mt-2 text-xs text-[#8C8A82]">Takes one to three minutes. It costs about $0.30 of AI credit.</p>
               </div>
             </div>
           )}

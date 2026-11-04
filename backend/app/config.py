@@ -54,6 +54,12 @@ LOCAL_USER_ID = "local"
 LOCAL_DATA_DIR = Path(os.getenv("LOCAL_DATA_DIR", BASE_DIR / "local_data"))
 
 # --- 3D avatar and virtual try-on (fal.ai: one key, pay per use) ---------------
+# Provider of the 3D avatar and the virtual try-on: "auto" uses WaveSpeed when WAVESPEED_API_KEY is set, else fal.ai.
+AVATAR_PROVIDER = os.getenv("AVATAR_PROVIDER", "auto").strip().lower()   # auto | wavespeed | fal
+WAVESPEED_API_KEY = os.getenv("WAVESPEED_API_KEY", "")
+WAVESPEED_3D_MODEL = os.getenv("WAVESPEED_3D_MODEL", "wavespeed-ai/hunyuan3d-v3/image-to-3d")   # about $0.30
+WAVESPEED_TRYON_MODEL = os.getenv("WAVESPEED_TRYON_MODEL", "bria/virtual-try-on")               # about $0.04, up to 3 garments
+WAVESPEED_FACE_COUNT = int(os.getenv("WAVESPEED_FACE_COUNT", 150000))    # mesh size: smaller loads faster in the browser
 FAL_KEY = os.getenv("FAL_KEY", "")
 FAL_3D_MODEL = os.getenv("FAL_3D_MODEL", "fal-ai/hunyuan3d/v2")             # image -> textured GLB (about $0.48)
 FAL_TRYON_MODEL = os.getenv("FAL_TRYON_MODEL", "fal-ai/fashn/tryon/v1.6")   # 2D try-on step

@@ -42,8 +42,20 @@ class AvatarError(Exception):
         self.message = message
 
 
+def provider() -> str:
+    """"wavespeed", "fal", or "none": AVATAR_PROVIDER decides, "auto" prefers WaveSpeed when its key is set."""
+    wanted = config.AVATAR_PROVIDER
+    if wanted == "fal":
+        return "fal" if config.FAL_KEY else "none"
+    if wanted == "wavespeed":
+        return "wavespeed" if config.WAVESPEED_API_KEY else "none"
+    if config.WAVESPEED_API_KEY:
+        return "wavespeed"
+    return "fal" if config.FAL_KEY else "none"
+
+
 def is_configured() -> bool:
-    return bool(config.FAL_KEY)
+    return provider() != "none"
 
 
 def tryon_category(item: dict) -> str | None:
@@ -197,8 +209,96 @@ def _client() -> FalClient:
     return FalClient(config.FAL_KEY, config.FAL_TIMEOUT)
 
 
+class WaveSpeedClient:
+    """WaveSpeed REST API: submit a task, poll its result, download the files it points to."""
+
+    BASE = "https://api.wavespeed.ai"
+    DONE = "completed"
+    FAILED = {"failed", "cancelled", "timeout", "deleted"}
+
+    def __init__(self, api_key: str, timeout: float, *, transport=None, poll_interval: float = 2.0) -> None:
+        self.http = httpx.Client(headers={"Authorization": f"Bearer {api_key}"}, timeout=60, transport=transport)
+        self.files = httpx.Client(timeout=120, transport=transport)   # output files are public URLs: no API key sent
+        self.timeout = timeout
+        self.poll_interval = poll_interval
+
+    def run(self, model_id: str, inputs: dict) -> list[str]:
+        """Run a model and return the URLs of its outputs."""
+        submitted = self._call("post", f"{self.BASE}/api/v3/{model_id}", json=inputs)
+        task = submitted.get("data") or {}
+        task_id = task.get("id")
+        if not task_id:
+            raise AvatarError(502, "WaveSpeed did not accept the request. Please try again.")
+        deadline = time.monotonic() + self.timeout
+        while time.monotonic() < deadline:
+            state = self._call("get", f"{self.BASE}/api/v3/predictions/{task_id}/result").get("data") or {}
+            status = str(state.get("status", "")).lower()
+            if status == self.DONE:
+                outputs = [url for url in state.get("outputs") or [] if isinstance(url, str)]
+                if not outputs:
+                    raise AvatarError(502, "WaveSpeed returned no file. Please try again.")
+                return outputs
+            if status in self.FAILED or state.get("error"):
+                raise AvatarError(502, f"WaveSpeed could not finish: {state.get('error') or status}")
+            time.sleep(self.poll_interval)
+        raise AvatarError(504, "WaveSpeed took too long to answer. Please try again.")
+
+    def download(self, url: str) -> bytes:
+        try:
+            reply = self.files.get(url)
+            reply.raise_for_status()
+        except httpx.HTTPError as error:
+            raise AvatarError(502, "Could not download the file WaveSpeed generated.") from error
+        return reply.content
+
+    def _call(self, method: str, url: str, **kwargs) -> dict:
+        try:
+            reply = getattr(self.http, method)(url, **kwargs)
+        except httpx.HTTPError as error:
+            log.warning("WaveSpeed call failed: %s: %s", type(error).__name__, error)
+            raise AvatarError(
+                502, f"Cannot reach WaveSpeed ({type(error).__name__}). Check the internet connection and try again."
+            ) from error
+        try:
+            body = reply.json()
+        except ValueError:
+            body = {}
+        if reply.status_code >= 400:
+            raise _wavespeed_error(reply.status_code, body)
+        return body if isinstance(body, dict) else {}
+
+
+def _wavespeed_error(status: int, body: dict) -> AvatarError:
+    message = str(body.get("message") or body.get("detail") or "") if isinstance(body, dict) else ""
+    lowered = message.lower()
+    if status in (401, 402, 403) or "balance" in lowered or "insufficient" in lowered:
+        return AvatarError(503, "WaveSpeed refused the request: check WAVESPEED_API_KEY and that the account has "
+                                "credit (wavespeed.ai/billing).")
+    if status == 429:
+        return AvatarError(429, "WaveSpeed is busy (rate limit). Try again in a few seconds.")
+    if status == 400:
+        return AvatarError(422, f"WaveSpeed rejected the image: {message[:200] or 'invalid input'}")
+    return AvatarError(502, f"WaveSpeed error ({status}) {message[:200]}".strip())
+
+
+def _wavespeed_client() -> WaveSpeedClient:
+    return WaveSpeedClient(config.WAVESPEED_API_KEY, max(config.FAL_TIMEOUT, 420))   # a 3D run can take almost 3 minutes
+
+
 def image_to_3d(image: bytes) -> bytes:
     """A textured GLB of whatever the image shows (here: a person)."""
+    if provider() == "wavespeed":
+        client = _wavespeed_client()
+        outputs = client.run(config.WAVESPEED_3D_MODEL, {
+            "image": _data_uri(image),
+            "generate_type": "Normal",           # textured
+            "enable_pbr": False,
+            "face_count": config.WAVESPEED_FACE_COUNT,
+        })
+        glb = client.download(next((url for url in outputs if url.lower().split("?")[0].endswith(".glb")), outputs[0]))
+        if not glb.startswith(GLB_MAGIC):
+            raise AvatarError(502, "The 3D service returned an unexpected file. Please try again.")
+        return glb
     client = _client()
     output = client.run(config.FAL_3D_MODEL, {
         "input_image_url": _data_uri(image),
@@ -216,8 +316,41 @@ def image_to_3d(image: bytes) -> bytes:
     return glb
 
 
+# Bria (WaveSpeed) takes up to three garments in one request.
+WAVESPEED_MAX_GARMENTS = 3
+
+
+def try_on_units(garments: int) -> int:
+    """How many paid requests an outfit of this many garments needs (what the quota counts)."""
+    if provider() == "wavespeed":
+        return max(1, -(-garments // WAVESPEED_MAX_GARMENTS))
+    return max(1, garments)
+
+
+def try_on_outfit(photo: bytes, garments: list[tuple[bytes, str]]) -> bytes:
+    """The person wearing several garments, given as (cut-out PNG, category) in layering order."""
+    if provider() == "wavespeed":
+        current = photo
+        for start in range(0, len(garments), WAVESPEED_MAX_GARMENTS):
+            chunk = garments[start:start + WAVESPEED_MAX_GARMENTS]
+            client = _wavespeed_client()
+            outputs = client.run(config.WAVESPEED_TRYON_MODEL, {
+                "image": _data_uri(current),
+                "reference_images": [_data_uri(png) for png, _ in chunk],
+                "output_format": "png",
+            })
+            current = client.download(outputs[0])
+        return current
+    current = photo
+    for garment_png, category in garments:
+        current = try_on_image(current, garment_png, category)
+    return current
+
+
 def try_on_image(photo: bytes, garment_png: bytes, category: str) -> bytes:
-    """2D step: the person wearing the garment (FASHN try-on)."""
+    """2D step: the person wearing one garment."""
+    if provider() == "wavespeed":
+        return try_on_outfit(photo, [(garment_png, category)])
     client = _client()
     output = client.run(config.FAL_TRYON_MODEL, {
         "model_image": _data_uri(photo),
