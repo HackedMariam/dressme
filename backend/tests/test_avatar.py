@@ -357,3 +357,11 @@ def test_a_dress_is_not_combined_with_a_top_or_a_bottom(client, fal):
     runs = len(fal.runs)
     assert _outfit(client, ids)[1]["status"] == "done"
     assert [inputs["category"] for _, inputs in fal.runs[runs:]] == ["one-pieces"]
+
+
+def test_a_key_restricted_to_other_models_gets_an_actionable_message():
+    error = avatar._http_error(403, {"detail": "API key does not have access to model: fal-ai/hunyuan3d/v2",
+                                     "type": "resource_restricted"})
+    assert "fal-ai/hunyuan3d/v2" in error.message and "fal.ai/dashboard/keys" in error.message
+    assert "credit" not in error.message                       # the account is funded: do not send the user to billing
+    assert "billing" in avatar._http_error(403, {}).message    # a plain refusal still points to the key and the credit

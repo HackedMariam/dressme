@@ -178,6 +178,10 @@ class FalClient:
 def _http_error(status: int, body: dict) -> AvatarError:
     detail = body.get("detail") if isinstance(body, dict) else None
     text = detail if isinstance(detail, str) else json.dumps(detail) if detail else ""
+    if status == 403 and "does not have access to model" in text:
+        # The key is valid and funded, but restricted to other models: only the user can fix it in the fal.ai dashboard.
+        return AvatarError(503, f"{text}. Create a FAL_KEY with API access to all models "
+                                "(fal.ai/dashboard/keys), put it in .env and restart the backend.")
     if status in (401, 403):
         return AvatarError(503, "fal.ai refused the request: check FAL_KEY and that the account has credit (fal.ai/dashboard/billing).")
     if status == 429:
