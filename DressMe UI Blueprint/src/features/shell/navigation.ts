@@ -3,6 +3,7 @@ export type Page =
   | "wardrobe"
   | "avatar"
   | "ai-stylist"
+  | "outfit-builder"
   | "help-me-pack"
   | "wardrobe-gaps"
   | "should-i-buy"
@@ -44,6 +45,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Style",
     entries: [
+      { label: "Outfit Builder", page: "outfit-builder", icon: "✦" },
       { label: "AI Stylist", page: "ai-stylist", icon: "◆" },
       { label: "Help Me Pack", page: "help-me-pack", icon: "◈" },
     ],

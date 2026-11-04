@@ -14,12 +14,14 @@ interface ChatMessage {
   error?: boolean
 }
 
-const quickPrompts = [
-  "What should I wear to a dinner party?",
-  "Build me a Monday-morning look",
-  "How can I style my camel blazer differently?",
-  "I have a job interview tomorrow",
-]
+// Suggestions come from what the user really owns, so they always make sense for this wardrobe.
+function quickPromptsFor(items: WardrobeItem[]) {
+  const prompts = ["What should I wear to a dinner party?", "I have a job interview tomorrow"]
+  const piece = items.find((item) => item.category_group === "Outerwear") ?? items.find((item) => item.cutout_url)
+  if (piece) prompts.push(`How can I style my ${piece.name.toLowerCase()} differently?`)
+  prompts.push("What do I own that I rarely wear?", "Build me a casual weekend look")
+  return prompts
+}
 
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -179,7 +181,7 @@ export default function StylistPage() {
           </div>
 
           <div className="flex flex-wrap gap-2 border-t border-[#E2E0D8] px-6 py-3">
-            {quickPrompts.map((prompt) => (
+            {quickPromptsFor(items).map((prompt) => (
               <button
                 key={prompt}
                 type="button"

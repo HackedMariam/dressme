@@ -25,10 +25,10 @@ function Bar({ label, value, total }: { label: string; value: number; total: num
 }
 
 const QUICK_ACTIONS: { label: string; hint: string; page: Page }[] = [
+  { label: "Build an outfit", hint: "From the clothes you own", page: "outfit-builder" },
   { label: "Ask the AI Stylist", hint: "What should I wear?", page: "ai-stylist" },
   { label: "Plan a trip", hint: "Pack with what you own", page: "help-me-pack" },
   { label: "Check a purchase", hint: "Do I really need it?", page: "should-i-buy" },
-  { label: "Recreate a look", hint: "From a photo you like", page: "find-similar" },
 ]
 
 export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {

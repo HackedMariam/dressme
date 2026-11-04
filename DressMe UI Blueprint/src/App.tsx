@@ -14,6 +14,7 @@ import DashboardPage from "./features/dashboard/DashboardPage";
 import FindSimilarPage from "./features/purchase/FindSimilarPage";
 import ShopNotifications from "./features/shop/ShopNotifications";
 import ShouldIBuyPage from "./features/purchase/ShouldIBuyPage";
+import OutfitBuilderPage from "./features/outfits/OutfitBuilderPage";
 import StylistPage from "./features/stylist/StylistPage";
 import AvatarPage from "./features/avatar/AvatarPage";
 import WardrobePage from "./features/wardrobe/WardrobePage";
@@ -61,6 +62,7 @@ function AuthenticatedApp() {
       case "wardrobe-gaps": return <WardrobeGapsPage />;
       case "help-me-pack": return <HelpMePack onOpenWardrobe={() => goTo("wardrobe")} />;
       case "should-i-buy": return <ShouldIBuyPage />;
+      case "outfit-builder": return <OutfitBuilderPage onNavigate={goTo} />;
       case "ai-stylist": return <StylistPage />;
       case "avatar": return <AvatarPage />;
       case "style-profile": return <StyleProfile />;
