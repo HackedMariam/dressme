@@ -414,7 +414,7 @@ async def avatar_create(file: UploadFile = File(...), consent: bool = Form(False
         def work() -> None:
             avatar.save_avatar(store, user.id, photo, avatar.image_to_3d(photo))
 
-        return {"job_id": avatar.start_job(user.id, "avatar", work)}
+        return {"job_id": avatar.start_job(user.id, "avatar", work, quota=("avatars", 1))}
 
     return await run_in_threadpool(lambda: _avatar_errors(create))
 
@@ -472,7 +472,7 @@ def avatar_tryon(body: TryOnRequest, user: User = Depends(current_user)) -> dict
                 avatar.save_tryon(store, user.id, item["id"], dressed, "png")
             avatar.save_tryon(store, user.id, item["id"], avatar.image_to_3d(dressed), "glb")
 
-        return {"cached": False, "job_id": avatar.start_job(user.id, "tryon", work)}
+        return {"cached": False, "job_id": avatar.start_job(user.id, "tryon", work, quota=("try-ons", 1))}
 
     return _avatar_errors(start)
 
@@ -512,7 +512,7 @@ async def avatar_tryon_garment(group: str = Form(...), image_url: str | None = F
             dressed = avatar.try_on_image(photo, avatar.normalize_photo(garment), category)
             avatar.save_tryon(store, user.id, tryon_id, dressed, "png")
 
-        return {"tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work)}
+        return {"tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work, quota=("try-ons", 1))}
 
     return await run_in_threadpool(lambda: _avatar_errors(start))
 
@@ -563,7 +563,7 @@ def avatar_tryon_outfit(body: OutfitTryOnRequest, user: User = Depends(current_u
                 current = avatar.try_on_image(current, cutout, category)
             avatar.save_tryon(store, user.id, tryon_id, current, "png")
 
-        return {"cached": False, "tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work),
+        return {"cached": False, "tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work, quota=("try-ons", len(garments))),
                 "garments": len(garments)}
 
     return _avatar_errors(start)

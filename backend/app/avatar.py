@@ -252,8 +252,21 @@ def check_quota(user_id: str, kind: str, limit: int, window_seconds: float) -> N
         _events[(user_id, kind)] = recent
 
 
-def start_job(user_id: str, kind: str, work: Callable[[], None]) -> str:
-    """Run `work` in the background; the browser polls get_job. One job at a time per user."""
+# fal.ai refused the work before doing it (bad or restricted key, rejected image, rate limit): nothing was charged,
+# so the attempt must not use up the user's daily or hourly allowance.
+REFUNDABLE_STATUSES = {422, 429, 503}
+
+
+def refund_quota(user_id: str, kind: str, count: int = 1) -> None:
+    with _jobs_lock:
+        events = _events.get((user_id, kind), [])
+        del events[max(0, len(events) - count):]
+
+
+def start_job(user_id: str, kind: str, work: Callable[[], None],
+              quota: tuple[str, int] | None = None) -> str:
+    """Run `work` in the background; the browser polls get_job. One job at a time per user.
+    `quota` = (kind, units) charged by check_quota: given back if fal.ai refused the work without doing it."""
     with _jobs_lock:
         for job in _jobs.values():
             if job["user_id"] == user_id and job["status"] == "running":
@@ -270,6 +283,8 @@ def start_job(user_id: str, kind: str, work: Callable[[], None]) -> str:
             outcome = {"status": "done"}
         except AvatarError as error:
             outcome = {"status": "failed", "error": error.message}
+            if quota and error.status_code in REFUNDABLE_STATUSES:
+                refund_quota(user_id, quota[0], quota[1])
         except Exception:
             log.exception("avatar job %s failed", job_id)
             outcome = {"status": "failed", "error": "Something went wrong while generating. Please try again."}

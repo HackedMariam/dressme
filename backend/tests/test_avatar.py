@@ -365,3 +365,18 @@ def test_a_key_restricted_to_other_models_gets_an_actionable_message():
     assert "fal-ai/hunyuan3d/v2" in error.message and "fal.ai/dashboard/keys" in error.message
     assert "credit" not in error.message                       # the account is funded: do not send the user to billing
     assert "billing" in avatar._http_error(403, {}).message    # a plain refusal still points to the key and the credit
+
+
+def test_attempts_fal_refused_do_not_use_up_the_allowance_but_paid_failures_do(client, fal):
+    # A refused key (403) did nothing and cost nothing: unlimited retries, no "limit reached".
+    fal.locked = True
+    for _ in range(config.AVATAR_CREATIONS_PER_DAY + 2):
+        reply, job = _create(client)
+        assert reply.status_code == 200 and job["status"] == "failed", (reply.text, job)
+    fal.locked = False
+
+    # A failure on fal.ai's side after accepting the work may have been charged: it keeps counting.
+    fal.fail_models = {HUNYUAN}
+    for _ in range(config.AVATAR_CREATIONS_PER_DAY):
+        assert _create(client)[0].status_code == 200
+    assert _create(client, wait=False)[0].status_code == 429
