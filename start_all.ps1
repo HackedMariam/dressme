@@ -104,6 +104,11 @@ $bo3 = Join-Path $Root "DressMe UI Blueprint"
 Start-DressMeService "bo3" $bo3 (Find-Python (Join-Path $bo3 "backend") $env:DRESSME_PY_BO3) `
     @("-m", "uvicorn", "api:app", "--app-dir", "backend", "--host", "127.0.0.1", "--port", "8001") 8001
 
+# RAG : conseils de mode tirés de livres, avec sources. L'AI Stylist (BO1) l'appelle comme un outil.
+$rag = Join-Path $Root "rag_backend"
+Start-DressMeService "rag" $rag (Find-Python $rag $env:DRESSME_PY_RAG) `
+    @("-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8010") 8010 @{ RAG_TABLE = "knowledge_chunks_v2" }
+
 Start-DressMeService "helpmepack" $Root (Find-Python $Root $env:DRESSME_PY_PACKING) `
     @("-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8020") 8020
 
@@ -124,6 +129,7 @@ $checks = [ordered]@{
     "ollama"       = "http://127.0.0.1:11434/api/version"
     "bo1"          = "http://127.0.0.1:8000/api/health"
     "bo3"          = "http://127.0.0.1:8001/api/health"
+    "rag"          = "http://127.0.0.1:8010/health"
     "helpmepack"   = "http://127.0.0.1:8020/api/health"
     "purchase"     = "http://127.0.0.1:8040/health"
     "stylist"      = "http://127.0.0.1:8061/api/graph"

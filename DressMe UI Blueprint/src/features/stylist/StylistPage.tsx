@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { api, asset } from "../../lib/api"
 import { cap } from "../../lib/taxonomy"
-import type { WardrobeItem } from "../../lib/types"
+import type { AdviceSource, WardrobeItem } from "../../lib/types"
 import { useSpeech } from "../../lib/useSpeech"
 import { useUserData } from "../profile/UserDataProvider"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
@@ -11,6 +11,7 @@ interface ChatMessage {
   role: "user" | "assistant"
   text: string
   items?: WardrobeItem[]
+  sources?: AdviceSource[]
   error?: boolean
 }
 
@@ -19,7 +20,7 @@ function quickPromptsFor(items: WardrobeItem[]) {
   const prompts = ["What should I wear to a dinner party?", "I have a job interview tomorrow"]
   const piece = items.find((item) => item.category_group === "Outerwear") ?? items.find((item) => item.cutout_url)
   if (piece) prompts.push(`How can I style my ${piece.name.toLowerCase()} differently?`)
-  prompts.push("What do I own that I rarely wear?", "Build me a casual weekend look")
+  prompts.push("Which colours go well with navy?", "Build me a casual weekend look")
   return prompts
 }
 
@@ -61,6 +62,7 @@ export default function StylistPage() {
           role: "assistant",
           text: response.reply,
           items: response.items.map((found) => items.find((owned) => owned.id === found.id) ?? found),
+          sources: response.sources ?? [],
         },
       ])
     } catch (sendError) {
@@ -136,6 +138,24 @@ export default function StylistPage() {
                   }`}
                 >
                   <p className="whitespace-pre-line">{message.text}</p>
+                  {message.sources && message.sources.length > 0 && (
+                    <div className="rounded-lg border border-[#E2E0D8] bg-[#FAF9F6] p-2.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-[#556B2F]">
+                        From fashion books
+                      </p>
+                      <ul className="mt-1.5 space-y-1">
+                        {message.sources.map((source) => (
+                          <li key={source.marker} className="flex gap-2 text-[11px] leading-snug text-[#1C1C1C]">
+                            <span className="shrink-0 font-semibold text-[#556B2F]">{source.marker}</span>
+                            <span>
+                              {source.title}
+                              {source.page ? <span className="text-[#8C8A82]"> - p. {source.page}</span> : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {message.items && message.items.length > 0 && (
                     <div className="grid gap-2 sm:grid-cols-2">
                       {message.items.slice(0, 6).map((item) => (
@@ -265,8 +285,9 @@ export default function StylistPage() {
           )}
 
           <div className="rounded-xl border border-[#E2E0D8] bg-white p-4 text-xs text-[#8C8A82]">
-            The stylist only recommends items it can find in your wardrobe. If it cannot find a
-            match, it will say so instead of inventing one.
+            The stylist only recommends items it can find in your wardrobe. General style advice
+            comes from a library of fashion books and is shown with its sources (like [S1]). If it
+            cannot find a match, it will say so instead of inventing one.
           </div>
         </div>
       </div>

@@ -54,6 +54,12 @@ LOCAL_USER_ID = "local"
 LOCAL_DATA_DIR = Path(os.getenv("LOCAL_DATA_DIR", BASE_DIR / "local_data"))
 
 # --- 3D avatar and virtual try-on (fal.ai: one key, pay per use) ---------------
+# Fashion-knowledge RAG service (rag_backend/): the AI stylist asks it for book-based advice. Empty URL = off.
+RAG_URL = os.getenv("RAG_URL", "http://127.0.0.1:8010")
+RAG_API_KEY = os.getenv("RAG_API_KEY", "")
+RAG_API_KEY_HEADER = os.getenv("RAG_API_KEY_HEADER", "X-API-Key")
+RAG_TIMEOUT = float(os.getenv("RAG_TIMEOUT", 60))
+
 # Provider of the 3D avatar and the virtual try-on: "auto" uses WaveSpeed when WAVESPEED_API_KEY is set, else fal.ai.
 AVATAR_PROVIDER = os.getenv("AVATAR_PROVIDER", "auto").strip().lower()   # auto | wavespeed | fal
 WAVESPEED_API_KEY = os.getenv("WAVESPEED_API_KEY", "")

@@ -6,13 +6,17 @@ day") and has an LLM decide how to search: it calls the search_wardrobe tool
 with whatever filters it thinks fit, can look again with different filters if
 the first search comes back empty, and only then writes a reply - grounded in
 the user's real items instead of guessing.
+
+For general style knowledge (fabrics, colour combinations, dress codes, how to wear a piece...) it also has a
+second tool, fashion_advice, that asks the RAG service for an answer taken from fashion books, with sources.
 """
 from __future__ import annotations
 
 import json
 import logging
+import re
 
-from . import config
+from . import config, rag_client
 from .taxonomy import GROUPS, MODEL_CLASSES, OCCASIONS, PATTERNS, SEASONS, STYLES
 
 log = logging.getLogger("dressme.agent")
@@ -50,6 +54,26 @@ TOOLS = [{
             "required": [],
         },
     },
+}, {
+    "type": "function",
+    "function": {
+        "name": "fashion_advice",
+        "description": "Ask the fashion knowledge base (a library of fashion books) for expert advice: what "
+                       "suits an occasion or dress code, how to combine colours or fabrics, how to style or "
+                       "care for a type of garment, what to wear for a climate or trip. Use it for any "
+                       "'how / what / why' style question, and phrase the question in English. It never "
+                       "knows the user's wardrobe, so combine it with search_wardrobe. The answer carries "
+                       "numbered sources like [S1]: keep those markers when you use its advice.",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"question": {"type": "string",
+                                        "description": "One focused style question in English, one topic only "
+                                                       "(e.g. 'Which fabrics are best for winter clothes?'): "
+                                                       "ask again separately for another topic."}},
+            "required": ["question"],
+        },
+    },
 }]
 
 SYSTEM = (
@@ -59,8 +83,25 @@ SYSTEM = (
     "empty or clearly too broad. Keep replies short (1-3 sentences), friendly, and specific - "
     "name the actual items you found by name and say briefly why they fit (warmth, season, "
     "occasion, style). Reply in the language the user wrote in. If nothing in the wardrobe fits, "
-    "say so plainly instead of inventing something."
+    "say so plainly instead of inventing something. "
+    "Whenever the user asks WHAT, WHICH or HOW about style knowledge - a dress code or occasion, "
+    "colours that go together, a fabric or material, a season or climate, how to wear, combine or care "
+    "for something - you MUST also call fashion_advice (together with search_wardrobe), add its advice "
+    "to your answer in your own words, and keep its source markers such as [S1] right after the claim "
+    "they support. A plain request to find or show items needs search_wardrobe only. Never present book "
+    "advice as if it came from the wardrobe, and do not invent sources: if fashion_advice returns "
+    "nothing, answer from the wardrobe alone."
 )
+
+
+# A question that asks for style knowledge (not just "show me my black pieces"), in English or French.
+KNOWLEDGE_QUESTION = re.compile(
+    r"\b(how|what|which|why|best|suits?|suitable|match(es)?|combine|pair|go(es)? with|dress ?code|fabrics?|"
+    r"materials?|colou?rs?|quel(le)?s?|comment|pourquoi|tissus?|mati[eè]res?|couleurs?|associer|assortir|"
+    r"porter|convient|adapt[ée]e?s?)\b", re.IGNORECASE)
+
+ADVICE_REMINDER = ("This is a style knowledge question. Before answering, call fashion_advice with the "
+                   "question in English, then answer using its advice and keep its [S1]-style markers.")
 
 
 def _matches(item: dict, args: dict) -> bool:
@@ -107,20 +148,33 @@ def chat(items: list[dict], message: str) -> dict:
                             {"role": "user", "content": message[:1000]}]
     found: dict[str, dict] = {}
     filters: list[dict] = []   # the filters the model chose, shown to the user as chips
+    sources: dict[str, dict] = {}   # book passages the answer may cite, by marker ([S1]...)
+
+    advice_asked = False   # has the model consulted the fashion knowledge base yet?
+    reminded = False       # the reminder below is given at most once
+
+    def result(reply: str) -> dict:
+        used = [s for marker, s in sources.items() if marker in reply] or []
+        return {"reply": reply, "items": list(found.values()), "filters": filters, "sources": used}
 
     for _ in range(MAX_ROUNDS):
         try:
             resp = client.chat.completions.create(
-                model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=400,
+                model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=600,
                 messages=messages, tools=TOOLS)
         except Exception:
             log.exception("agent LLM call failed")
-            return {"reply": "The AI stylist is having trouble right now, try again in a moment.",
-                    "items": list(found.values()), "filters": filters}
+            return result("The AI stylist is having trouble right now, try again in a moment.")
 
         msg = resp.choices[0].message
         if not msg.tool_calls:
-            return {"reply": msg.content or "", "items": list(found.values()), "filters": filters}
+            if (not advice_asked and not reminded and config.RAG_URL and KNOWLEDGE_QUESTION.search(message)):
+                # The model skipped the knowledge base on a question that needs it: ask it to consult it first.
+                reminded = True
+                messages.append({"role": "assistant", "content": msg.content or ""})
+                messages.append({"role": "user", "content": ADVICE_REMINDER})
+                continue
+            return result(msg.content or "")
 
         messages.append({"role": "assistant", "content": msg.content,
                          "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
@@ -129,6 +183,18 @@ def chat(items: list[dict], message: str) -> dict:
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
+            if tc.function.name == "fashion_advice":
+                advice_asked = True
+                advice = rag_client.advise(str(args.get("question") or message))
+                if advice:
+                    for source in advice["sources"]:
+                        sources.setdefault(source["marker"], source)
+                    content = json.dumps({"advice": advice["answer"], "sources": advice["sources"]})
+                else:
+                    content = json.dumps({"advice": None, "note": "The fashion knowledge base is unavailable "
+                                          "or has nothing on this: answer from the wardrobe alone."})
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+                continue
             results = _run_search(items, args)
             if args:
                 filters.append(args)
@@ -137,8 +203,7 @@ def chat(items: list[dict], message: str) -> dict:
                 found[i["id"]] = t
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(trimmed)})
 
-    return {"reply": "That search is taking more digging than usual - try asking more specifically.",
-           "items": list(found.values()), "filters": filters}
+    return result("That search is taking more digging than usual - try asking more specifically.")
 
 
 DUPLICATE_SYSTEM = (
@@ -174,7 +239,7 @@ def check_duplicate(items: list[dict], candidate: dict) -> dict:
         try:
             resp = client.chat.completions.create(
                 model=config.LLM_MODEL, temperature=0.1, max_completion_tokens=250,
-                messages=messages, tools=TOOLS, response_format={"type": "json_object"})
+                messages=messages, tools=TOOLS[:1], response_format={"type": "json_object"})
         except Exception:
             log.exception("duplicate-check LLM call failed")
             return empty

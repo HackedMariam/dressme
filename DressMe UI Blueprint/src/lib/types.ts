@@ -54,9 +54,18 @@ export interface PhotoMatch {
   match: WardrobeItem | null
 }
 
+/** A fashion-book passage the stylist's advice is based on; `marker` is the [S1] tag used in the reply. */
+export interface AdviceSource {
+  marker: string
+  title: string
+  page?: number | null
+  source?: string | null
+}
+
 export interface AgentReply {
   reply: string
   items: WardrobeItem[]
+  sources?: AdviceSource[]
   /** Search filters the agent chose, e.g. { category: "jacket", min_warmth: 4 } */
   filters?: Record<string, string | number>[]
 }
