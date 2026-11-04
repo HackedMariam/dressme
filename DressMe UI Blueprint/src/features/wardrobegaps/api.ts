@@ -22,6 +22,8 @@ export type RankedGap = {
   redundancy_score: number;
   closest_owned_item: string;
   pairable_owned_items: number;
+  // The signed-in user's own label for this gap, stored on the server: 3 = "I need this", 0 = "Not relevant".
+  feedback?: 0 | 3 | null;
 };
 
 export type TrainingRun = {
@@ -147,6 +149,47 @@ export const sendFeedback = (goal: string, candidateId: string, relevance: 0 | 3
 export const fetchLearning = () => request<LearningStatus>("/api/bo3/learning");
 export const retrainRanker = () => post<{ training: TrainingRun; status: LearningStatus }>("/api/bo3/retrain");
 export const resetRanker = () => post<LearningStatus>("/api/bo3/reset-model");
+
+// --- Shopping planner agent (backend/agent/planner.py) ---
+export type PlanClose = { goal: string; goal_label: string; candidate_id: string; need: string; completes: boolean };
+export type PlanPurchase = {
+  order: number;
+  category: string;
+  subcategory: string;
+  name: string;
+  price_tnd: { low: number; high: number; estimate: number };
+  gain: number;
+  can_search_shops: boolean;
+  closes: PlanClose[];
+};
+// What the agent really did, in order; the interface plays these back as it works.
+export type PlanStep = { id: string; title: string; detail: string };
+export type PlanTotals = { pieces: number; estimated_cost: number; needs_closed: number; needs_open_before: number };
+export type PlanResult = {
+  objective: string;
+  budget_tnd: number | null;
+  goals: { id: string; label: string }[];
+  plan_source: "ai" | "default";
+  summary: string;
+  summary_source: "ai" | "template";
+  rationale: string;
+  steps: PlanStep[];
+  purchases: PlanPurchase[];
+  totals: PlanTotals;
+  baseline: PlanTotals; // the simple method: the first gap of each context
+  leftover_budget: number | null;
+  note?: string | null;
+  price_note: string;
+  cached: boolean;
+};
+
+export const fetchPlan = (objective: string, budgetTnd: number | null) =>
+  post<PlanResult>("/api/bo3/plan", { objective, budget_tnd: budgetTnd });
+
+export const fetchPlanPhotos = (category: string, subcategory: string, limit = 3) =>
+  request<{ piece: string; images: WebPhoto[]; message: string | null }>(
+    `/api/bo3/plan/photos?category=${encodeURIComponent(category)}&subcategory=${encodeURIComponent(subcategory)}&limit=${limit}`,
+  );
 
 export const sendChat =(message: string, history: ChatTurn[], conversationId: string | null) =>
   request<ChatResponse>("/api/bo3/chat", {

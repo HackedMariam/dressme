@@ -1,5 +1,5 @@
 // Shared constants and helpers of the Wardrobe Gaps page.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { CoveredRequirement, RankedGap } from "./api";
 
 export const GOAL_DESIGN: Record<string, { icon: string; short: string; note: string; prompt: string }> = {
@@ -28,32 +28,37 @@ export const PRIORITY_STYLE = {
   low: "bg-[#E8EDE0] text-[#556B2F]",
 };
 
-const DISMISSED_KEY = "dressme.bo3.dismissed";
-const CONFIRMED_KEY = "dressme.bo3.confirmed";
+// "I need this" (3) / "Not relevant" (0) labels live on the server, per user: the ranking brings them back
+// (RankedGap.feedback), so they follow the account to any browser or device and never leak to another account.
+// This hook only keeps the buttons instant: a click shows at once, and the server answer confirms or reverts it.
+export type Label = 0 | 3 | null;
 
-function readList(key: string): string[] {
+export function useFeedbackLabels() {
+  const [labels, setLabels] = useState<Record<string, Label>>({});
+
+  // Replace the labels of one goal with what the server says (a fresh ranking), leaving other goals alone.
+  const syncFromRanking = (goal: string, gaps: RankedGap[]) =>
+    setLabels((current) => {
+      const next = Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${goal}:`)));
+      for (const gap of gaps) if (gap.feedback != null) next[feedbackKey(goal, gap.candidate_id)] = gap.feedback;
+      return next;
+    });
+
+  const set = (key: string, label: Label) => setLabels((current) => ({ ...current, [key]: label }));
+  const labelOf = (key: string): Label => labels[key] ?? null;
+  return { labelOf, set, syncFromRanking };
+}
+
+// The old versions kept these two lists in the browser, shared by every account that used it. The server has the
+// labels that mattered (each click was already sent), so the leftovers are simply removed.
+export function clearLegacyFeedbackStorage() {
   try {
-    return JSON.parse(localStorage.getItem(key) ?? "[]");
+    localStorage.removeItem("dressme.bo3.dismissed");
+    localStorage.removeItem("dressme.bo3.confirmed");
   } catch {
-    return [];
+    // Storage can be blocked: nothing to clean then.
   }
 }
-
-function usePersistentList(key: string) {
-  const [list, setList] = useState<string[]>(() => readList(key));
-  useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(list));
-    } catch {
-      // Feedback still works for this session without storage.
-    }
-  }, [key, list]);
-  const toggle = (id: string, on: boolean) => setList((l) => (on ? [...new Set([...l, id])] : l.filter((x) => x !== id)));
-  return [list, toggle] as const;
-}
-
-export const useDismissedList = () => usePersistentList(DISMISSED_KEY);
-export const useConfirmedList = () => usePersistentList(CONFIRMED_KEY);
 
 // Coverage = owned units / required units across every requirement of the goal.
 export function coverage(gaps: RankedGap[], covered: CoveredRequirement[], filled?: string) {

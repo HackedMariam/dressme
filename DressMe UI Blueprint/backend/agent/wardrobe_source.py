@@ -23,6 +23,8 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from . import piece_classifier
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BACKEND_DIR / "data"
 load_dotenv(BACKEND_DIR / ".env")
@@ -46,6 +48,7 @@ CATEGORY_MAP = {
     "pants": "bottom", "trousers": "bottom", "jeans": "bottom", "shorts": "bottom", "skirt": "bottom",
     "dress": "dress",
     "jacket": "outerwear", "coat": "outerwear", "blazer": "outerwear", "outerwear": "outerwear",
+    "vest": "outerwear", "waistcoat": "outerwear", "gilet": "outerwear",
     "shoe": "shoes", "shoes": "shoes", "sneakers": "shoes", "boots": "shoes", "sandals": "shoes",
     "bag": "accessory", "belt": "accessory", "hat": "accessory", "glasses": "accessory",
     "watch": "accessory", "tights": "accessory", "scarf": "accessory", "jewelry": "accessory",
@@ -63,10 +66,18 @@ SUBCATEGORY_RULES: dict[str, list[tuple[str, str]]] = {
     "bottom": [("legging", "leggings"), ("jogger", "joggers"), ("sweatpant", "joggers"), ("track", "joggers"),
                ("jeans", "jeans"), ("chino", "chinos"), ("short", "shorts"), ("linen", "linen_trousers"),
                ("skirt", "skirt"), ("trouser", "trousers"), ("pants", "trousers")],
-    "dress": [("evening", "evening_dress"), ("cocktail", "cocktail_dress")],
+    "dress": [("evening", "evening_dress"), ("cocktail", "cocktail_dress"), ("maxi", "maxi_dress"), ("midi", "midi_dress")],
+    # The names BO1's language model really gives to jackets (bomber, biker, military, casual...) come after the
+    # classic ones. A plain "jacket" is handled by FALLBACK_RULES, so a name such as "Black Puffer Jacket" still
+    # reaches its "puffer" keyword first.
     "outerwear": [("track", "track_jacket"), ("windbreaker", "windbreaker"), ("softshell", "windbreaker"),
                   ("fleece", "fleece"), ("hoodie", "hoodie"), ("waterproof", "rain_jacket"), ("rain", "rain_jacket"), ("trench", "trench"), ("parka", "parka"), ("puffer", "puffer"),
-                  ("suit", "suit_jacket"), ("blazer", "blazer"), ("denim", "denim_jacket"), ("coat", "coat")],
+                  ("padded", "puffer"), ("quilted", "puffer"), ("down jacket", "puffer"),
+                  ("suit", "suit_jacket"), ("blazer", "blazer"), ("denim", "denim_jacket"), ("coat", "coat"),
+                  ("bomber", "bomber_jacket"), ("biker", "leather_jacket"), ("leather", "leather_jacket"),
+                  ("military", "field_jacket"), ("field", "field_jacket"), ("utility", "field_jacket"),
+                  ("vest", "vest"), ("gilet", "vest"), ("waistcoat", "vest"),
+                  ("lightweight", "light_jacket"), ("light jacket", "light_jacket")],
     "shoes": [("hiking", "hiking_boots"), ("trek", "hiking_boots"), ("running", "sneakers"), ("trainer", "sneakers"),
               ("ankle boot", "ankle_boots"), ("boot", "boots"), ("loafer", "loafers"), ("derby", "derbies"),
               ("oxford", "oxfords"), ("heel", "heels"), ("pump", "pumps"), ("sandal", "sandals"),
@@ -75,7 +86,23 @@ SUBCATEGORY_RULES: dict[str, list[tuple[str, str]]] = {
                   ("backpack", "backpack"), ("rucksack", "backpack"), ("beach bag", "beach_bag"), ("tote", "tote"),
                   ("bag", "bag"), ("belt", "belt"), ("headband", "headband"), ("sock", "socks"),
                   ("tights", "tights"), ("glove", "gloves"), ("umbrella", "umbrella"), ("scarf", "scarf"),
-                  ("sunglass", "sunglasses"), ("hat", "hat"), ("cap", "cap"), ("tie", "tie"), ("jewel", "jewelry")],
+                  ("sunglass", "sunglasses"), ("hat", "hat"), ("cap", "cap"), ("tie", "tie"), ("jewel", "jewelry"),
+                  ("watch", "watch")],
+}
+
+# Last resort when no keyword above matched in the subcategory NOR in the name: a general word that is too vague to
+# be checked first (it would hide the more precise keywords of the name).
+FALLBACK_RULES: dict[str, list[tuple[str, str]]] = {
+    "outerwear": [("jacket", "casual_jacket")],
+}
+
+
+# The subcategories the rules of coverage.py understand, per category: the closed list the language model chooses from.
+CANONICAL: dict[str, list[str]] = {
+    category: sorted({canonical for _, canonical in rules}
+                     | {canonical for _, canonical in FALLBACK_RULES.get(category, [])}
+                     | ({"polo"} if category == "top" else set()))
+    for category, rules in SUBCATEGORY_RULES.items()
 }
 
 
@@ -89,6 +116,9 @@ def _subcategory(category: str, row: dict[str, Any]) -> str:
         if keyword in (row.get("subcategory") or "").lower():
             return canonical
     for keyword, canonical in SUBCATEGORY_RULES.get(category, []):
+        if keyword in text:
+            return canonical
+    for keyword, canonical in FALLBACK_RULES.get(category, []):
         if keyword in text:
             return canonical
     return _slug(row.get("subcategory") or row.get("category") or "other")
@@ -115,6 +145,22 @@ def to_bo3_item(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def refine_unrecognised(rows: list[dict[str, Any]], items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Pieces whose name the keyword rules did not recognise get a subcategory from the language model, chosen in
+    CANONICAL or not at all (see piece_classifier.py). The rules always go first; a failure changes nothing."""
+    unknown = [(row, item) for row, item in zip(rows, items)
+               if item["category"] in CANONICAL and item["subcategory"] not in CANONICAL[item["category"]]]
+    if not unknown:
+        return items
+    texts = {id(item): piece_classifier.clean_text(row.get("subcategory") or row.get("name")) for row, item in unknown}
+    answers = piece_classifier.classify_many([(item["category"], texts[id(item)]) for _, item in unknown], CANONICAL)
+    for _, item in unknown:
+        choice = answers.get((item["category"], texts[id(item)]))
+        if choice:
+            item["subcategory"], item["subcategory_source"] = choice, "llm"
+    return items
+
+
 def _fetch_supabase(user_id: str | None) -> list[dict[str, Any]]:
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
@@ -128,7 +174,8 @@ def _fetch_supabase(user_id: str | None) -> list[dict[str, Any]]:
         timeout=15,
     )
     response.raise_for_status()
-    return [to_bo3_item(row) for row in response.json()]
+    rows = response.json()
+    return refine_unrecognised(rows, [to_bo3_item(row) for row in rows])
 
 
 def is_demo_user(user_id: str | None) -> bool:

@@ -84,7 +84,7 @@ export default function ContextBar({
           onClick={onAsk}
           className="inline-flex shrink-0 items-center gap-2 rounded-[10px] bg-[#556B2F] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#6B8A3A]"
         >
-          ✦ Ask the agent
+          ✦ Plan my purchases
         </button>
       </div>
 

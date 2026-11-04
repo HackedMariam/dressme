@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from agent.coverage import GOALS, compute_coverage, get_requirement
 from agent.gap_agent import GapAgent, interpret_gaps_with_gpt
 from agent.learning import learning_status, reset_model, retrain
+from agent import planner
 from agent.memory import AgentMemory
 from agent.tools import GapAgentTools, load_profile, load_wardrobe, score_candidates
 from agent.wardrobe_source import source_info
@@ -103,6 +104,12 @@ class FeedbackRequest(BaseModel):
     relevance: Literal[0, 3] | None
 
 
+class PlanRequest(BaseModel):
+    objective: str = Field("", max_length=300)
+    budget_tnd: float | None = Field(None, gt=0, le=planner.MAX_BUDGET_TND)
+    goals: list[str] | None = Field(None, max_length=len(GOALS))
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -126,6 +133,10 @@ def gaps(goal: str = "winter_work", interpret: bool = True, user_id: str = Depen
     if goal not in GOALS:
         raise HTTPException(404, f"Unknown goal {goal!r}.")
     result = GapAgentTools(memory, user_id).rank_gaps(goal)
+    # The user's own labels travel with the ranking, so the buttons look the same on every browser and device.
+    labels = {(row["goal"], row["candidate_id"]): row["relevance"] for row in memory.list_feedback(user_id)}
+    for gap in result["ranked_gaps"]:
+        gap["feedback"] = labels.get((goal, gap["candidate_id"]))   # 3 = "I need this", 0 = "Not relevant", None = no label
     if interpret:
         # The GPT interpretation is optional: if it fails, the ranked gaps are still returned.
         try:
@@ -171,6 +182,31 @@ def feedback(request: FeedbackRequest, user_id: str = Depends(current_user)) -> 
     features = {name: scored[request.candidate_id][name] for name in FEATURES}
     memory.set_feedback(user_id, request.goal, request.candidate_id, features, request.relevance)
     return learning_status(memory, user_id)
+
+
+@app.post("/api/bo3/plan")
+def plan(request: PlanRequest, user_id: str = Depends(current_user)) -> dict[str, Any]:
+    """Shopping planner: the pieces that close the most needs across contexts, within a budget (agent/planner.py).
+    At most two small language-model requests per run, none when the objective is empty."""
+    unknown = [g for g in request.goals or [] if g not in GOALS]
+    if unknown:
+        raise HTTPException(404, f"Unknown goal {unknown[0]!r}.")
+    try:
+        planner.check_rate(user_id)
+    except planner.RateLimited as error:
+        raise HTTPException(429, str(error)) from error
+    return planner.run_plan(memory, user_id, request.objective, request.budget_tnd, request.goals)
+
+
+@app.get("/api/bo3/plan/photos")
+def plan_photos(category: str, subcategory: str, limit: int = 3, user_id: str = Depends(current_user)) -> dict[str, Any]:
+    """Photos of Tunisian shops for a planned piece. The search words come from a fixed catalogue, never from the browser."""
+    words = planner.shop_search_text(category, subcategory)
+    if words is None:
+        raise HTTPException(404, f"No shop search for {category}/{subcategory}.")
+    department = load_profile(user_id).get("department")
+    return {"piece": planner.piece_name(category, subcategory), "department": department,
+            **search_images(words, limit, department)}
 
 
 @app.get("/api/bo3/learning")

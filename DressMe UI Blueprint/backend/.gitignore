@@ -8,3 +8,4 @@ __pycache__/
 /data/agent_memory.sqlite3
 /models/users/
 /data/web_images_cache.json
+/data/piece_classes_cache.json

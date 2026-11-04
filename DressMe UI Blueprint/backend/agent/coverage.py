@@ -248,7 +248,7 @@ GOALS: dict[str, dict[str, Any]] = {
                 "name": "Warm-up layer",
                 "description": "a lightweight track jacket",
                 "match": [
-                    {"category": "outerwear", "subcategories": ["track_jacket", "windbreaker", "hoodie", "fleece"], "tags": ["sport", "sporty"]},
+                    {"category": "outerwear", "subcategories": ["track_jacket", "windbreaker", "hoodie", "fleece", "light_jacket", "bomber_jacket"], "tags": ["sport", "sporty"]},
                     {"category": "top", "subcategories": ["hoodie"]},
                 ],
                 "min_count": 1,
@@ -476,7 +476,7 @@ GOALS: dict[str, dict[str, Any]] = {
                 "id": "smart_layer",
                 "name": "Smart layer",
                 "description": "a tailored blazer",
-                "match": [{"category": "outerwear", "subcategories": ["blazer", "suit_jacket", "coat", "trench"]}],
+                "match": [{"category": "outerwear", "subcategories": ["blazer", "suit_jacket", "coat", "trench", "leather_jacket"]}],
                 "min_count": 1,
                 "occasion": "date_night",
                 "season_relevance": 0.65,

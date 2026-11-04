@@ -121,7 +121,7 @@ export default function GapDetail({
           {dismissed ? "Restore" : "Not relevant"}
         </button>
         <button onClick={onAsk} className="ml-auto rounded-[10px] bg-[#1C1C1C] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-black">
-          Ask the agent →
+          Ask about this piece →
         </button>
       </div>
     </section>

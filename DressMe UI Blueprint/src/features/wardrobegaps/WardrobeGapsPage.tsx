@@ -10,12 +10,12 @@ import {
   type RankedGap,
   type WebPhoto,
 } from "./api";
-import AgentDrawer, { type Message } from "./AgentDrawer";
+import AgentDrawer, { type DrawerTab, type Message } from "./AgentDrawer";
 import ContextBar from "./ContextBar";
 import GapDetail from "./GapDetail";
 import GapList from "./GapList";
 import SourceBanner from "./SourceBanner";
-import { GOAL_DESIGN, coverage, feedbackKey, useConfirmedList, useDismissedList } from "./gapUtils";
+import { GOAL_DESIGN, clearLegacyFeedbackStorage, coverage, feedbackKey, useFeedbackLabels, type Label } from "./gapUtils";
 
 // Two panes instead of a long scroll: the ranked list on the left, the selected piece on the right.
 // On wide screens the page fits the window; the list and the detail scroll on their own if needed.
@@ -27,28 +27,35 @@ export default function WardrobeGapsPage() {
   const [reload, setReload] = useState(0); // bumped after a model refresh to rank again
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [photoThumbs, setPhotoThumbs] = useState<Record<string, string>>({}); // "goal:piece" -> first photo
-  const [dismissed, toggleDismissed] = useDismissedList();
-  const [confirmed, toggleConfirmed] = useConfirmedList();
+  const { labelOf, set: setLabel, syncFromRanking } = useFeedbackLabels();
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("plan"); // the planner agent opens first; "Chat" is the other tab
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
 
   useEffect(() => {
+    clearLegacyFeedbackStorage();
     fetchGoals().then(setGoals).catch((e: Error) => setError(e.message));
   }, []);
 
   useEffect(() => {
     setRanking(null);
     setError(null);
-    fetchGaps(goal).then(setRanking).catch((e: Error) => setError(e.message));
+    fetchGaps(goal)
+      .then((reply) => {
+        syncFromRanking(goal, reply.ranked_gaps); // the labels come from the server, so they follow the account
+        setRanking(reply);
+      })
+      .catch((e: Error) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncFromRanking only wraps a state setter
   }, [goal, reload]);
 
-  const isDismissed = useCallback((id: string) => dismissed.includes(feedbackKey(goal, id)), [dismissed, goal]);
-  const isConfirmed = useCallback((id: string) => confirmed.includes(feedbackKey(goal, id)), [confirmed, goal]);
+  const isDismissed = useCallback((id: string) => labelOf(feedbackKey(goal, id)) === 0, [labelOf, goal]);
+  const isConfirmed = useCallback((id: string) => labelOf(feedbackKey(goal, id)) === 3, [labelOf, goal]);
 
   // Select the first piece still to consider when a ranking arrives, so the right pane is never empty.
   useEffect(() => {
@@ -84,28 +91,21 @@ export default function WardrobeGapsPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [ranking, selectedId, drawerOpen]);
 
-  // Sends a label to the backend; the local list keeps the buttons in sync across reloads.
-  const giveFeedback = (gap: RankedGap, relevance: 0 | 3 | null) => {
+  // Shows the label at once, saves it on the server (per user), and puts the previous label back if saving fails.
+  // One label per gap: "I need this" replaces "Not relevant" and the other way round.
+  const giveFeedback = (gap: RankedGap, relevance: Label) => {
+    const key = feedbackKey(goal, gap.candidate_id);
+    const previous = labelOf(key);
     setFeedbackError(null);
-    sendFeedback(goal, gap.candidate_id, relevance).catch((e: Error) => setFeedbackError(`Feedback not saved: ${e.message}`));
+    setLabel(key, relevance);
+    sendFeedback(goal, gap.candidate_id, relevance).catch((e: Error) => {
+      setLabel(key, previous);
+      setFeedbackError(`Feedback not saved: ${e.message}`);
+    });
   };
-  const confirm = (gap: RankedGap) => {
-    const key = feedbackKey(goal, gap.candidate_id);
-    const on = !confirmed.includes(key);
-    toggleConfirmed(key, on);
-    if (on) toggleDismissed(key, false); // "I need this" replaces an earlier "Not relevant"
-    giveFeedback(gap, on ? 3 : null);
-  };
-  const dismiss = (gap: RankedGap) => {
-    const key = feedbackKey(goal, gap.candidate_id);
-    toggleDismissed(key, true);
-    toggleConfirmed(key, false);
-    giveFeedback(gap, 0);
-  };
-  const restore = (gap: RankedGap) => {
-    toggleDismissed(feedbackKey(goal, gap.candidate_id), false);
-    giveFeedback(gap, null);
-  };
+  const confirm = (gap: RankedGap) => giveFeedback(gap, isConfirmed(gap.candidate_id) ? null : 3);
+  const dismiss = (gap: RankedGap) => giveFeedback(gap, 0);
+  const restore = (gap: RankedGap) => giveFeedback(gap, null);
 
   const rememberPhoto = (gap: RankedGap, photos: WebPhoto[]) => {
     if (photos[0]) setPhotoThumbs((t) => ({ ...t, [feedbackKey(goal, gap.candidate_id)]: photos[0].thumbnail }));
@@ -128,6 +128,7 @@ export default function WardrobeGapsPage() {
   const ask = async (text: string) => {
     const message = text.trim();
     if (!message || thinking) return;
+    setDrawerTab("chat");
     setDrawerOpen(true);
     const history: ChatTurn[] = messages.map(({ role, content }) => ({ role, content }));
     setMessages((m) => [...m, { role: "user", content: message }]);
@@ -157,7 +158,10 @@ export default function WardrobeGapsPage() {
         onGoal={changeGoal}
         score={score}
         department={ranking?.department}
-        onAsk={() => setDrawerOpen(true)}
+        onAsk={() => {
+          setDrawerTab("plan");
+          setDrawerOpen(true);
+        }}
         onRankingChanged={() => setReload((n) => n + 1)}
       />
 
@@ -228,6 +232,8 @@ export default function WardrobeGapsPage() {
         thinking={thinking}
         error={chatError}
         onSend={ask}
+        tab={drawerTab}
+        onTab={setDrawerTab}
         suggestion={GOAL_DESIGN[goal]?.prompt ?? "What am I missing?"}
       />
     </div>
