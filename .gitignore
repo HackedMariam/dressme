@@ -71,3 +71,6 @@ desktop.ini
 .idea/
 .vscode/
 *.swp
+
+# generated demo video
+demo/*.mp4
