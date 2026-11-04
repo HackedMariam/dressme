@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import fs from 'node:fs'
 import path from 'node:path'
 
 import siteConfiguration from './.figma/make/site.json'
@@ -50,6 +51,14 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      // HTTPS when .cert/ exists (run scripts/make-dev-cert.ps1): the browser only gives the camera to http://localhost
+      // or to https pages, so the Live scan needs it on any other address (LAN IP, phone).
+      https: fs.existsSync(path.resolve(__dirname, '.cert/dev.key')) && fs.existsSync(path.resolve(__dirname, '.cert/dev.crt'))
+        ? {
+            key: fs.readFileSync(path.resolve(__dirname, '.cert/dev.key')),
+            cert: fs.readFileSync(path.resolve(__dirname, '.cert/dev.crt')),
+          }
+        : undefined,
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,

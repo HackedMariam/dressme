@@ -20,3 +20,6 @@ logs/
 # beside it.
 /.plugins/
 /.opencode-skills/
+
+# local HTTPS certificate for the dev server (scripts/make-dev-cert.ps1)
+.cert/
