@@ -57,7 +57,7 @@ export default function ContextBar({
               </span>
             )}
           </p>
-          <h1 className="font-display text-[22px] font-semibold leading-tight text-[#1C1C1C]">Your wardrobe, gap by gap</h1>
+          <h1 className="font-display text-[22px] font-semibold leading-tight text-[#1C1C1C]">Wardrobe Gaps</h1>
         </div>
 
         <div ref={tip} className="relative flex items-center gap-2">

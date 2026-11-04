@@ -37,6 +37,7 @@ export interface Health {
   auth: boolean
   llm: boolean
   llm_model?: string
+  avatar?: boolean
 }
 
 export interface AccuracyRow {

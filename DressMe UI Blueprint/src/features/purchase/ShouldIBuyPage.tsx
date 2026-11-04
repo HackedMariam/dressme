@@ -151,7 +151,7 @@ export default function ShouldIBuyPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Fashion Assistant</h1>
+        <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">Should I Buy?</h1>
         <p className="mt-1 text-sm text-[#8C8A82]">
           Thinking of buying a new piece? Upload a photo or paste a link, set your budget, and get an AI verdict grounded in your wardrobe.
         </p>

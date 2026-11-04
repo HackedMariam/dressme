@@ -4,7 +4,9 @@ import { TAXONOMY, cap } from "../../lib/taxonomy"
 import type { AccuracyRow } from "../../lib/types"
 import { useUserData } from "../profile/UserDataProvider"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
+import type { Page } from "../shell/navigation"
 import OutfitsToBuy from "../shop/OutfitsToBuy"
+import GettingStarted from "./GettingStarted"
 import GapsCard from "../wardrobegaps/GapsCard"
 
 function Bar({ label, value, total }: { label: string; value: number; total: number }) {
@@ -22,13 +24,16 @@ function Bar({ label, value, total }: { label: string; value: number; total: num
   )
 }
 
-export default function DashboardPage({
-  onOpenGaps,
-  onOpenAvatar,
-}: {
-  onOpenGaps?: () => void
-  onOpenAvatar?: () => void
-}) {
+const QUICK_ACTIONS: { label: string; hint: string; page: Page }[] = [
+  { label: "Ask the AI Stylist", hint: "What should I wear?", page: "ai-stylist" },
+  { label: "Plan a trip", hint: "Pack with what you own", page: "help-me-pack" },
+  { label: "Check a purchase", hint: "Do I really need it?", page: "should-i-buy" },
+  { label: "Recreate a look", hint: "From a photo you like", page: "find-similar" },
+]
+
+export default function DashboardPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
+  const onOpenGaps = () => onNavigate("wardrobe-gaps")
+  const onOpenAvatar = () => onNavigate("avatar")
   const { items, health, loading, error } = useWardrobe()
   const { profile } = useUserData()
   const [accuracy, setAccuracy] = useState<AccuracyRow[]>([])
@@ -125,34 +130,48 @@ export default function DashboardPage({
         </div>
       ) : (
         <>
+          <GettingStarted onNavigate={onNavigate} />
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { label: "Total items", value: String(items.length), sub: "in your wardrobe" },
-              { label: "To review", value: String(stats.toReview), sub: "need a quick check" },
+              { label: "Pieces", value: String(items.length), sub: "in your wardrobe" },
               {
-                label: "Avg. confidence",
-                value: `${Math.round(stats.avgConfidence * 100)}%`,
-                sub: "model detection",
+                label: "Categories",
+                value: `${stats.byGroup.filter((entry) => entry.value > 0).length}/${stats.byGroup.length}`,
+                sub: "types of clothing covered",
               },
+              { label: "Colours", value: String(stats.colors.length), sub: "in your palette" },
               {
-                label: "AI classification",
-                value: health?.llm ? "On" : "Off",
-                sub: health?.llm ? health.llm_model ?? "LLM ready" : "rules only",
+                label: "To review",
+                value: String(stats.toReview),
+                sub: stats.toReview ? "need a quick check" : "all checked",
               },
             ].map((card) => (
               <div key={card.label} className="rounded-xl bg-[#F0EFEA] p-5">
                 <p className="text-xs uppercase tracking-widest text-[#8C8A82]">{card.label}</p>
-                <p className="mt-2 font-display text-3xl font-semibold text-[#1C1C1C]">
-                  {card.value}
-                </p>
+                <p className="mt-2 font-display text-3xl font-semibold text-[#1C1C1C]">{card.value}</p>
                 <p className="mt-1 text-xs text-[#8C8A82]">{card.sub}</p>
               </div>
             ))}
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {QUICK_ACTIONS.map((action) => (
+              <button
+                key={action.page}
+                type="button"
+                onClick={() => onNavigate(action.page)}
+                className="rounded-xl border border-[#E2E0D8] bg-white px-4 py-3 text-left transition-colors hover:border-[#556B2F] hover:bg-[#FAF9F6]"
+              >
+                <p className="text-sm font-semibold text-[#1C1C1C]">{action.label}</p>
+                <p className="mt-0.5 text-xs text-[#8C8A82]">{action.hint}</p>
+              </button>
+            ))}
+          </div>
+
           <OutfitsToBuy onOpenAvatar={onOpenAvatar} />
 
-          {onOpenGaps && <GapsCard onOpen={onOpenGaps} />}
+          <GapsCard onOpen={onOpenGaps} />
 
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-xl bg-[#F0EFEA] p-6">
@@ -228,7 +247,33 @@ export default function DashboardPage({
               )}
             </section>
 
-            <section className="rounded-xl bg-[#F0EFEA] p-6">
+
+          </div>
+
+          <details className="group rounded-xl bg-[#F0EFEA] p-6">
+            <summary className="cursor-pointer list-none font-display text-lg font-medium text-[#1C1C1C]">
+              Model details
+              <span className="ml-2 text-xs font-normal text-[#8C8A82]">
+                how reliable the automatic detection is
+              </span>
+            </summary>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-lg bg-white p-4">
+                <p className="text-xs uppercase tracking-widest text-[#8C8A82]">Average confidence</p>
+                <p className="mt-1 font-display text-2xl font-semibold text-[#1C1C1C]">
+                  {Math.round(stats.avgConfidence * 100)}%
+                </p>
+              </div>
+              <div className="rounded-lg bg-white p-4">
+                <p className="text-xs uppercase tracking-widest text-[#8C8A82]">AI classification</p>
+                <p className="mt-1 font-display text-2xl font-semibold text-[#1C1C1C]">
+                  {health?.llm ? "On" : "Off"}
+                </p>
+                <p className="text-xs text-[#8C8A82]">{health?.llm ? health.llm_model ?? "LLM ready" : "rules only"}</p>
+              </div>
+            </div>
+            <div className="mt-4">
+            <div>
               <h2 className="font-display text-lg font-medium text-[#1C1C1C]">
                 Detection accuracy
               </h2>
@@ -270,8 +315,9 @@ export default function DashboardPage({
               <p className="mt-3 text-xs text-[#8C8A82]">
                 {stats.confirmed} item{stats.confirmed === 1 ? "" : "s"} confirmed so far.
               </p>
-            </section>
-          </div>
+            </div>
+            </div>
+          </details>
         </>
       )}
     </div>

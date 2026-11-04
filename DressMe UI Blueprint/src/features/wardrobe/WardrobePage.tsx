@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { api, asset } from "../../lib/api"
 import { COLORS, TAXONOMY, cap, formatDate, seasonLabel } from "../../lib/taxonomy"
 import type { SkippedItem, WardrobeItem } from "../../lib/types"
@@ -115,7 +115,8 @@ function ItemCard({
   )
 }
 
-export default function WardrobePage() {
+// addSignal: the sidebar "Add clothing" button increments it to open the photo picker on arrival.
+export default function WardrobePage({ addSignal = 0 }: { addSignal?: number }) {
   const { items, health, loading, error, reload, addItems, updateItem, reclassifyItem, deleteItem } =
     useWardrobe()
 
@@ -145,6 +146,10 @@ export default function WardrobePage() {
 
   const fileInput = useRef<HTMLInputElement>(null)
   const photoInput = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (addSignal > 0) fileInput.current?.click()
+  }, [addSignal])
 
   const counts = useMemo(() => {
     const next: Record<string, number> = { All: items.length }
