@@ -218,6 +218,13 @@ export const api = {
 
   avatarTryOnImage: (itemId: string) => requestBlob(`/api/avatar/tryon/${encodeURIComponent(itemId)}/image`),
 
+  // A whole outfit of wardrobe pieces, put on one garment at a time. `cached` means it was tried before (free).
+  avatarTryOnOutfit: (itemIds: string[], refresh = false) =>
+    request<{ cached: boolean; tryon_id: string; job_id?: string }>("/api/avatar/tryon-outfit", {
+      method: "POST",
+      body: JSON.stringify({ item_ids: itemIds, refresh }),
+    }),
+
   // A piece the user does not own yet: their own shop photo, or the link of a shop photo. 2D result, one job to poll.
   avatarTryOnGarment: (garment: { file?: File; imageUrl?: string }, group: string) => {
     const form = new FormData()

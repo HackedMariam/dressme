@@ -9,6 +9,7 @@ Pipeline for one photo:
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import logging
 import uuid
@@ -514,6 +515,58 @@ async def avatar_tryon_garment(group: str = Form(...), image_url: str | None = F
         return {"tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work)}
 
     return await run_in_threadpool(lambda: _avatar_errors(start))
+
+
+class OutfitTryOnRequest(BaseModel):
+    item_ids: list[str]
+    refresh: bool = False
+
+
+# Layering order for a whole outfit: each garment is put on the picture produced by the previous one.
+_LAYER_ORDER = {"one-pieces": 0, "bottoms": 1, "tops": 2}
+
+
+@app.post("/api/avatar/tryon-outfit")
+def avatar_tryon_outfit(body: OutfitTryOnRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+    """Try on a whole outfit of wardrobe pieces, in 2D (background job, about $0.075 per garment).
+    Shoes, bags and accessories are skipped. The result is read from GET /api/avatar/tryon/{tryon_id}/image."""
+    if not body.item_ids or len(body.item_ids) > 6:
+        raise HTTPException(400, "Send between 1 and 6 pieces.")
+    garments = []
+    for item_id in dict.fromkeys(body.item_ids):
+        item = _get_or_404(user, item_id)
+        category = avatar.tryon_category(item)
+        if category is not None:
+            garments.append((item, category))
+    if not garments:
+        raise HTTPException(422, "Try-on works for tops, jackets, bottoms and dresses (not shoes, bags or accessories).")
+    if sum(1 for _, category in garments if category == "one-pieces") and len(garments) > 1:
+        garments = [pair for pair in garments if pair[1] == "one-pieces"][:1] + \
+                   [pair for pair in garments if pair[1] != "one-pieces" and pair[0].get("category_group") == "Outerwear"]
+    # Outerwear goes on last, over the top.
+    garments.sort(key=lambda pair: (pair[0].get("category_group") == "Outerwear", _LAYER_ORDER[pair[1]]))
+    tryon_id = "outfit-" + hashlib.sha1("|".join(sorted(item["id"] for item, _ in garments)).encode()).hexdigest()[:16]
+
+    def start() -> dict:
+        if avatar.load_tryon(store, user.id, tryon_id, "png") is not None and not body.refresh:
+            return {"cached": True, "tryon_id": tryon_id}
+        photo = avatar.load_photo(store, user.id)
+        if photo is None:
+            raise avatar.AvatarError(409, "Create your 3D avatar first.")
+        for _ in garments:   # every garment is one paid call
+            avatar.check_quota(user.id, "try-ons", config.AVATAR_TRYONS_PER_HOUR, 3600)
+
+        def work() -> None:
+            current = photo
+            for item, category in garments:
+                cutout = store.download(f"{item_folder(user.id, item['id'])}/cutout.png")
+                current = avatar.try_on_image(current, cutout, category)
+            avatar.save_tryon(store, user.id, tryon_id, current, "png")
+
+        return {"cached": False, "tryon_id": tryon_id, "job_id": avatar.start_job(user.id, "tryon", work),
+                "garments": len(garments)}
+
+    return _avatar_errors(start)
 
 
 def _get_or_404(user: User, item_id: str) -> dict:

@@ -2,22 +2,27 @@ import { useEffect, useRef, useState } from "react"
 import { ApiError, api } from "../../lib/api"
 
 export type Garment = { file?: File; imageUrl?: string }
+export type OutfitTryOn = { itemIds: string[]; previews: string[] }
 
 type Phase = "ready" | "working" | "done" | "failed"
 
 const POLL_MS = 3000
+const COST_PER_GARMENT = 0.08
 
-// Virtual try-on of a piece the user does not own: their avatar photo wearing a shop item (about $0.075 on fal.ai).
-// Nothing is sent until the user presses the start button, because every try-on costs money.
+// Virtual try-on on the user's avatar photo (fal.ai, about $0.075 per garment): either one garment (a shop photo or a
+// link) or a whole outfit made of wardrobe pieces. Nothing is sent until the user presses the start button, because
+// every try-on costs money.
 export default function TryOnModal({
   garment,
   group,
+  outfit,
   label,
   onClose,
   onOpenAvatar,
 }: {
-  garment: Garment
-  group: string
+  garment?: Garment
+  group?: string
+  outfit?: OutfitTryOn
   label: string
   onClose: () => void
   onOpenAvatar?: () => void
@@ -37,12 +42,12 @@ export default function TryOnModal({
   }, [])
 
   useEffect(() => {
-    if (garment.file) {
+    if (garment?.file) {
       const url = URL.createObjectURL(garment.file)
       setPreview(url)
       return () => URL.revokeObjectURL(url)
     }
-    setPreview(garment.imageUrl ?? "")
+    setPreview(garment?.imageUrl ?? "")
   }, [garment])
 
   useEffect(() => {
@@ -57,30 +62,47 @@ export default function TryOnModal({
     setPhase("failed")
   }
 
+  const show = async (tryonId: string) => {
+    const blob = await api.avatarTryOnImage(tryonId)
+    if (!alive.current) return
+    setResult(URL.createObjectURL(blob))
+    setPhase("done")
+  }
+
   const start = async () => {
     setPhase("working")
     setError("")
     setNeedsAvatar(false)
     try {
-      const { tryon_id, job_id } = await api.avatarTryOnGarment(garment, group)
+      let tryonId: string
+      let jobId: string | undefined
+      if (outfit) {
+        const started = await api.avatarTryOnOutfit(outfit.itemIds)
+        tryonId = started.tryon_id
+        jobId = started.cached ? undefined : started.job_id
+      } else if (garment && group) {
+        const started = await api.avatarTryOnGarment(garment, group)
+        tryonId = started.tryon_id
+        jobId = started.job_id
+      } else {
+        return fail("Nothing to try on.")
+      }
+      if (!jobId) return await show(tryonId) // an outfit tried before is served for free
       while (alive.current) {
         await new Promise((resolve) => setTimeout(resolve, POLL_MS))
         if (!alive.current) return
-        const job = await api.avatarJob(job_id)
+        const job = await api.avatarJob(jobId)
         if (job.status === "failed") return fail(job.error || "The try-on failed. Please try again.")
-        if (job.status === "done") {
-          const blob = await api.avatarTryOnImage(tryon_id)
-          if (!alive.current) return
-          setResult(URL.createObjectURL(blob))
-          setPhase("done")
-          return
-        }
+        if (job.status === "done") return await show(tryonId)
       }
     } catch (tryError) {
       if (tryError instanceof ApiError && tryError.status === 409) setNeedsAvatar(true)
       fail(tryError instanceof Error ? tryError.message : "The try-on failed.")
     }
   }
+
+  const pieces = outfit?.previews ?? []
+  const cost = outfit ? Math.max(1, outfit.itemIds.length) * COST_PER_GARMENT : COST_PER_GARMENT
 
   return (
     <div
@@ -108,18 +130,31 @@ export default function TryOnModal({
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="flex aspect-[3/4] items-center justify-center overflow-hidden rounded-xl bg-[#F0EFEA]">
-            {preview ? (
+            {pieces.length > 0 ? (
+              <div className={`grid h-full w-full gap-2 p-2 ${pieces.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                {pieces.slice(0, 4).map((source) => (
+                  <div key={source} className="flex items-center justify-center overflow-hidden rounded-lg bg-white/70">
+                    <img src={source} alt="" className="max-h-full max-w-full object-contain" />
+                  </div>
+                ))}
+              </div>
+            ) : preview ? (
               <img src={preview} alt={label} referrerPolicy="no-referrer" className="h-full w-full object-contain" />
             ) : null}
           </div>
           <div className="flex aspect-[3/4] items-center justify-center overflow-hidden rounded-xl bg-[#F0EFEA] text-center">
             {phase === "done" && result ? (
-              <img src={result} alt="You wearing this piece" className="h-full w-full object-contain" />
+              <img src={result} alt="You wearing this" className="h-full w-full object-contain" />
             ) : phase === "working" ? (
               <div className="px-4">
                 <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-[#E2E0D8] border-t-[#556B2F]" />
                 <p className="mt-3 text-sm font-medium text-[#1C1C1C]">Dressing your avatar...</p>
-                <p className="mt-1 text-xs text-[#8C8A82]">Usually under a minute. Keep this window open.</p>
+                <p className="mt-1 text-xs text-[#8C8A82]">
+                  {outfit && outfit.itemIds.length > 1
+                    ? "One garment at a time: about a minute per piece."
+                    : "Usually under a minute."}{" "}
+                  Keep this window open.
+                </p>
               </div>
             ) : (
               <p className="px-4 text-sm text-[#8C8A82]">Your try-on will appear here.</p>
@@ -140,7 +175,7 @@ export default function TryOnModal({
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-sm text-xs text-[#8C8A82]">
-            Your private avatar photo and this garment image are sent to fal.ai. Cost: about $0.08.
+            Your private avatar photo and the garment images are sent to fal.ai. Cost: about ${cost.toFixed(2)}.
           </p>
           {phase !== "done" && (
             <button

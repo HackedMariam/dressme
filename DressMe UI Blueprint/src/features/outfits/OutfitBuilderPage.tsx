@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react"
 import { asset } from "../../lib/api"
+import { tryOnGroup } from "../../lib/pieces"
 import { TAXONOMY, cap } from "../../lib/taxonomy"
 import type { Page } from "../shell/navigation"
+import TryOnModal, { type OutfitTryOn } from "../shop/TryOnModal"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
 import { buildOutfits, currentSeason } from "./outfitBuilder"
 
@@ -13,6 +15,7 @@ export default function OutfitBuilderPage({ onNavigate }: { onNavigate: (page: P
   const [occasion, setOccasion] = useState("everyday")
   const [season, setSeason] = useState(currentSeason)
   const [seed, setSeed] = useState(0)
+  const [tryOn, setTryOn] = useState<OutfitTryOn | null>(null)
 
   const { outfits, missing } = useMemo(
     () => buildOutfits(items, { occasion, season }, 3, seed),
@@ -122,6 +125,20 @@ export default function OutfitBuilderPage({ onNavigate }: { onNavigate: (page: P
                   </div>
                 ))}
             </div>
+            <button
+              type="button"
+              disabled={!outfit.items.some((item) => tryOnGroup(item.category))}
+              onClick={() => {
+                const wearable = outfit.items.filter((item) => tryOnGroup(item.category) && item.cutout_url)
+                setTryOn({
+                  itemIds: wearable.map((item) => item.id),
+                  previews: wearable.map((item) => asset(item.cutout_url)),
+                })
+              }}
+              className="mt-3 w-full rounded-lg bg-[#1C1C1C] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-black disabled:opacity-40"
+            >
+              Virtual try-on
+            </button>
             {outfit.why.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {outfit.why.map((reason) => (
@@ -146,6 +163,15 @@ export default function OutfitBuilderPage({ onNavigate }: { onNavigate: (page: P
             See what to buy
           </button>
         </div>
+      )}
+
+      {tryOn && (
+        <TryOnModal
+          outfit={tryOn}
+          label="Your outfit on your avatar"
+          onClose={() => setTryOn(null)}
+          onOpenAvatar={() => onNavigate("avatar")}
+        />
       )}
     </div>
   )

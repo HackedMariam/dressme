@@ -317,3 +317,43 @@ def test_a_shop_photo_try_on_needs_an_avatar_and_a_supported_group(client, fal):
 def test_remote_garment_images_cannot_reach_the_servers_own_network(url):
     with pytest.raises(avatar.AvatarError):
         avatar.fetch_remote_image(url)
+
+
+def _outfit(client, ids, wait=True, **extra):
+    reply = client.post("/api/avatar/tryon-outfit", json={"item_ids": ids, **extra})
+    job = _wait(client, reply.json()["job_id"]) if wait and reply.status_code == 200 and "job_id" in reply.json() else None
+    return reply, job
+
+
+def test_an_outfit_is_tried_on_garment_by_garment_in_layer_order_and_cached(client, fal):
+    ids = [_add_item("Outerwear", "Coat"), _add_item("Tops", "Shirt"), _add_item("Bottoms", "Trousers"),
+           _add_item("Shoes", "Sneakers")]
+    _create(client)
+    runs = len(fal.runs)
+    reply, job = _outfit(client, ids)
+    assert reply.status_code == 200 and job["status"] == "done", job
+    assert fal.models()[runs:] == [FASHN, FASHN, FASHN]                         # shoes are skipped, no 3D step
+    assert [inputs["category"] for _, inputs in fal.runs[runs:]] == ["bottoms", "tops", "tops"]
+    tryon_id = reply.json()["tryon_id"]
+    assert tryon_id.startswith("outfit-") and client.get(f"/api/avatar/tryon/{tryon_id}/image").status_code == 200
+
+    again = _outfit(client, list(reversed(ids)))[0]                              # same pieces, any order: free
+    assert again.json() == {"cached": True, "tryon_id": tryon_id} and len(fal.runs) == runs + 3
+
+
+def test_an_outfit_needs_an_avatar_and_at_least_one_wearable_piece(client, fal):
+    top = _add_item("Tops", "Shirt")
+    assert _outfit(client, [top])[0].status_code == 409
+    _create(client)
+    runs = len(fal.runs)
+    assert _outfit(client, [_add_item("Shoes", "Sneakers")])[0].status_code == 422 and len(fal.runs) == runs
+    assert _outfit(client, [])[0].status_code == 400
+    assert _outfit(client, ["nope"])[0].status_code == 404
+
+
+def test_a_dress_is_not_combined_with_a_top_or_a_bottom(client, fal):
+    ids = [_add_item("Dresses", "Dress"), _add_item("Tops", "Shirt")]
+    _create(client)
+    runs = len(fal.runs)
+    assert _outfit(client, ids)[1]["status"] == "done"
+    assert [inputs["category"] for _, inputs in fal.runs[runs:]] == ["one-pieces"]
