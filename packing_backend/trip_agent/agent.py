@@ -49,6 +49,7 @@ class TripAgent:
     def __init__(
         self,
         session_id: str | None = None,
+        user_id: str = "local",
         llm: LLMClient | None = None,
         wardrobe_provider: WardrobeProvider | None = None,
         gap_checker: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -58,7 +59,8 @@ class TripAgent:
     ) -> None:
         self.llm = llm or LLMClient(enabled=use_llm)
         self.state = AgentState(
-            session_id=session_id or f"trip-{uuid.uuid4().hex[:8]}"
+            session_id=session_id or f"trip-{uuid.uuid4().hex[:8]}",
+            user_id=user_id,
         )
         self.tools = TripTools(
             state=self.state,

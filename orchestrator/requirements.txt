@@ -2,6 +2,7 @@
 langgraph==1.2.16
 langgraph-checkpoint-sqlite==3.1.3   # mémoire persistante (SqliteSaver)
 langchain-core==1.6.13
+a2a-sdk[http-server]>=1.0,<2
 fastapi==0.143.0
 uvicorn==0.54.0
 pydantic==2.14.0

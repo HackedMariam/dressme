@@ -9,6 +9,7 @@ pandas
 ortools
 openai>=1.0.0
 langgraph>=1.0,<2
+a2a-sdk[http-server]>=1.0,<2
 
 # Computer Vision & Machine Learning
 torch>=2.0.0

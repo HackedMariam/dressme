@@ -327,6 +327,12 @@ def create_app(
         if allow_weather_network is None
         else allow_weather_network
     )
+    if gap_checker is None and os.getenv("GAP_AGENT_A2A_ENABLED", "1").strip().lower() not in {
+        "0", "false", "no", "off"
+    }:
+        from .app.a2a_gap_client import A2AGapChecker
+
+        gap_checker = A2AGapChecker()
     app.state.gap_checker = gap_checker
     app.state.bo1_url = (bo1_url or os.getenv("BO1_URL", "http://127.0.0.1:8000")).rstrip("/")
 
@@ -425,6 +431,7 @@ def create_app(
 
     def new_agent(wardrobe_items: list[dict[str, Any]]) -> TripAgent:
         return TripAgent(
+            user_id=request.state.user_id if hasattr(request.state, "user_id") else "local",
             use_llm=app.state.use_llm,
             allow_weather_network=app.state.allow_weather_network,
             gap_checker=app.state.gap_checker,

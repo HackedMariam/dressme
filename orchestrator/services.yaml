@@ -22,7 +22,7 @@ services:
     url: "http://127.0.0.1:8010"
     timeout: 120
     api_key_env: "BO5_API_KEY"   # facultatif : en-tête X-API-Key si BO5 a un RAG_API_KEY
-    enabled: false               # rag_backend/ (branche rag/try1) n'est pas encore dans main
+    enabled: true
   ollama:
     label: "Ollama qwen2.5:3b"
     url: "http://127.0.0.1:11434"
@@ -89,18 +89,18 @@ modules:
   bo3:
     label: "BO3 Wardrobe Gaps"
     description: "find the pieces missing from the user's wardrobe for a goal"
-    enabled: false               # backend BO3 (branche wardrobe-gaps) absent de main
-    url: "http://127.0.0.1:8030"
+    enabled: true
+    url: "http://127.0.0.1:8001"
     health: "/api/health"
     method: "POST"
     path: "/api/bo3/gaps"
     timeout: 60
+    forward_token: true
     keywords:
       - "\\b(me manque|manque-t-il|ce qui manque|pieces? manquantes?|completer ma garde-robe|what am i missing|missing pieces|gaps?)\\b"
     request:
       goal: "winter_work"
-      wardrobe_items: "$wardrobe_items"
-      user_id: "$user_id"
+      interpret: true
     response:
       fields:
         - {label: "Objectif", path: "goal_label"}

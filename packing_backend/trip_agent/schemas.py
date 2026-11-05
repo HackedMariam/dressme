@@ -394,6 +394,7 @@ class AgentState(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     session_id: str
+    user_id: str = "local"
     user_request: str = ""
     messages: list[ConversationMessage] = Field(default_factory=list)
     trip_details: TripDetails | None = None

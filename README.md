@@ -202,12 +202,13 @@ frontend dependencies. Start BO1 and then run `npm run dev:all`, or use
 Tout DressMe en local, depuis la racine du dépôt (Windows PowerShell) :
 
 ```powershell
-.\start_all.ps1          # démarre, vérifie la santé, précharge qwen2.5:3b
+.\start_all.ps1          # démarre frontend + backends, vérifie la santé, précharge qwen2.5:3b
 .\start_all.ps1 -Stop    # arrête ce que le script a lancé
 ```
 
 | Service | Port | Lancement par le script |
 |---|---|---|
+| Frontend canonique (`DressMe UI Blueprint/`) | 5173 | `pnpm dev` |
 | BO1 Wardrobe (`backend/`) | 8000 | `uvicorn app.main:app` |
 | HelpMePack (`packing_backend/`) | 8020 | `uvicorn backend.main:app --port 8020` |
 | Purchase Redundancy (`purchase-redundancy-ai/backend/`) | 8040 | `API_PORT=8040 python main.py` (son port par défaut, 8000, est celui de BO1) |

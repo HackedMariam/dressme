@@ -49,6 +49,19 @@ ne peut citer une pièce qui n'existe pas dans la garde-robe, ni inventer la mé
 LangGraph est utilisé par l'Outfit Builder Agent, par le Trip Agent, par le Stylist BO4 et par l'orchestrateur.
 L'AI Stylist, le Gap Agent et l'agent anti-doublon utilisent une boucle d'appel d'outils native OpenAI, écrite à la main.
 
+### 2.1 Connexion inter-agents Trip ↔ Gap
+
+Le Trip Agent ne contient plus une fonction métier locale pour les gaps en production. Quand `check_gaps` est appelé,
+il utilise un client officiel `a2a-sdk` pour découvrir la carte de BO3 sur `/a2a/.well-known/agent-card.json`, puis
+envoie une tâche JSON-RPC A2A au Gap Agent. BO3 exécute ses règles de couverture et son ranker XGBoost, et renvoie
+les findings comme artefact JSON. La garde-robe n'est jamais transmise par le navigateur : l'identifiant utilisateur
+du Trip Agent est transmis dans la tâche et BO3 recharge la garde-robe de cet utilisateur.
+
+Configuration : `GAP_AGENT_A2A_URL`, `GAP_AGENT_A2A_ENABLED` et, en environnement partagé, `GAP_AGENT_A2A_KEY`.
+Les endpoints REST historiques (`/api/trips`, `/api/bo3/gaps`, etc.) restent inchangés. Le graphe LangGraph de
+l'orchestrateur continue à router les demandes utilisateur ; la route BO3 de l'orchestrateur utilise désormais
+l'adaptateur JSON authentifié `POST /api/bo3/gaps`, tandis que la délégation Trip ↔ Gap reste en A2A.
+
 ## 3. Chaque agent en détail
 
 ### 3.1 AI Stylist (`backend/app/agent.py`)

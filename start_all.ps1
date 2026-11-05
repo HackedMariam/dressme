@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Lance DressMe en local : BO1 (8000), HelpMePack (8020), Purchase Redundancy (8040), Ollama (keep_alive 30m),
+    Lance DressMe en local : frontend Vite (5173), BO1 (8000), HelpMePack (8020), Purchase Redundancy (8040), Ollama (keep_alive 30m),
     Stylist BO4 (8061, --require-auth) et l'orchestrateur (8070), puis vérifie leur santé.
 
 .DESCRIPTION
@@ -54,6 +54,8 @@ function Find-Python([string]$Dir, [string]$Override) {
         ForEach-Object { Join-Path $_.FullName "Scripts\python.exe" } | Where-Object { Test-Path $_ } |
         Select-Object -First 1
     if ($other) { return $other }
+    $rootVenv = Join-Path $Root ".venv\Scripts\python.exe"
+    if (Test-Path $rootVenv) { return $rootVenv }
     return "python"
 }
 
@@ -83,6 +85,29 @@ function Start-DressMeService([string]$Name, [string]$Dir, [string]$Python, [str
     Add-Content -Path $PidFile -Value "$Name=$($process.Id)"
     Write-Host ("{0,-14} démarré sur le port {1} (PID {2}, python : {3})" -f $Name, $Port, $process.Id, $Python)
 }
+
+function Start-DressMeFrontend([string]$Dir, [int]$Port) {
+    if (Test-Port $Port) {
+        Write-Host ("{0,-14} port {1} déjà en écoute : non relancé" -f "frontend", $Port)
+        return
+    }
+    if (-not (Get-Command pnpm.cmd -ErrorAction SilentlyContinue)) {
+        throw "pnpm est introuvable. Installe pnpm avec 'npm install --global pnpm', puis relance."
+    }
+    if (-not (Test-Path (Join-Path $Dir "node_modules"))) {
+        throw "Les dépendances frontend manquent. Lance 'pnpm install' dans $Dir, puis relance."
+    }
+    $process = Start-Process -FilePath "pnpm.cmd" -ArgumentList @("dev", "--host", "127.0.0.1", "--port", "$Port") `
+        -WorkingDirectory $Dir -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput (Join-Path $RunDir "frontend.out.log") `
+        -RedirectStandardError (Join-Path $RunDir "frontend.err.log")
+    Add-Content -Path $PidFile -Value "frontend=$($process.Id)"
+    Write-Host ("{0,-14} démarré sur le port {1} (PID {2})" -f "frontend", $Port, $process.Id)
+}
+
+# 1. Frontend canonique
+$frontend = Join-Path $Root "DressMe UI Blueprint"
+Start-DressMeFrontend $frontend 5173
 
 # 1. Ollama : garde le modèle chargé 30 min (l'orchestrateur renvoie aussi keep_alive 30m à chaque appel)
 if (Test-Port 11434) {
@@ -129,6 +154,7 @@ Start-DressMeService "orchestrator" $orchestrator (Find-Python $orchestrator $en
 
 # 3. Santé
 $checks = [ordered]@{
+    "frontend"     = "http://127.0.0.1:5173/"
     "ollama"       = "http://127.0.0.1:11434/api/version"
     "bo1"          = "http://127.0.0.1:8000/api/health"
     "bo3"          = "http://127.0.0.1:8001/api/health"

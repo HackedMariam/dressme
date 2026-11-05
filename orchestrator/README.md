@@ -21,7 +21,7 @@ START → route_intent ─┬─ stylist   (BO4 Stylist POST /api/chat)         
 | `stylist` | transmet le message au Stylist avec le **même jeton** et le **même thread_id** (le Stylist garde sa propre mémoire). |
 | `wardrobe` | répond par des **faits** calculés sur `GET /api/items` : total, répartition, filtre catégorie / couleur (« Jupes (noir) : 1 — … »), vêtements « à vérifier ». `/api/agent/search` n'est pas utilisé : il exige une `OPENAI_API_KEY` côté BO1. |
 | `purchase` | repère l'article dans le message (type, couleur, prix), lit la garde-robe BO1 de l'utilisateur, la convertit au format de Purchase Redundancy (`shirts`, `pants`, `dresses`, `shoes`, `outerwear`, `accessories`) et appelle `POST /analyze` avec `wardrobe_items` : l'analyse porte sur **la vraie garde-robe**, pas sur la base « invité » de Purchase Redundancy. Sans BO1, aucun appel. |
-| `knowledge` | traduit la question en **anglais** avec qwen (puis glossaire : « col roulé » → turtleneck…), appelle `POST /ask`, affiche la réponse telle quelle, **seulement les sources citées**, et **masque** les titres contenant « z-library », « .indb » ou « Slide 1 » (voir `docs/rag_verification.md`). |
+| `knowledge` | traduit la question en **anglais** avec qwen (puis glossaire : « col roulé » → turtleneck…), appelle le RAG actif sur `POST /ask`, affiche la réponse telle quelle, **seulement les sources citées**, et **masque** les titres contenant « z-library », « .indb » ou « Slide 1 ». |
 | `external` | **module externe générique** (section `modules` de `services.yaml`) : vérifie qu'il est activé puis qu'il répond (`health`), lit la garde-robe BO1 de l'utilisateur, l'envoie au module dans `wardrobe_items` (format : `integration_contract.md`), puis met en forme la réponse (champs, liste, texte). Voir « Modules externes ». |
 | `clarify` | propose 4 choix ; la réponse « 1 » à « 4 » relance la question d'origine sur la route choisie. |
 | `respond` | réponse finale et historique. |
@@ -32,9 +32,8 @@ START → route_intent ─┬─ stylist   (BO4 Stylist POST /api/chat)         
   Redundancy (qui a sa propre authentification) ni à BO5.
 - **Pannes** : chaque appel a un délai maximum (`services.yaml`) ; un service arrêté donne un message clair
   (« … ne répond pas (URL) … Réessaie quand le service est démarré. »), jamais une erreur 500.
-- **Service absent de cette version** : `enabled: false` sur un service de base (`services.yaml`) ; sa route répond
-  « … n'est pas encore disponible » sans rien appeler. Dans `main`, c'est le cas de **BO5 RAG** (`rag_backend/`
-  n'y est pas encore).
+-   Un service de base dont `enabled: false` répond « … n'est pas encore disponible » sans rien appeler.
+  Le BO5 RAG est maintenant activé et doit répondre sur `http://127.0.0.1:8010/ask`.
 - **Trace** : une ligne par node et par appel (`purchase -> purchase POST /analyze : HTTP 200 en 120 ms`).
 
 ## Modules externes
@@ -54,9 +53,9 @@ section `modules` de `services.yaml` :
 `$wardrobe_items` est la garde-robe BO1 de l'utilisateur, lue avec son jeton puis réduite aux champs du contrat
 (ni `user_id`, ni champs internes). Si BO1 ne répond pas, le module n'est pas appelé.
 
-Entrées livrées, **toutes désactivées** : `smart_purchasing` (8050, `POST /api/purchase/evaluate`), `helpmepack`
-(8020, `POST /api/trips`), `bo3` (8030, `POST /api/bo3/gaps`). Pour en activer une : l'auteur du module expose
-l'endpoint décrit dans `integration_contract.md`, puis `enabled: true`.
+`helpmepack` (8020, `POST /api/trips`) et `bo3` (8001, `POST /api/bo3/gaps`) sont branchés. BO3 utilise le
+jeton de session transmis par l'orchestrateur et recharge toujours la garde-robe côté serveur. `smart_purchasing`
+reste désactivé tant qu'il n'expose pas l'endpoint HTTP du contrat (`8050`, `POST /api/purchase/evaluate`).
 
 ## Lancement
 
@@ -93,7 +92,7 @@ Services attendus (`services.yaml`, plan des ports d'`INTEGRATION.md`) :
 | BO1 | http://127.0.0.1:8000 | `cd backend` puis `uvicorn app.main:app --port 8000` |
 | Stylist | http://127.0.0.1:8061 | `cd bo4\backend` puis `python stylist_web.py --port 8061 --bo1-url http://127.0.0.1:8000` |
 | Purchase Redundancy | http://127.0.0.1:8040 | `cd purchase-redundancy-ai\backend` puis `$env:API_PORT="8040"; $env:CLIP_ENABLED="False"; python main.py` |
-| BO5 | http://127.0.0.1:8010 | **désactivé dans `main`** ; branche `rag/try1` : `cd rag_backend` puis `uvicorn app:app --port 8010`, et `enabled: true` |
+| BO5 | http://127.0.0.1:8010 | `cd rag_backend` puis `uvicorn app:app --port 8010`, et `enabled: true` |
 | Ollama | http://127.0.0.1:11434 | modèle `qwen2.5:3b` |
 
 API : `POST /api/chat` `{message, thread_id}` (+ `Authorization: Bearer <jeton>`), `GET /api/graph?visited=…`

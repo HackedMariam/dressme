@@ -1259,7 +1259,9 @@ class TripTools:
                 },
             }
         try:
-            findings = self.gap_checker(self.state.capsule.model_dump(mode="json"))
+            capsule = self.state.capsule.model_dump(mode="json")
+            capsule["user_id"] = self.state.user_id
+            findings = self.gap_checker(capsule)
             return {"ok": True, "available": True, "findings": findings}
         except Exception as exc:
             return {

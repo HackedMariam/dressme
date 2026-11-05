@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from agent.coverage import GOALS, compute_coverage, get_requirement
+from agent.a2a_gap import build_a2a_app
 from agent.gap_agent import GapAgent, interpret_gaps_with_gpt
 from agent.learning import learning_status, reset_model, retrain
 from agent import planner
@@ -73,6 +74,13 @@ def current_user(authorization: str | None = Header(None)) -> str:
 
 app = FastAPI(title="DressMe BO3 Gap Agent API")
 memory = AgentMemory()
+app.mount(
+    "/a2a",
+    build_a2a_app(
+        memory,
+        public_url=os.getenv("GAP_AGENT_A2A_PUBLIC_URL", "http://127.0.0.1:8001/a2a"),
+    ),
+)
 
 
 def _warm_up() -> None:
@@ -108,6 +116,11 @@ class PlanRequest(BaseModel):
     objective: str = Field("", max_length=300)
     budget_tnd: float | None = Field(None, gt=0, le=planner.MAX_BUDGET_TND)
     goals: list[str] | None = Field(None, max_length=len(GOALS))
+
+
+class GapRequest(BaseModel):
+    goal: str = Field("winter_work", min_length=1, max_length=80)
+    interpret: bool = True
 
 
 @app.get("/api/health")
@@ -147,6 +160,16 @@ def gaps(goal: str = "winter_work", interpret: bool = True, user_id: str = Depen
         if interpretation:
             result["stylist_interpretation"] = interpretation
     return result
+
+
+@app.post("/api/bo3/gaps")
+def gaps_post(request: GapRequest, user_id: str = Depends(current_user)) -> dict[str, Any]:
+    """JSON adapter for orchestrator and service-to-service callers.
+
+    The wardrobe is always loaded server-side for the authenticated user; fields
+    supplied by a caller are intentionally not accepted here.
+    """
+    return gaps(goal=request.goal, interpret=request.interpret, user_id=user_id)
 
 
 @app.get("/api/bo3/gaps/{candidate_id}/images")
