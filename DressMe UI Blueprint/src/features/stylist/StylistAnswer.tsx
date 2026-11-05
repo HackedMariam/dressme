@@ -86,12 +86,18 @@ export default function StylistAnswer({
   const why = sections?.why ?? []
   const tips = sections?.tips ?? []
   const hasOutfit = outfit.length > 0
+  // What the recommendation rests on, stated plainly (counts only, nothing invented).
+  const basis: string[] = []
+  if (hasOutfit && items.length > 0) basis.push(`built from ${items.length} piece${items.length === 1 ? "" : "s"} you own`)
+  if (sources.length > 0) basis.push(`backed by ${sources.length} fashion-book source${sources.length === 1 ? "" : "s"}`)
+  const evidence = basis.length ? `Why you can trust this: ${basis.join(", ")}.` : ""
 
   return (
     <div className="space-y-3">
-      <p className="whitespace-pre-line">
+      <p className="whitespace-pre-line border-l-4 border-[#556B2F] pl-3 text-[15px] font-medium leading-relaxed text-[#1C1C1C]">
         <Cited text={text} sources={sources} />
       </p>
+      {evidence && <p className="text-[11px] font-medium text-[#556B2F]">{evidence}</p>}
 
       {hasOutfit && (
         <Zone title="Outfit idea">
