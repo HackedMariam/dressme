@@ -91,6 +91,8 @@ def test_the_trip_agent_asks_the_gap_agent_over_a2a_with_the_users_token(trip, m
     findings = result.json()["gap_analysis"]["findings"]
     assert findings["provider"] == "a2a:gap-agent" and findings["answer"] == "Missing: a light rain jacket."
     assert findings["ranked_gaps"] == [{"name": "Rain jacket"}]
+    assert findings["gaps"] == [{"type": "wardrobe_gap", "severity": "medium", "category": "Rain jacket", "suggestion": ""}]   # what the page draws
+    assert findings["summary"] == "Missing: a light rain jacket." and findings["capsule_days"] >= 1
     assert ("http://127.0.0.1:8001/a2a/gap", "Bearer t") in calls                            # the user's token travels
     sent = [data for _, data in calls if isinstance(data, dict)]
     assert len(sent) == 1 and sent[0]["capsule"]["trip"]["destination"] == "Paris"           # and the trip, as data

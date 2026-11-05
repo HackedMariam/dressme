@@ -457,8 +457,20 @@ def create_app(
             if client.state_of(task) == "failed":
                 raise A2AError(client.text_of(task) or "The Gap Agent failed")
             ranking = (client.data_of(task).get("ranking") or {})
-            return {"provider": "a2a:gap-agent", "task_id": task.get("id"), "state": client.state_of(task),
-                    "answer": client.text_of(task), "ranked_gaps": (ranking.get("ranked_gaps") or [])[:5]}
+            ranked = (ranking.get("ranked_gaps") or [])[:5]
+            answer = re.sub(r"[*_`#]+", "", client.text_of(task)).strip()
+            categories: dict[str, int] = {}
+            for piece in capsule.get("selected_items") or []:
+                name = str(piece.get("category") or "other")
+                categories[name] = categories.get(name, 0) + 1
+            # The page draws `gaps` and `summary`: the Gap Agent's ranking is shaped as that contract.
+            return {"provider": "a2a:gap-agent", "status": client.state_of(task), "task_id": task.get("id"),
+                    "capsule_days": len(capsule.get("days") or []), "selected_categories": categories,
+                    "gaps": [{"type": "wardrobe_gap", "severity": str(gap.get("priority") or "medium"),
+                              "category": str(gap.get("name") or "piece"),
+                              "suggestion": str(gap.get("description") or gap.get("suggested_item") or "")} for gap in ranked],
+                    "summary": answer or "The Gap Agent found nothing to add for this trip.",
+                    "answer": answer, "ranked_gaps": ranked}
 
         return check
 

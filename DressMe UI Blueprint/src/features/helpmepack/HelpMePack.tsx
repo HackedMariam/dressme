@@ -1166,7 +1166,7 @@ export default function HelpMePack({
                         {gap.gap_analysis.findings.summary}
                       </p>
                       <div className="mt-3 space-y-2">
-                        {gap.gap_analysis.findings.gaps.map((item) => (
+                        {(gap.gap_analysis.findings.gaps ?? []).map((item) => (
                           <div
                             key={`${item.type}-${item.category}`}
                             className="rounded-lg bg-[#F0EFEA] px-3 py-2"
