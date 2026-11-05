@@ -4,6 +4,7 @@ import type {
   AvatarJob,
   AvatarStatus,
   AgentReply,
+  OutfitAgentReply,
   AnalyzeResponse,
   DuplicateResult,
   Health,
@@ -148,6 +149,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message, ...place }),
     }),
+
+  outfitAgent: (query: {
+    occasion: string
+    season: string
+    city?: string
+    country?: string
+    unit?: string
+    avoid?: string[][]
+  }) =>
+    request<OutfitAgentReply>("/api/outfits/agent", { method: "POST", body: JSON.stringify(query) }),
 
   checkDuplicate: (
     item: Pick<WardrobeItem, "category" | "color_name" | "pattern" | "material"> & { id?: string },

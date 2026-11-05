@@ -94,6 +94,14 @@ export interface AgentReply {
   filters?: Record<string, string | number>[]
 }
 
+/** What the outfit-builder agent returns: outfits as lists of wardrobe item ids, with the reasons for each. */
+export interface OutfitAgentReply {
+  outfits: { title: string; items: string[]; weather_note: string; why: string[] }[]
+  weather?: StylistWeather | null
+  sources?: AdviceSource[]
+  missing?: string[]
+}
+
 export interface AvatarJob {
   id: string
   kind: "avatar" | "tryon"

@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from . import agent, avatar, config, quality
+from . import outfit_agent as outfit_agent_module
 from .auth import User, current_user
 from .colors import COLOR_NAMES
 from .detector import GarmentDetector
@@ -363,6 +364,27 @@ async def agent_search(body: AgentRequest, user: User = Depends(current_user)) -
     items = store.list_items(user.id)
     place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
     return await run_in_threadpool(agent.chat, items, body.message, place)
+
+
+class OutfitAgentRequest(BaseModel):
+    occasion: str = "everyday"
+    season: str = "autumn"
+    city: str = ""
+    country: str = ""
+    unit: str = ""
+    avoid: list[list[str]] = []     # outfits already shown (lists of item ids): the agent builds different ones
+
+
+@app.post("/api/outfits/agent")
+async def outfit_agent(body: OutfitAgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+    """The Outfit Builder agent (LangGraph): weather + wardrobe + fashion books -> complete, validated outfits."""
+    items = store.list_items(user.id)
+    place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
+    try:
+        return await run_in_threadpool(outfit_agent_module.build, items, body.occasion[:40], body.season[:20],
+                                       place, body.avoid[:10])
+    except RuntimeError as error:
+        raise HTTPException(503, str(error)) from error
 
 
 class DuplicateCheckRequest(BaseModel):

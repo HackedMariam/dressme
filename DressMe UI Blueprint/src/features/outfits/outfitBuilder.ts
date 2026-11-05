@@ -4,6 +4,9 @@ export type Outfit = {
   items: WardrobeItem[]
   score: number
   why: string[]
+  /** Set by the agent: the name of the look and how it answers the forecast. */
+  title?: string
+  weatherNote?: string
 }
 
 export type OutfitRequest = { occasion: string; season: string }
