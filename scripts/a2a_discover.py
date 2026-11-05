@@ -1,6 +1,6 @@
 """Discovers the DressMe agents over A2A and, with a session token, asks them something.
 
-    python scripts/a2a_discover.py                       # reads the four Agent Cards (public)
+    python scripts/a2a_discover.py                       # reads the five Agent Cards (public)
     A2A_TOKEN=<supabase access token> python scripts/a2a_discover.py --ask   # also sends a task to each agent
 """
 import argparse
@@ -15,6 +15,7 @@ from a2a_protocol import A2AClient, A2AError  # noqa: E402
 
 AGENTS = {
     "AI Stylist": ("http://127.0.0.1:8000/a2a/stylist", "What should I wear tomorrow?", {"city": "Tunis", "country": "Tunisia"}),
+    "Wardrobe Agent": ("http://127.0.0.1:8000/a2a/wardrobe", "How many tops do I own?", {}),
     "Outfit Builder": ("http://127.0.0.1:8000/a2a/outfit", "Outfits for work this autumn", {"city": "Tunis", "country": "Tunisia"}),
     "Trip Agent": ("http://127.0.0.1:8020/a2a/trip", "A weekend in Paris, sightseeing, 8 kg of clothes", {}),
     "Gap Agent": ("http://127.0.0.1:8001/a2a/gap", "", {"goal": "winter_work"}),
