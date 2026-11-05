@@ -72,7 +72,7 @@ def build() -> None:
           P("A retenir", H2),
           *bullets(["L'orchestrateur est le seul a choisir qui repond. Les agents ne s'appellent entre eux que pour deux raisons voulues : demander le placard au Wardrobe Agent (AI Stylist, Similar Agent, Trip Agent) et, pour le Trip Agent, demander les lacunes au Gap Agent.",
                     "Les ecritures exigent toujours la confirmation de l'utilisateur.",
-                    "Limites : le Purchase Agent n'est actif qu'avec HF_TOKEN et un modele executable ; le Gap Agent lit encore Supabase seul."])]
+                    "Limites : le Purchase Agent n'est actif qu'avec HF_TOKEN et un modele executable ; le Gap Agent lit le placard par A2A avec repli sur Supabase."])]
     doc.build(s)
     print("written", OUT)
 

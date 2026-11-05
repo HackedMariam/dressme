@@ -820,7 +820,7 @@ def build():
           H2_("A dire clairement"),
           *bullets(["Le Purchase Agent depend de Hugging Face : sans HF_TOKEN il n'est pas actif (repli deterministe). Sur une machine avec 4 Go de GPU et peu de memoire libre, Qwen2.5-3B en local est trop lourd : il faut le point de terminaison HF ou une machine plus grande.",
                     "Les appels agent a agent ajoutent un appel LLM par demande de garde-robe : plus precis, un peu plus lent et plus cher que le filtrage direct.",
-                    "Le Gap Agent lit encore Supabase seul ; il ne passe pas par le Wardrobe Agent."])]
+                    "Tous les agents lisent le placard par le Wardrobe Agent (le Gap Agent par A2A, avec repli sur Supabase). Les appels A2A entre Trip Agent / Gap Agent et le Trip Agent / Wardrobe Agent ont ete testes avec de faux services, seul le Trip Agent vers le Wardrobe Agent a ete verifie en reel."])]
 
     doc.build(s)
     print("written", OUT)

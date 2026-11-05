@@ -90,7 +90,7 @@ def build() -> None:
     g.box(265, 38, 46, 25, "Supabase\nauth, base items,\nstorage, pgvector", DATA, 6.8)
     g.label(160, 28, "Chaque agent : le LLM decide et redige, le code valide et calcule. Les ecritures exigent la confirmation de l'utilisateur.", 7, INK, "middle", True)
     g.label(160, 22, "Les autres ecrans appellent aussi leur agent directement (REST). Qwen : repli deterministe sans HF_TOKEN ou sans modele.", 6.6, GREY)
-    g.label(160, 16.5, "Trait noir : appel direct | vert : appel A2A entre services | Gap Agent : lit encore Supabase seul", 6.6, GREY)
+    g.label(160, 16.5, "Trait noir : appel direct | vert : appel A2A entre services | Trip Agent et Gap Agent lisent le placard par A2A (repli REST / Supabase)", 6.6, GREY)
     x = 9
     for text, fill in LEGEND:
         g.d.add(Rect(x * mm, 9 * mm, 4 * mm, 3 * mm, fillColor=fill, strokeColor=INK, strokeWidth=0.5))
