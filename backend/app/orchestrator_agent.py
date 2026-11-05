@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Callable, Optional, TypedDict
@@ -32,7 +33,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from a2a_protocol import A2AClient, A2AError, AgentCall  # noqa: E402
-from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
+from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 
 from . import a2a_agents, agent, config, wardrobe_a2a, wardrobe_agent  # noqa: E402
@@ -101,7 +102,6 @@ def decide_route(message: str, history: list[dict], llm: Optional[Callable[[list
 class State(TypedDict, total=False):
     message: str
     user_id: str
-    authorization: Optional[str]
     place: dict
     context_id: str
     history: list[dict]
@@ -114,6 +114,27 @@ class State(TypedDict, total=False):
     action: Optional[dict]
     state: str
     agents_called: list[str]
+
+
+class RequestToken:
+    """Request credential kept in runtime configuration, never in graph state."""
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str):
+        self._value = value
+
+    def reveal(self) -> str:
+        return self._value
+
+    def __repr__(self) -> str:
+        return "RequestToken(***)"
+
+
+def _request_token(config: Optional[dict]) -> Optional[str]:
+    configurable = (config or {}).get("configurable") or {}
+    token = configurable.get("__authorization")
+    return token.reveal() if isinstance(token, RequestToken) else None
 
 
 def _client(url: str, authorization: Optional[str]) -> A2AClient:
@@ -147,8 +168,8 @@ def pick(state: State) -> str:
     return state["agent"]
 
 
-def node_stylist(state: State) -> dict:
-    authorization = state.get("authorization")
+def node_stylist(state: State, config: RunnableConfig) -> dict:
+    authorization = _request_token(config)
     result = agent.chat(wardrobe_a2a.list_items(state["user_id"], authorization), state["message"], state.get("place"), authorization)
     return {"reply": result["reply"], "items": result.get("items", []), "agents_called": ["AI Stylist"], "awaiting": None,
             "data": {k: result.get(k) for k in ("sections", "weather", "sources", "filters")}}
@@ -163,10 +184,10 @@ def node_wardrobe(state: State) -> dict:
             "agents_called": ["Wardrobe Agent"], "data": {"pending": result["pending"], "filters": result["filters"]}}
 
 
-def node_outfit(state: State) -> dict:
+def node_outfit(state: State, config: RunnableConfig) -> dict:
     result = a2a_agents.handle_outfit(AgentCall(text=state["message"], data=dict(state.get("place") or {}), context_id=state["context_id"],
                                                 principal=SimpleUser(state["user_id"]), message_id="",
-                                                authorization=state.get("authorization")))
+                                                authorization=_request_token(config)))
     return {"reply": result.text, "state": result.state, "awaiting": None, "agents_called": ["Outfit Builder"], "data": result.data or {}}
 
 
@@ -175,9 +196,9 @@ class SimpleUser:
         self.id = user_id
 
 
-def _a2a(state: State, url: str, label: str, key: str) -> dict:
+def _a2a(state: State, url: str, label: str, key: str, config: RunnableConfig) -> dict:
     waiting = state.get("awaiting") or {}
-    client = _client(url, state.get("authorization"))
+    client = _client(url, _request_token(config))
     try:
         task = client.send(state["message"], data={}, context_id=waiting.get("context"))
     except A2AError as error:
@@ -193,12 +214,12 @@ def _a2a(state: State, url: str, label: str, key: str) -> dict:
             "data": {"a2a_result": client.data_of(task)}}
 
 
-def node_trip(state: State) -> dict:
-    return _a2a(state, TRIP_URL, "Trip Agent", "trip")
+def node_trip(state: State, config: RunnableConfig) -> dict:
+    return _a2a(state, TRIP_URL, "Trip Agent", "trip", config)
 
 
-def node_gap(state: State) -> dict:
-    return _a2a(state, GAP_URL, "Gap Agent", "gap")
+def node_gap(state: State, config: RunnableConfig) -> dict:
+    return _a2a(state, GAP_URL, "Gap Agent", "gap", config)
 
 
 def node_redirect(state: State) -> dict:
@@ -233,7 +254,17 @@ def build_graph():
     graph.add_edge(START, "route")
     graph.add_conditional_edges("route", pick, {name: name for name in NODES})
     graph.add_edge("respond", END)
-    return graph.compile(checkpointer=MemorySaver())
+    return graph.compile(checkpointer=_checkpoint_saver())
+
+
+def _checkpoint_saver():
+    """Create the durable orchestrator saver and initialize its schema."""
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    config.ORCHESTRATOR_CHECKPOINT_DB.parent.mkdir(parents=True, exist_ok=True)
+    saver = SqliteSaver(sqlite3.connect(str(config.ORCHESTRATOR_CHECKPOINT_DB), check_same_thread=False))
+    saver.setup()
+    return saver
 
 
 _GRAPH = None
@@ -252,9 +283,11 @@ def chat(user_id: str, message: str, *, authorization: Optional[str] = None, pla
                 "agent_label": AGENTS["clarify"][0], "thread_id": thread_id, "items": [], "data": {}, "action": None,
                 "state": "input-required", "agents_called": [], "why": "empty"}
     _GRAPH = _GRAPH or build_graph()
-    state = _GRAPH.invoke({"message": message[:1000], "user_id": user_id, "authorization": authorization, "place": place or {},
-                           "context_id": thread_id},
-                          {"configurable": {"thread_id": f"{user_id}:{thread_id}"}})
+    invoke_config = {"configurable": {"thread_id": f"{user_id}:{thread_id}", "user_id": user_id}}
+    if authorization:
+        invoke_config["configurable"]["__authorization"] = RequestToken(authorization)
+    state = _GRAPH.invoke({"message": message[:1000], "user_id": user_id, "place": place or {},
+                           "context_id": thread_id}, invoke_config)
     name = state["agent"]
     return {"reply": state.get("reply", ""), "agent": name, "agent_label": AGENTS[name][0], "why": state.get("why", ""),
             "agents_called": state.get("agents_called", []), "items": state.get("items", []), "data": state.get("data") or {},

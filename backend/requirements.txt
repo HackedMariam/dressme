@@ -11,3 +11,5 @@ scikit-learn
 openai>=1.60
 supabase>=2.4
 python-dotenv
+langgraph>=1.0,<2
+langgraph-checkpoint-sqlite>=3.0,<4

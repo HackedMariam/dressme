@@ -63,6 +63,7 @@ class State(TypedDict, total=False):
     problems: list[str]
     tries: int
     outfits: list[dict]
+    error: str
 
 
 # ---------------------------------------------------------------------------------------------------- nodes
@@ -132,7 +133,8 @@ def node_compose(state: State) -> dict:
         data = json.loads(resp.choices[0].message.content or "{}")
     except Exception:
         log.exception("outfit agent LLM call failed")
-        return {"draft": [], "missing": [], "tries": state.get("tries", 0) + 1, "problems": []}
+        return {"draft": [], "missing": [], "tries": state.get("tries", 0) + 1, "problems": [],
+                "error": "The outfit builder could not generate outfits right now."}
     draft = [o for o in (data.get("outfits") or []) if isinstance(o, dict)]
     return {"draft": draft, "missing": _lines(data.get("missing")), "tries": state.get("tries", 0) + 1}
 
@@ -230,8 +232,11 @@ def build(items: list[dict], occasion: str, season: str, place: dict | None = No
     sources = [s for marker, s in (state.get("sources") or {}).items() if marker in cited]
     forecast = state.get("forecast")
     unit = str((place or {}).get("unit") or "")
-    return {"outfits": outfits, "sources": sources, "missing": state.get("missing") or [],
+    result = {"outfits": outfits, "sources": sources, "missing": state.get("missing") or [],
             "weather": _view(forecast, unit)}
+    if state.get("error"):
+        result["error"] = state["error"]
+    return result
 
 
 def _view(forecast: dict | None, unit: str) -> dict | None:

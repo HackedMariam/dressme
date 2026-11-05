@@ -430,8 +430,11 @@ async def outfit_agent(body: OutfitAgentRequest, request: Request, user: User = 
     items = await run_in_threadpool(wardrobe_a2a.list_items, user.id, request.headers.get("authorization"))
     place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
     try:
-        return await run_in_threadpool(outfit_agent_module.build, items, body.occasion[:40], body.season[:20],
-                                       place, body.avoid[:10])
+        result = await run_in_threadpool(outfit_agent_module.build, items, body.occasion[:40], body.season[:20],
+                                         place, body.avoid[:10])
+        if result.get("error"):
+            raise HTTPException(503, result["error"])
+        return result
     except RuntimeError as error:
         raise HTTPException(503, str(error)) from error
 

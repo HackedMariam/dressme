@@ -36,10 +36,11 @@ def task(state, text, context="ctx-1"):
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
     FakeA2A.calls, FakeA2A.script = [], []
     monkeypatch.setattr(orch, "A2AClient", FakeA2A)
     monkeypatch.setattr(orch, "_GRAPH", None)
+    monkeypatch.setattr(config, "ORCHESTRATOR_CHECKPOINT_DB", tmp_path / "orchestrator.sqlite")
     monkeypatch.setattr(config, "OPENAI_API_KEY", "")                    # no LLM: the rules route
     monkeypatch.setattr(wardrobe_agent, "list_items", lambda user_id: [{"id": "a", "name": "Navy Blazer"}])
     return monkeypatch
@@ -128,6 +129,15 @@ def test_the_conversations_of_two_users_do_not_mix(env):
     orch.chat("u1", "Prepare ma valise", thread_id="shared")
     other = orch.chat("u2", "what should I wear", thread_id="shared")             # same thread id, another user
     assert other["agent"] == "stylist"
+
+
+def test_checkpoint_keeps_history_but_not_the_request_token(env):
+    env.setattr(agent, "chat", lambda items, message, place, authorization=None:
+                {"reply": "Wear it.", "items": [], "sections": None, "weather": None, "sources": [], "filters": []})
+    orch.chat("u1", "what should I wear", authorization="secret-token", thread_id="persisted")
+    state = orch._GRAPH.get_state({"configurable": {"thread_id": "u1:persisted"}}).values
+    assert state["history"][-1]["text"] == "Wear it."
+    assert "authorization" not in state and "secret-token" not in repr(state)
 
 
 def test_the_route_returns_the_orchestrators_answer(env):

@@ -69,6 +69,12 @@ uvicorn app.main:app --port 8000
 
 Interactive docs: http://localhost:8000/docs — Tests: `pip install -r requirements-dev.txt && pytest`
 
+The BO1 conversation orchestrator persists LangGraph checkpoints in
+`backend/data/orchestrator_checkpoints.sqlite` by default. Set
+`ORCHESTRATOR_CHECKPOINT_DB` to a path on a persistent volume in production.
+Credentials are passed through the LangGraph runtime configuration and are not
+stored in the checkpointed graph state.
+
 ### 4. Frontend (canonical)
 ```bash
 cd "DressMe UI Blueprint"

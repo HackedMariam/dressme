@@ -46,6 +46,7 @@ logs/
 # Generated data / caches
 backend/local_data/
 backend/temp/
+backend/data/
 DressMe UI Blueprint/public/models/generated/
 DressMe UI Blueprint/public/models/avatar_original_backup.glb
 rag_backend/data/extraction_cache/
@@ -55,6 +56,7 @@ rag_backend/data/extracted_pages.json
 rag_backend/data/evaluation_results.json
 rag_backend/data/quality_report.json
 *.sqlite3
+*.sqlite
 *.db
 
 # Supabase

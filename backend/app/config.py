@@ -53,6 +53,14 @@ LOCAL_USER_ID = "local"
 # Local fallback storage (used when Supabase isn't configured)
 LOCAL_DATA_DIR = Path(os.getenv("LOCAL_DATA_DIR", BASE_DIR / "local_data"))
 
+# LangGraph conversation checkpoints. The database is local by default and can
+# be moved to a durable volume in production.
+ORCHESTRATOR_CHECKPOINT_DB = Path(
+    os.getenv("ORCHESTRATOR_CHECKPOINT_DB", BASE_DIR / "data" / "orchestrator_checkpoints.sqlite")
+)
+if not ORCHESTRATOR_CHECKPOINT_DB.is_absolute():
+    ORCHESTRATOR_CHECKPOINT_DB = BASE_DIR / ORCHESTRATOR_CHECKPOINT_DB
+
 # --- 3D avatar and virtual try-on (fal.ai: one key, pay per use) ---------------
 # Fashion-knowledge RAG service (rag_backend/): the AI stylist asks it for book-based advice. Empty URL = off.
 RAG_URL = os.getenv("RAG_URL", "http://127.0.0.1:8010")
