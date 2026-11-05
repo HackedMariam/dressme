@@ -329,6 +329,12 @@ def chat(items: list[dict], message: str, place: dict | None = None) -> dict:
                     days_ahead = 0
                 where = str(args.get("city") or city).strip()
                 forecast = weather.day_forecast(where, "" if args.get("city") else country, days_ahead)
+                if not forecast and not args.get("city") and where.lower() != DEFAULT_CITY.lower():
+                    # The user's town is unknown to the weather service: use the default city rather than nothing.
+                    forecast = weather.day_forecast(DEFAULT_CITY, DEFAULT_COUNTRY, days_ahead)
+                    if forecast:
+                        forecast = {**forecast, "note": f"{where} is not known to the weather service: this is the "
+                                    f"forecast of {DEFAULT_CITY}, say so."}
                 if forecast:
                     forecasts.append(forecast)
                     content = json.dumps(forecast)

@@ -40,15 +40,26 @@ def _cached(key: tuple, load):
     return value
 
 
-def _place(client: httpx.Client, city: str, country: str) -> dict | None:
-    reply = client.get(GEOCODE_URL, params={"name": city, "count": 5, "language": "en", "format": "json"})
+def _search(client: httpx.Client, name: str, country: str) -> dict | None:
+    reply = client.get(GEOCODE_URL, params={"name": name, "count": 20, "language": "en", "format": "json"})
     reply.raise_for_status()
     results = reply.json().get("results") or []
     wanted = country.strip().lower()
     for result in results:
         if not wanted or wanted in (str(result.get("country", "")).lower(), str(result.get("country_code", "")).lower()):
             return result
-    return results[0] if results else None
+    return results[0] if results and not wanted else None
+
+
+def _place(client: httpx.Client, city: str, country: str) -> dict | None:
+    """The place for a city name. A small town the geocoder does not know ("Ariana Soghra") falls back on its
+    first words ("Ariana"), then on the nearest name it does know."""
+    words = city.replace(",", " ").replace("-", " ").split()
+    for count in range(len(words), 0, -1):
+        found = _search(client, " ".join(words[:count]), country)
+        if found:
+            return found
+    return None
 
 
 def _forecast(client: httpx.Client, latitude: float, longitude: float) -> dict | None:

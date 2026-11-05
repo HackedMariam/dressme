@@ -288,3 +288,18 @@ def test_without_a_city_the_weather_is_the_one_of_tunis(monkeypatch, llm):
     reply = agent.chat(ITEMS, "Que mettre ce soir ?", {"country": ""})
     assert asked == [("Tunis", "Tunisia")] and reply["weather"]["city"] == "Tunis"
     assert "Tunis, Tunisia" in fake.calls[0]["messages"][0]["content"]
+
+
+def test_a_town_unknown_to_the_weather_service_falls_back_on_tunis(monkeypatch, llm):
+    asked = []
+
+    def forecast(city, country="", days_ahead=0):
+        asked.append(city)
+        return FORECAST if city == "Tunis" else None
+
+    monkeypatch.setattr(agent.weather, "day_forecast", forecast)
+    monkeypatch.setattr(rag_client, "advise", lambda question: None)
+    llm([_message(tool_calls=[_tool_call("a", "get_weather"), _tool_call("b", "fashion_advice", question="x")]),
+         _message(json.dumps({"answer": "Wear the blazer.", "weather": "Rainy in Tunis."}))])
+    reply = agent.chat(ITEMS, "What to wear?", {"city": "Tiny Village", "country": "Tunisia"})
+    assert asked == ["Tiny Village", "Tunis"] and reply["weather"]["city"] == "Tunis"
