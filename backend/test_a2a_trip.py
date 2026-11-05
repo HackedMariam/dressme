@@ -135,3 +135,27 @@ def test_when_the_wardrobe_agent_is_unreachable_the_trip_agent_falls_back_to_bo1
     task = real.send(data={"trip": {"destination": "Paris", "start_date": "2027-06-03", "end_date": "2027-06-07",
                                     "activities": ["sightseeing"], "max_luggage_weight_kg": 8}})
     assert real.state_of(task) == "completed"
+
+
+def test_the_gap_analysis_button_uses_the_token_of_the_current_request_not_the_one_kept_at_planning(trip, monkeypatch):
+    test_client, a2a = trip
+    tokens = []
+
+    class RecordingClient:
+        def __init__(self, url, token=None, timeout=0):
+            tokens.append(token)
+
+        def send(self, text="", data=None, context_id=None):
+            return {"id": "t", "status": {"state": "completed", "message": {"parts": [{"kind": "text", "text": "ok"}]}}}
+
+        state_of = staticmethod(A2AClient.state_of)
+        text_of = staticmethod(A2AClient.text_of)
+        data_of = staticmethod(lambda task: {})
+
+    monkeypatch.setattr(main, "A2AClient", RecordingClient)
+    task = a2a.send(data={"trip": {"destination": "Paris", "start_date": "2027-06-03", "end_date": "2027-06-07",
+                                   "activities": ["sightseeing"], "max_luggage_weight_kg": 8}})       # planned with "Bearer t"
+    tokens.clear()
+    result = test_client.post(f"/api/trips/{task['contextId']}/gap-analysis", headers={"Authorization": "Bearer fresh"})
+    assert result.status_code == 200, result.text
+    assert tokens == ["Bearer fresh"]

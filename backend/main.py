@@ -527,6 +527,7 @@ def create_app(
             if session.user_id != request.state.user_id:
                 raise HTTPException(404, "Trip session not found")
             agent = session.agent
+            agent.tools.gap_checker = make_gap_checker(request.state.authorization)
         else:
             items = load_items(request.state.authorization)
             if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
@@ -754,9 +755,11 @@ def create_app(
             return _response_payload(session.agent, response)
 
     @app.post("/api/trips/{session_id}/gap-analysis")
-    def gap_analysis(session_id: str) -> dict[str, Any]:
+    def gap_analysis(session_id: str, request: Request) -> dict[str, Any]:
         session = session_or_404(session_id)
         with session.lock:
+            # The Gap Agent is called with the token of THIS request: the one kept when the trip was planned may be expired.
+            session.agent.tools.gap_checker = make_gap_checker(request.state.authorization)
             if session.agent.state.capsule is None:
                 raise HTTPException(
                     status_code=409,
