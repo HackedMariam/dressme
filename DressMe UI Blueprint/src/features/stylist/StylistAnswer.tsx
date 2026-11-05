@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { asset } from "../../lib/api"
 import { cap } from "../../lib/taxonomy"
-import type { AdviceSource, StylistSections, WardrobeItem } from "../../lib/types"
+import type { AdviceSource, StylistSections, StylistWeather, WardrobeItem } from "../../lib/types"
 
 // A line of advice with its [S1]-style markers drawn as small badges; hovering one names the book and page.
 function Cited({ text, sources }: { text: string; sources: AdviceSource[] }) {
@@ -69,6 +69,29 @@ function Tiles({ items }: { items: WardrobeItem[] }) {
   )
 }
 
+// The forecast the answer is built on, as a compact strip with the stylist's reading of it below.
+function WeatherStrip({ weather, lines, sources }: { weather: StylistWeather | null; lines: string[]; sources: AdviceSource[] }) {
+  if (!weather && lines.length === 0) return null
+  return (
+    <Zone title="Weather">
+      {weather && (
+        <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-white px-3 py-2 text-xs text-[#1C1C1C] ring-1 ring-[#E2E0D8]">
+          <span className="font-semibold">
+            {weather.city}, {weather.weekday}
+          </span>
+          <span>{cap(weather.condition)}</span>
+          <span>
+            {weather.temp_min}&deg; to {weather.temp_max}&deg;{weather.unit}
+          </span>
+          {weather.rain_chance_percent != null && <span>{weather.rain_chance_percent}% chance of rain</span>}
+          {weather.wind_kmh != null && <span>Wind {weather.wind_kmh} km/h</span>}
+        </div>
+      )}
+      {lines.length > 0 && <Bullets lines={lines} sources={sources} />}
+    </Zone>
+  )
+}
+
 // The stylist's reply: the answer, then one zone per section (title in bold), the outfit as pictures, and the
 // fashion books it relied on. A reply without sections (a plain search) is the text and the pieces found.
 export default function StylistAnswer({
@@ -76,12 +99,16 @@ export default function StylistAnswer({
   sections,
   items,
   sources,
+  weather,
 }: {
   text: string
   sections?: StylistSections | null
+  weather?: StylistWeather | null
   items: WardrobeItem[]
   sources: AdviceSource[]
 }) {
+  const weatherLines = sections?.weather ?? []
+  const alternatives = sections?.alternatives ?? []
   const outfit = sections?.outfit ?? []
   const why = sections?.why ?? []
   const tips = sections?.tips ?? []
@@ -89,6 +116,7 @@ export default function StylistAnswer({
   // What the recommendation rests on, stated plainly (counts only, nothing invented).
   const basis: string[] = []
   if (hasOutfit && items.length > 0) basis.push(`built from ${items.length} piece${items.length === 1 ? "" : "s"} you own`)
+  if (weather) basis.push(`the forecast for ${weather.city}`)
   if (sources.length > 0) basis.push(`backed by ${sources.length} fashion-book source${sources.length === 1 ? "" : "s"}`)
   const evidence = basis.length ? `Why you can trust this: ${basis.join(", ")}.` : ""
 
@@ -98,6 +126,8 @@ export default function StylistAnswer({
         <Cited text={text} sources={sources} />
       </p>
       {evidence && <p className="text-[11px] font-medium text-[#556B2F]">{evidence}</p>}
+
+      <WeatherStrip weather={weather ?? null} lines={weatherLines} sources={sources} />
 
       {hasOutfit && (
         <Zone title="Outfit idea">
@@ -111,8 +141,13 @@ export default function StylistAnswer({
       )}
       {!hasOutfit && items.length > 0 && <Tiles items={items.slice(0, 8)} />}
       {why.length > 0 && (
-        <Zone title="Why it works">
+        <Zone title="Why I chose this">
           <Bullets lines={why} sources={sources} />
+        </Zone>
+      )}
+      {alternatives.length > 0 && (
+        <Zone title="What else I considered">
+          <Bullets lines={alternatives} sources={sources} />
         </Zone>
       )}
       {tips.length > 0 && (

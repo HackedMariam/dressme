@@ -16,12 +16,13 @@ import json
 import logging
 import re
 
-from . import config, rag_client
+from . import config, rag_client, weather
 from .taxonomy import GROUPS, MODEL_CLASSES, OCCASIONS, PATTERNS, SEASONS, STYLES
 
 log = logging.getLogger("dressme.agent")
 
 MAX_ROUNDS = 4
+AGENT_ROUNDS = 8   # the stylist may search the closet, the weather and the books several times
 MAX_RESULTS_PER_CALL = 20
 RESULT_FIELDS = ("id", "name", "category", "category_group", "color_name", "pattern",
                  "material", "seasons", "style", "occasions", "formality", "warmth")
@@ -74,6 +75,24 @@ TOOLS = [{
             "required": ["question"],
         },
     },
+}, {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "The real weather forecast for one day in the user's city (or another city they name): "
+                       "temperatures, rain chance, wind, conditions. Call it for any question about what to "
+                       "wear, pack or choose, with days_ahead = 0 for today, 1 for tomorrow, and so on (up to "
+                       "15). The outfit must then fit this weather.",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "days_ahead": {"type": "integer", "description": "0 = today, 1 = tomorrow... (max 15)."},
+                "city": {"type": "string", "description": "Only when the user names another city than their own."},
+            },
+            "required": [],
+        },
+    },
 }]
 
 SYSTEM = (
@@ -82,41 +101,67 @@ SYSTEM = (
     "once before answering, and call it again with different filters if a search comes back "
     "empty or clearly too broad. Reply in the language the user wrote in. If nothing in the wardrobe "
     "fits, say so plainly instead of inventing something. "
-    "Whenever the user asks WHAT, WHICH or HOW about style knowledge - a dress code or occasion, "
+    "WEATHER: whenever the user asks what to wear, for an outfit or a look, or which piece to choose, call "
+    "get_weather for the day they mean (days_ahead 0 = today, 1 = tomorrow...) and build the answer on it: "
+    "warmth and layers for the temperatures, a waterproof piece or closed shoes when rain is likely, light "
+    "fabrics when it is hot, wind. Quote the real numbers. If get_weather returns nothing, say the weather "
+    "could not be checked and do not invent it. "
+    "BOOKS: whenever the user asks WHAT, WHICH or HOW about style - what to wear, a dress code or occasion, "
     "colours that go together, a fabric or material, a season or climate, how to wear, combine or care "
-    "for something - you MUST also call fashion_advice (together with search_wardrobe). A plain request "
-    "to find or show items needs search_wardrobe only. Never present book advice as if it came from the "
-    "wardrobe, and do not invent sources: if fashion_advice returns nothing, answer from the wardrobe alone. "
-    "Be convincing, and honest: when the user asks for advice, take a clear position and justify it. "
+    "for something - you MUST also call fashion_advice, once per topic (up to three, each question in English "
+    "and about ONE topic: for an outfit, ask about the occasion or dress code, about the colours, and about the "
+    "fabrics for this weather). A plain request to find or show items needs search_wardrobe only. Never "
+    "present book advice as if it came from the wardrobe, and do not invent sources: if fashion_advice "
+    "returns nothing, answer from the wardrobe alone. "
+    "Be convincing, and honest: when the user asks for advice, take a clear position and justify it in "
+    "detail. "
     "Your FINAL message (after the tool calls) must be ONLY a JSON object, plain text without markdown, "
     "asterisks or emojis, with these keys: "
     '"answer": two sentences at most. When the user asks for advice, what to wear or which piece to '
     'choose, start with your pick ("My pick: ...", or the same in the user\'s language) naming the exact '
-    "pieces, then the single strongest reason it is the right choice for this occasion, weather or goal. "
+    "pieces, then the single strongest reason (the weather or the occasion) it is the right choice. "
     "When the user only asks to find or show items, say in one sentence what you found, with no pick, and "
-    "leave outfit, why and tips empty; "
+    "leave every other key empty; "
+    '"weather": 1 or 2 sentences (empty when you did not need the weather): the real forecast in numbers '
+    "(temperatures, rain chance, wind) and what it means for what to wear, for example which layer or "
+    "shoes it calls for; "
     '"outfit": 0 to 3 strings, best first, each one outfit built only from the user\'s own pieces, written '
     "with the exact item names joined by ' + ' (leave empty if the user did not ask what to wear or for a "
     "look); "
-    '"why": 3 or 4 short evidence-based reasons. Each one must point to a concrete fact about the user\'s '
-    "real pieces (their colour, material, warmth, season, occasion or style as returned by search_wardrobe), "
-    "and, whenever fashion_advice gave a relevant rule, link it to that rule and keep its source marker such "
-    "as [S1] right after the claim. Never state a fact about a piece that the search did not return; "
+    '"why": 4 to 6 detailed reasons, each 1 or 2 sentences, explaining WHY these pieces were chosen: '
+    "(1) how the outfit answers the weather (warmth rating and material of the pieces against the "
+    "temperature, rain, wind), (2) how it suits the occasion or dress code and its formality, (3) why the "
+    "colours work together, (4) why the fabrics or materials are right, (5) the role of each key piece. "
+    "Each reason must point to a concrete fact about the user's real pieces (colour, material, warmth, "
+    "season, occasion or style as returned by search_wardrobe), and, whenever fashion_advice gave a relevant "
+    "rule, link it to that rule and keep its source marker such as [S1] right after the claim (when the books "
+    "answered, at least two reasons must rest on them). Never state a "
+    "fact about a piece that the search did not return; "
+    '"alternatives": 0 to 3 short lines saying what else you considered in the closet and why you did not '
+    "pick it (too warm, wrong formality, clashing colour...), or a second option for another mood; "
     '"tips": 2 or 3 short practical tips that make the look work even better (colours, fabrics, how to wear '
-    "or finish it), with [S1]-style markers when they come from fashion_advice. If something is a trade-off "
-    "or a weakness (for example the rule says avoid a colour pairing), say so in one line and offer the fix: "
-    "that is what makes the recommendation credible. Use an empty list for a section that does not apply."
+    "or finish it, what to bring if the weather changes), with [S1]-style markers when they come from "
+    "fashion_advice. If something is a trade-off or a weakness (for example the rule says avoid a colour "
+    "pairing), say so in one line and offer the fix: that is what makes the recommendation credible. Use an "
+    "empty list or string for a section that does not apply."
 )
 
 
 # A question that asks for style knowledge (not just "show me my black pieces"), in English or French.
 KNOWLEDGE_QUESTION = re.compile(
     r"\b(how|what|which|why|best|suits?|suitable|match(es)?|combine|pair|go(es)? with|dress ?code|fabrics?|"
-    r"materials?|colou?rs?|quel(le)?s?|comment|pourquoi|tissus?|mati[eè]res?|couleurs?|associer|assortir|"
-    r"porter|convient|adapt[ée]e?s?)\b", re.IGNORECASE)
+    r"materials?|colou?rs?|wear|outfits?|looks?|quel(le)?s?|comment|pourquoi|tissus?|mati[e\u00e8]res?|couleurs?|"
+    r"associer|assortir|porter|mettre|tenues?|convient|adapt[\u00e9e]e?s?)\b", re.IGNORECASE)
+
+# A request for something to wear or choose: the weather matters.
+WEAR_QUESTION = re.compile(
+    r"\b(wear|outfits?|looks?|dress|go with|choose|pick|pack|style me|porter|mettre|tenues?|habiller|"
+    r"quoi|choisir|que mettre)\b", re.IGNORECASE)
 
 ADVICE_REMINDER = ("This is a style knowledge question. Before answering, call fashion_advice with the "
                    "question in English, then answer using its advice and keep its [S1]-style markers.")
+WEATHER_REMINDER = ("This is a question about what to wear: call get_weather for the day the user means "
+                    "before answering, and build the outfit and the reasons on the real forecast.")
 
 
 def _matches(item: dict, args: dict) -> bool:
@@ -148,7 +193,7 @@ def _run_search(items: list[dict], args: dict) -> list[dict]:
     return [i for i in items if _matches(i, args)][:MAX_RESULTS_PER_CALL]
 
 
-SECTION_KEYS = ("outfit", "why", "tips")
+SECTION_KEYS = ("weather", "outfit", "why", "alternatives", "tips")
 
 
 def _lines(value) -> list[str]:
@@ -180,8 +225,19 @@ def parse_reply(content: str) -> dict | None:
     return {"answer": answer, **{key: _lines(data.get(key)) for key in SECTION_KEYS}}
 
 
-def chat(items: list[dict], message: str) -> dict:
-    """One user turn: returns {"reply": str, "items": [...]} grounded in `items`."""
+def _forecast_view(forecast: dict | None, unit: str) -> dict | None:
+    """What the page needs to draw the weather strip."""
+    if not forecast:
+        return None
+    fahrenheit = (unit or "").lower().startswith("f")
+    low, high = (forecast["temp_min_f"], forecast["temp_max_f"]) if fahrenheit else (forecast["temp_min_c"], forecast["temp_max_c"])
+    return {**forecast, "unit": "F" if fahrenheit else "C", "temp_min": low, "temp_max": high}
+
+
+def chat(items: list[dict], message: str, place: dict | None = None) -> dict:
+    """One user turn: returns {"reply": str, "items": [...]} grounded in `items`.
+
+    `place` ({"city", "country", "unit"}) is where the user lives: the stylist can then check the real weather."""
     message = (message or "").strip()
     if not message:
         return {"reply": "Ask me something like \"a warm jacket for work\".", "items": []}
@@ -190,14 +246,28 @@ def chat(items: list[dict], message: str) -> dict:
 
     from openai import OpenAI
 
+    place = place or {}
+    city, country, unit = (str(place.get(k) or "").strip() for k in ("city", "country", "unit"))
+    today = weather.describe(0)
+    context = f" Today is {today}."
+    if city:
+        context += f" The user lives in {city}{', ' + country if country else ''}: use that city for the weather."
+    else:
+        context += " The user's city is unknown: say so if the weather would matter, and do not invent it."
+    asked_day = weather.when_to_days_ahead(message)
+    if asked_day is not None:
+        context += f" The user is asking about {weather.describe(asked_day)} (days_ahead {asked_day})."
+
     client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=config.LLM_TIMEOUT, max_retries=2)
-    messages: list[dict] = [{"role": "system", "content": SYSTEM},
+    messages: list[dict] = [{"role": "system", "content": SYSTEM + context},
                             {"role": "user", "content": message[:1000]}]
     found: dict[str, dict] = {}
     filters: list[dict] = []   # the filters the model chose, shown to the user as chips
     sources: dict[str, dict] = {}   # book passages the answer may cite, by marker ([S1]...)
+    forecasts: list[dict] = []      # the forecasts the model looked at (the last one is shown)
 
     advice_asked = False   # has the model consulted the fashion knowledge base yet?
+    weather_asked = False  # ...and the weather?
     reminded = False       # the reminder below is given at most once
 
     def result(content: str, structured: bool = True) -> dict:
@@ -205,8 +275,8 @@ def chat(items: list[dict], message: str) -> dict:
         if not parsed:   # a plain message (an error, or a model that ignored the format)
             used = [src for marker, src in sources.items() if marker in content]
             return {"reply": content, "items": list(found.values()), "filters": filters, "sources": used,
-                    "sections": None}
-        text = " ".join([parsed["answer"], *parsed["outfit"], *parsed["why"], *parsed["tips"]])
+                    "sections": None, "weather": None}
+        text = " ".join([parsed["answer"], *(line for key in SECTION_KEYS for line in parsed[key])])
         used = [src for marker, src in sources.items() if marker in text]
         # The pieces of the suggested outfit (in the order they are named), else everything the search found.
         outfit_text = " ".join(parsed["outfit"]).lower()
@@ -214,12 +284,13 @@ def chat(items: list[dict], message: str) -> dict:
                        for i in found.values() if i.get("name") and str(i["name"]).lower() in outfit_text)
         shown = [found[item_id] for _, item_id in named] or list(found.values())
         return {"reply": parsed["answer"], "items": shown, "filters": filters, "sources": used,
-                "sections": {key: parsed[key] for key in SECTION_KEYS}}
+                "sections": {key: parsed[key] for key in SECTION_KEYS},
+                "weather": _forecast_view(forecasts[-1], unit) if forecasts and parsed["weather"] else None}
 
-    for _ in range(MAX_ROUNDS):
+    for _ in range(AGENT_ROUNDS):
         try:
             resp = client.chat.completions.create(
-                model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=900,
+                model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=1800,
                 messages=messages, tools=TOOLS, response_format={"type": "json_object"})
         except Exception:
             log.exception("agent LLM call failed")
@@ -227,11 +298,16 @@ def chat(items: list[dict], message: str) -> dict:
 
         msg = resp.choices[0].message
         if not msg.tool_calls:
-            if (not advice_asked and not reminded and config.RAG_URL and KNOWLEDGE_QUESTION.search(message)):
-                # The model skipped the knowledge base on a question that needs it: ask it to consult it first.
+            missing = []
+            if not advice_asked and config.RAG_URL and KNOWLEDGE_QUESTION.search(message):
+                missing.append(ADVICE_REMINDER)
+            if not weather_asked and city and WEAR_QUESTION.search(message):
+                missing.append(WEATHER_REMINDER)
+            if missing and not reminded:
+                # The model skipped the books or the weather on a question that needs them: ask it once.
                 reminded = True
                 messages.append({"role": "assistant", "content": msg.content or ""})
-                messages.append({"role": "user", "content": ADVICE_REMINDER})
+                messages.append({"role": "user", "content": " ".join(missing)})
                 continue
             return result(msg.content or "")
 
@@ -242,6 +318,22 @@ def chat(items: list[dict], message: str) -> dict:
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
+            if tc.function.name == "get_weather":
+                weather_asked = True
+                try:
+                    days_ahead = int(args.get("days_ahead", asked_day if asked_day is not None else 0))
+                except (TypeError, ValueError):
+                    days_ahead = 0
+                where = str(args.get("city") or city).strip()
+                forecast = weather.day_forecast(where, "" if args.get("city") else country, days_ahead)
+                if forecast:
+                    forecasts.append(forecast)
+                    content = json.dumps(forecast)
+                else:
+                    content = json.dumps({"weather": None, "note": "The weather could not be checked (no city, "
+                                          "unknown city or service down): say so and do not invent it."})
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+                continue
             if tc.function.name == "fashion_advice":
                 advice_asked = True
                 advice = rag_client.advise(str(args.get("question") or message))

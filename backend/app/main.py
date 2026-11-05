@@ -352,13 +352,17 @@ def _search_by_photo_sync(data: bytes, user: User) -> dict[str, Any]:
 
 class AgentRequest(BaseModel):
     message: str
+    city: str = ""          # where the user lives: the stylist checks the real weather there
+    country: str = ""
+    unit: str = ""          # "Celsius" or "Fahrenheit"
 
 
 @app.post("/api/agent/search")
 async def agent_search(body: AgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
     """Ask the AI stylist a free-form question; it searches the real wardrobe before answering."""
     items = store.list_items(user.id)
-    return await run_in_threadpool(agent.chat, items, body.message)
+    place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
+    return await run_in_threadpool(agent.chat, items, body.message, place)
 
 
 class DuplicateCheckRequest(BaseModel):

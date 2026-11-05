@@ -64,9 +64,24 @@ export interface AdviceSource {
 
 /** The sections of a stylist answer; the page writes their titles. */
 export interface StylistSections {
+  weather: string[]
   outfit: string[]
   why: string[]
+  alternatives: string[]
   tips: string[]
+}
+
+/** The forecast the stylist built its answer on (temp_min / temp_max are already in the user's unit). */
+export interface StylistWeather {
+  city: string
+  weekday: string
+  date: string
+  condition: string
+  unit: "C" | "F"
+  temp_min: number
+  temp_max: number
+  rain_chance_percent?: number | null
+  wind_kmh?: number | null
 }
 
 export interface AgentReply {
@@ -74,6 +89,7 @@ export interface AgentReply {
   items: WardrobeItem[]
   sources?: AdviceSource[]
   sections?: StylistSections | null
+  weather?: StylistWeather | null
   /** Search filters the agent chose, e.g. { category: "jacket", min_warmth: 4 } */
   filters?: Record<string, string | number>[]
 }

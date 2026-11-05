@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react"
 import { api } from "../../lib/api"
 import { cap } from "../../lib/taxonomy"
-import type { AdviceSource, StylistSections, WardrobeItem } from "../../lib/types"
+import type { AdviceSource, StylistSections, StylistWeather, WardrobeItem } from "../../lib/types"
 import StylistAnswer from "./StylistAnswer"
 import { useSpeech } from "../../lib/useSpeech"
 import { useUserData } from "../profile/UserDataProvider"
+import { parseLocation } from "../profile/types"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
 
 interface ChatMessage {
@@ -14,6 +15,7 @@ interface ChatMessage {
   items?: WardrobeItem[]
   sources?: AdviceSource[]
   sections?: StylistSections | null
+  weather?: StylistWeather | null
   error?: boolean
 }
 
@@ -39,6 +41,7 @@ export default function StylistPage() {
   const [error, setError] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const displayName = profile?.display_name?.trim() || "there"
+  const place = parseLocation(profile?.location ?? null)
 
   useEffect(() => {
     const node = scrollRef.current
@@ -56,7 +59,11 @@ export default function StylistPage() {
     ])
     setBusy(true)
     try {
-      const response = await api.agentSearch(text)
+      const response = await api.agentSearch(text, {
+        city: place.city,
+        country: place.country,
+        unit: profile?.temperature_unit ?? "Celsius",
+      })
       setMessages((previous) => [
         ...previous,
         {
@@ -66,6 +73,7 @@ export default function StylistPage() {
           items: response.items.map((found) => items.find((owned) => owned.id === found.id) ?? found),
           sources: response.sources ?? [],
           sections: response.sections ?? null,
+          weather: response.weather ?? null,
         },
       ])
     } catch (sendError) {
@@ -99,8 +107,13 @@ export default function StylistPage() {
       <div>
         <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">AI Stylist</h1>
         <p className="mt-1 text-sm text-[#8C8A82]">
-          Answers grounded in the items you actually own
+          Answers grounded in the items you own, the weather in your city and fashion books
         </p>
+        {!place.city && (
+          <p className="mt-1 text-xs text-amber-700">
+            Add your city in your profile so the stylist can check the weather for you.
+          </p>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 gap-6">
@@ -144,6 +157,7 @@ export default function StylistPage() {
                     <StylistAnswer
                       text={message.text}
                       sections={message.sections}
+                      weather={message.weather}
                       items={message.items ?? []}
                       sources={message.sources ?? []}
                     />

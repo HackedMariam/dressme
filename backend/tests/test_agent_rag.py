@@ -118,7 +118,7 @@ def test_the_stylist_combines_the_wardrobe_with_book_advice_and_keeps_only_cited
     assert [s["marker"] for s in reply["sources"]] == ["[S1]"]                # [S2] was not used in the answer
     assert reply["sources"][0]["title"] == "Color Harmony Workbook"
     offered = [tool["function"]["name"] for tool in fake.calls[0]["tools"]]
-    assert offered == ["search_wardrobe", "fashion_advice"]
+    assert offered == ["search_wardrobe", "fashion_advice", "get_weather"]
     tool_messages = [m for m in fake.calls[1]["messages"] if m["role"] == "tool"]
     assert "Navy pairs with grey" in tool_messages[1]["content"]              # the advice reaches the model
 
@@ -198,9 +198,10 @@ def test_the_answer_comes_in_sections_with_the_outfit_pieces_and_only_the_source
     reply = agent.chat(ITEMS2, "Quelles couleurs avec mon blazer marine ?")
 
     assert reply["reply"] == "Try your Navy blazer with light jeans."          # markdown stripped
-    assert reply["sections"] == {"outfit": ["Navy blazer + Light Blue Jeans + Brown Suede Sneakers"],
+    assert reply["sections"] == {"weather": [], "outfit": ["Navy blazer + Light Blue Jeans + Brown Suede Sneakers"],
                                  "why": ["Navy pairs well with light blue [S1].", "A relaxed fit keeps it casual."],
-                                 "tips": ["Roll the sleeves.", "Keep the shoes clean [S1]."]}
+                                 "alternatives": [], "tips": ["Roll the sleeves.", "Keep the shoes clean [S1]."]}
+    assert reply["weather"] is None
     assert [i["id"] for i in reply["items"]] == ["jacket-1", "jeans-1", "shoes-1"]   # the outfit, in the order named
     assert [s["marker"] for s in reply["sources"]] == ["[S1]"]                       # [S2] was never cited
 
@@ -211,7 +212,7 @@ def test_a_plain_search_answer_keeps_every_item_found_and_has_empty_sections(mon
          _message(json.dumps({"answer": "Here is your Navy blazer.", "outfit": [], "why": [], "tips": []}))])
     reply = agent.chat(ITEMS2, "Show me my navy pieces")
     assert reply["reply"] == "Here is your Navy blazer." and [i["id"] for i in reply["items"]] == ["jacket-1"]
-    assert reply["sections"] == {"outfit": [], "why": [], "tips": []} and reply["sources"] == []
+    assert all(lines == [] for lines in reply["sections"].values()) and reply["sources"] == []
 
 
 def test_a_model_that_ignores_the_format_still_gets_its_text_shown(llm):
@@ -224,3 +225,63 @@ def test_every_model_call_asks_for_the_json_answer(llm):
     fake = llm([_message(json.dumps({"answer": "Hi."}))])
     agent.chat(ITEMS2, "Hello")
     assert fake.calls[0]["response_format"] == {"type": "json_object"}
+
+
+# ------------------------------------------------------------------------------------------------ weather
+FORECAST = {"city": "Tunis", "country": "Tunisia", "date": "2026-11-06", "weekday": "Friday", "days_ahead": 1,
+            "condition": "light rain", "temp_min_c": 12, "temp_max_c": 17, "temp_min_f": 54, "temp_max_f": 63,
+            "rain_chance_percent": 70, "rain_mm": 3.2, "wind_kmh": 25, "summary": "Friday 6 November in Tunis: light rain"}
+
+
+def test_the_stylist_checks_the_weather_of_the_users_city_and_returns_it_with_the_answer(monkeypatch, llm):
+    asked = []
+    monkeypatch.setattr(agent.weather, "day_forecast",
+                        lambda city, country="", days_ahead=0: asked.append((city, country, days_ahead)) or FORECAST)
+    monkeypatch.setattr(rag_client, "advise", lambda question: None)
+    fake = llm([
+        _message(tool_calls=[_tool_call("a", "get_weather", days_ahead=1), _tool_call("b", "search_wardrobe"),
+                             _tool_call("c", "fashion_advice", question="Dress code?")]),
+        _message(json.dumps({"answer": "My pick: the Navy blazer.", "weather": "12 to 17 C and 70% chance of rain.",
+                             "outfit": ["Navy blazer"], "why": ["Warmth 3 suits 12 C."], "alternatives": ["No coat."],
+                             "tips": ["Take an umbrella."]})),
+    ])
+    reply = agent.chat(ITEMS, "What should I wear tomorrow?", {"city": "Tunis", "country": "Tunisia", "unit": "Fahrenheit"})
+
+    assert asked == [("Tunis", "Tunisia", 1)]
+    assert reply["sections"]["weather"] == ["12 to 17 C and 70% chance of rain."]
+    assert reply["sections"]["alternatives"] == ["No coat."]
+    assert reply["weather"]["condition"] == "light rain" and reply["weather"]["unit"] == "F"
+    assert (reply["weather"]["temp_min"], reply["weather"]["temp_max"]) == (54, 63)
+    system = fake.calls[0]["messages"][0]["content"]
+    assert "Tunis, Tunisia" in system and "days_ahead 1" in system
+
+
+def test_a_failing_weather_service_does_not_break_the_answer(monkeypatch, llm):
+    monkeypatch.setattr(agent.weather, "day_forecast", lambda *args, **kwargs: None)
+    monkeypatch.setattr(rag_client, "advise", lambda question: None)
+    fake = llm([_message(tool_calls=[_tool_call("a", "get_weather"), _tool_call("b", "fashion_advice", question="x")]),
+                _message(json.dumps({"answer": "I could not check the weather.", "weather": "Not checked."}))])
+    reply = agent.chat(ITEMS, "Que mettre aujourd'hui ?", {"city": "Nowhere"})
+    assert reply["weather"] is None and reply["reply"] == "I could not check the weather."
+    assert any("could not be checked" in str(m["content"]) for m in fake.calls[1]["messages"] if m["role"] == "tool")
+
+
+def test_the_model_that_skips_the_weather_on_an_outfit_question_is_reminded_once(monkeypatch, llm):
+    monkeypatch.setattr(agent.weather, "day_forecast", lambda *args, **kwargs: FORECAST)
+    monkeypatch.setattr(rag_client, "advise", lambda question: None)
+    fake = llm([_message(tool_calls=[_tool_call("b", "fashion_advice", question="x")]),
+                _message(json.dumps({"answer": "Wear the blazer."})),
+                _message(tool_calls=[_tool_call("a", "get_weather")]),
+                _message(json.dumps({"answer": "Wear the blazer.", "weather": "Rainy."}))])
+    reply = agent.chat(ITEMS, "What should I wear?", {"city": "Tunis"})
+    assert any("call get_weather" in str(m["content"]) for m in fake.calls[2]["messages"] if m["role"] == "user")
+    assert reply["weather"]["city"] == "Tunis"
+
+
+def test_without_a_city_the_weather_is_not_forced(monkeypatch, llm):
+    monkeypatch.setattr(rag_client, "advise", lambda question: None)
+    fake = llm([_message(tool_calls=[_tool_call("b", "fashion_advice", question="x")]),
+                _message(json.dumps({"answer": "Wear the blazer."}))])
+    reply = agent.chat(ITEMS, "Que mettre ce soir ?")
+    assert len(fake.calls) == 2 and reply["weather"] is None
+    assert "city is unknown" in fake.calls[0]["messages"][0]["content"]

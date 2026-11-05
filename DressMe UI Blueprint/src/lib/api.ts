@@ -143,10 +143,10 @@ export const api = {
   searchByPhoto: (file: File | Blob) =>
     request<PhotoMatch>("/api/search/photo", { method: "POST", body: fileBody(file) }),
 
-  agentSearch: (message: string) =>
+  agentSearch: (message: string, place?: { city?: string; country?: string; unit?: string }) =>
     request<AgentReply>("/api/agent/search", {
       method: "POST",
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, ...place }),
     }),
 
   checkDuplicate: (
