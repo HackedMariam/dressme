@@ -278,10 +278,13 @@ def test_the_model_that_skips_the_weather_on_an_outfit_question_is_reminded_once
     assert reply["weather"]["city"] == "Tunis"
 
 
-def test_without_a_city_the_weather_is_not_forced(monkeypatch, llm):
+def test_without_a_city_the_weather_is_the_one_of_tunis(monkeypatch, llm):
+    asked = []
+    monkeypatch.setattr(agent.weather, "day_forecast",
+                        lambda city, country="", days_ahead=0: asked.append((city, country)) or FORECAST)
     monkeypatch.setattr(rag_client, "advise", lambda question: None)
-    fake = llm([_message(tool_calls=[_tool_call("b", "fashion_advice", question="x")]),
-                _message(json.dumps({"answer": "Wear the blazer."}))])
-    reply = agent.chat(ITEMS, "Que mettre ce soir ?")
-    assert len(fake.calls) == 2 and reply["weather"] is None
-    assert "city is unknown" in fake.calls[0]["messages"][0]["content"]
+    fake = llm([_message(tool_calls=[_tool_call("a", "get_weather"), _tool_call("b", "fashion_advice", question="x")]),
+                _message(json.dumps({"answer": "Wear the blazer.", "weather": "Rainy."}))])
+    reply = agent.chat(ITEMS, "Que mettre ce soir ?", {"country": ""})
+    assert asked == [("Tunis", "Tunisia")] and reply["weather"]["city"] == "Tunis"
+    assert "Tunis, Tunisia" in fake.calls[0]["messages"][0]["content"]

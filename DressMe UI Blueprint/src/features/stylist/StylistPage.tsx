@@ -60,8 +60,8 @@ export default function StylistPage() {
     setBusy(true)
     try {
       const response = await api.agentSearch(text, {
-        city: place.city,
-        country: place.country,
+        city: place.city || "Tunis",
+        country: place.country || "Tunisia",
         unit: profile?.temperature_unit ?? "Celsius",
       })
       setMessages((previous) => [
@@ -110,8 +110,8 @@ export default function StylistPage() {
           Answers grounded in the items you own, the weather in your city and fashion books
         </p>
         {!place.city && (
-          <p className="mt-1 text-xs text-amber-700">
-            Add your city in your profile so the stylist can check the weather for you.
+          <p className="mt-1 text-xs text-[#8C8A82]">
+            Weather is taken for Tunis. Set your city in your profile to use yours.
           </p>
         )}
       </div>

@@ -22,6 +22,7 @@ from .taxonomy import GROUPS, MODEL_CLASSES, OCCASIONS, PATTERNS, SEASONS, STYLE
 log = logging.getLogger("dressme.agent")
 
 MAX_ROUNDS = 4
+DEFAULT_CITY, DEFAULT_COUNTRY = "Tunis", "Tunisia"
 AGENT_ROUNDS = 8   # the stylist may search the closet, the weather and the books several times
 MAX_RESULTS_PER_CALL = 20
 RESULT_FIELDS = ("id", "name", "category", "category_group", "color_name", "pattern",
@@ -248,6 +249,8 @@ def chat(items: list[dict], message: str, place: dict | None = None) -> dict:
 
     place = place or {}
     city, country, unit = (str(place.get(k) or "").strip() for k in ("city", "country", "unit"))
+    city = city or DEFAULT_CITY            # DressMe is for Tunisia: without a city, the weather is Tunis's
+    country = country or DEFAULT_COUNTRY
     today = weather.describe(0)
     context = f" Today is {today}."
     if city:
