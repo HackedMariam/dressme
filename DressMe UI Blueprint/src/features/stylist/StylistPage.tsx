@@ -36,6 +36,11 @@ function quickPromptsFor(items: WardrobeItem[]) {
   return prompts
 }
 
+// Only the AI Stylist's own forecast is drawn: other agents may send a "weather" of another shape.
+function isForecast(value: unknown): value is StylistWeather {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && "condition" in value && "temp_min" in value
+}
+
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
@@ -86,7 +91,7 @@ export default function StylistPage({ onNavigate }: { onNavigate?: (page: Page) 
           items: response.items.map((found) => items.find((owned) => owned.id === found.id) ?? found),
           sources: response.data.sources ?? [],
           sections: response.data.sections ?? null,
-          weather: response.data.weather ?? null,
+          weather: isForecast(response.data.weather) ? response.data.weather : null,
           agentLabel: response.agent_label,
           agentsCalled: response.agents_called,
           action: response.action,

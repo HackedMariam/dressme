@@ -186,7 +186,9 @@ def _a2a(state: State, url: str, label: str, key: str) -> dict:
     action = ({"page": "help-me-pack", "label": "Open Help Me Pack", "session_id": task.get("contextId")}
               if key == "trip" and client.state_of(task) in ("completed", "input-required") and task.get("contextId") else None)
     return {"reply": client.text_of(task), "state": client.state_of(task), "agents_called": [f"{label} (A2A)"], "action": action,
-            "awaiting": {"agent": key, "context": task.get("contextId")} if open_question else None, "data": client.data_of(task)}
+            "awaiting": {"agent": key, "context": task.get("contextId")} if open_question else None,
+            # kept under its own key: the page reads data.weather / data.sections only for the AI Stylist's answers
+            "data": {"a2a_result": client.data_of(task)}}
 
 
 def node_trip(state: State) -> dict:
