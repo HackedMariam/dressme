@@ -3,6 +3,9 @@
 # Il choisit le premier Python qui sait importer fastapi : backend\.venv, .venv à la racine, puis `python`.
 param([int]$Port = 8000, [switch]$Check)
 
+# Peu de mémoire virtuelle sur cette machine : un seul thread BLAS évite les "OpenBLAS error: Memory allocation failed".
+if (-not $env:OPENBLAS_NUM_THREADS) { $env:OPENBLAS_NUM_THREADS = "1" }
+if (-not $env:OMP_NUM_THREADS) { $env:OMP_NUM_THREADS = "1" }
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Backend = Join-Path $Root "backend"
 

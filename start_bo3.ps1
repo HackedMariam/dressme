@@ -2,6 +2,9 @@
 # Utilisable depuis n'importe quel dossier :   .\start_bo3.ps1   (ou   & "C:\...\final project\start_bo3.ps1")
 param([int]$Port = 8001)
 
+# Peu de mémoire virtuelle sur cette machine : un seul thread BLAS évite les "OpenBLAS error: Memory allocation failed".
+if (-not $env:OPENBLAS_NUM_THREADS) { $env:OPENBLAS_NUM_THREADS = "1" }
+if (-not $env:OMP_NUM_THREADS) { $env:OMP_NUM_THREADS = "1" }
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AppDir = Join-Path $Root "DressMe UI Blueprint\backend"
 
