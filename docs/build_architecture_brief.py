@@ -51,7 +51,7 @@ def build() -> None:
           P("<font face='Courier'>client = A2AClient(url, token)  ;  tache = client.send(\"Prepare ma valise pour Paris\")  ;  client.text_of(tache)</font>", CODEST),
           P("Chaque agent expose sa carte : <font face='Courier'>/a2a/stylist</font>, <font face='Courier'>/a2a/wardrobe</font>, <font face='Courier'>/a2a/similar</font>, "
             "<font face='Courier'>/a2a/outfit</font> (BO1), <font face='Courier'>/a2a/trip</font> (8020), <font face='Courier'>/a2a/gap</font> (BO3). "
-            "Le Trip Agent appelle lui-meme le Wardrobe Agent (lire le placard) et le Gap Agent (lacunes) par A2A."),
+            "Le Trip Agent appelle lui-meme le Wardrobe Agent (lire le placard) et le Gap Agent (lacunes) par A2A. Dans BO1, l'AI Stylist, le Similar Agent, l'Outfit Builder et l'orchestrateur demandent aussi le placard au Wardrobe Agent par A2A (actions list et ask), avec un repli en appel direct."),
           PageBreak()]
 
     s += [P("3. Comment chaque agent est construit", H1),

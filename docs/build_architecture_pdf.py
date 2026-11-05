@@ -778,6 +778,7 @@ def build():
           H2_("Ce qui est implemente"),
           *bullets(["Methodes <font face='Courier'>message/send</font> (reponse synchrone : une tache terminee), <font face='Courier'>tasks/get</font> et <font face='Courier'>tasks/cancel</font>.",
                     "<b>Authentification</b> : la carte est publique ; chaque tache exige le jeton Supabase (en-tete Authorization) et ne travaille que sur la garde-robe de cet utilisateur. Une tache n'est lisible que par celui qui l'a creee.",
+                    "<b>Dans BO1 aussi</b> : l'AI Stylist, le Similar Agent, l'Outfit Builder et l'orchestrateur lisent le placard en envoyant une tache A2A au Wardrobe Agent de leur propre service (actions list et ask, en lecture seule, avec le jeton de l'utilisateur) ; sans jeton ou si l'appel echoue, ils utilisent le Wardrobe Agent en appel direct.",
                     "<b>Lecture de la garde-robe par A2A</b> : le Trip Agent demande les pieces au Wardrobe Agent (data.action = list) avec le jeton de l'utilisateur ; si le Wardrobe Agent est indisponible, il retombe sur la route BO1.",
                     "<b>input-required</b> : le Trip Agent demande une precision (\"quelles dates ?\") ; le client renvoie sa reponse avec le meme <font face='Courier'>contextId</font> (c'est l'identifiant de la session de voyage).",
                     "Un agent qui plante renvoie une tache <b>failed</b> avec un message neutre : aucun detail interne ne sort.",

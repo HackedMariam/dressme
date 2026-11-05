@@ -62,7 +62,7 @@ def build() -> None:
     # agents ask the Wardrobe Agent
     g.arrow(85, 138, 88, 138, INK)
     g.arrow(128, 138, 125, 138, INK)
-    g.label(106, 114.2, "AI Stylist et Similar Agent demandent le placard au Wardrobe Agent (agent a agent)", 6.0, GREY)
+    g.label(106, 114.2, "AI Stylist, Similar Agent et Outfit Builder demandent le placard au Wardrobe Agent par A2A, meme dans BO1", 6.0, GREY)
     g.label(238, 114.2, "lit le placard (A2A)", 5.8, GREY)
     g.arrow(261, 132, 271, 132, OLIVE)
     g.label(266, 135.5, "A2A", 6.0, OLIVE, "middle", True)
