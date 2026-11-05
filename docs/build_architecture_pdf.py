@@ -379,6 +379,26 @@ def diagram_features():
     g.legend(STD_LEGEND, y=0.5)
     return g.d
 
+
+def diagram_a2a():
+    g = Diagram(170, 118)
+    g.box(55, 104, 60, 10, "Agent client (orchestrateur, script, autre agent)", DATA, 7, True)
+    g.label(85, 99.5, "1. GET .well-known/agent-card.json  (public : qui es-tu, que sais-tu faire ?)", 6.8, GREY)
+    g.label(85, 95.5, "2. POST JSON-RPC message/send  + Authorization: Bearer (jeton Supabase)", 6.8, GREY)
+    cols = [(2, "AI Stylist", "BO1 :8000\n/a2a/stylist\nstyle-advice\nwardrobe-search", LLM),
+            (44, "Outfit Builder", "BO1 :8000\n/a2a/outfit\nbuild-outfits", LLM),
+            (86, "Trip Agent", "Help Me Pack :8020\n/a2a/trip\nplan-trip-packing", LLM),
+            (128, "Gap Agent", "BO3 :8001\n/a2a/gap\nwardrobe-gaps", LLM)]
+    for x, title, body, fill in cols:
+        g.box(x, 60, 40, 26, title + "\n" + body, fill, 6.9)
+        g.arrow(85, 92, x + 20, 86)
+    g.polyline([(106, 60), (106, 48), (148, 48), (148, 60)], INK, True)
+    g.label(127, 43, "Trip Agent -> Gap Agent : outil check_gaps, meme jeton, la capsule du voyage en donnees", 6.8, INK)
+    g.box(2, 18, 80, 18, "Tache A2A : submitted, working, input-required, completed,\nfailed, canceled, rejected. Resultat : message texte +\nartefact JSON (donnees structurees).", DATA, 6.8)
+    g.box(90, 18, 78, 18, "Erreurs JSON-RPC : -32700 JSON invalide, -32600 requete, -32601\nmethode, -32602 parametres, -32001 tache inconnue,\n-32002 non annulable, -32004 operation non supportee.", CODE, 6.8)
+    g.legend(STD_LEGEND, y=4)
+    return g.d
+
 # ----------------------------------------------------------------------------------------- the document
 def page_frame(canvas, doc):
     canvas.saveState()
@@ -402,7 +422,7 @@ def cover_page(canvas, doc):
     canvas.drawString(22 * mm, 176 * mm, "Architecture des agents IA")
     canvas.setFont("Helvetica", 11)
     for i, line in enumerate(["Dossier de validation technique",
-                               "6 agents, 3 pipelines LLM, 1 RAG, 4 services, 11 ecrans",
+                               "6 agents, 3 pipelines LLM, 1 RAG, 4 services, 11 ecrans, protocole A2A",
                                "Graphes, prompts, outils, integration, garde-fous et limites"]):
         canvas.drawString(22 * mm, (160 - i * 7) * mm, line)
     canvas.setFont("Helvetica", 9)
@@ -725,7 +745,38 @@ def build():
                     "L'AI Stylist n'a pas de memoire entre deux messages ; la memoire du Trip Agent est en memoire serveur (perdue au redemarrage).",
                     "Le Stylist BO4 et l'orchestrateur LangGraph ne sont pas encore relies a l'interface React.",
                     "La meteo est celle d'un jour (jusqu'a 15 jours) pour une seule ville.",
-                    "Pistes : memoire de preferences par utilisateur, journal de ce qui est porte, protocole A2A entre agents, migration de l'AI Stylist vers LangGraph."])]
+                    "Pistes : orchestrateur client A2A, memoire de preferences par utilisateur, journal de ce qui est porte, migration de l'AI Stylist vers LangGraph.",
+                    "A2A : implementation legere du protocole (JSON-RPC, cartes d'agent) ; streaming et notifications push non implementes."])]
+
+    # ---- 13 A2A
+    s += [PageBreak(), P("13. Communication entre agents : protocole A2A", H1),
+          P("Chaque agent expose une <b>carte d'agent</b> (qui il est, ses competences, comment s'authentifier) et un point d'entree "
+            "<b>JSON-RPC</b> (protocole Agent2Agent, version 0.3). N'importe quel agent ou l'orchestrateur peut donc le decouvrir et lui confier une tache "
+            "par HTTP, sans connaitre ses routes internes. Le code commun est dans <font face='Courier'>a2a_protocol/</font> (serveur, client)."),
+          diagram_a2a(), P("Figure 9 : decouverte par carte, envoi d'une tache, appel d'un agent par un autre.", CAP),
+          table([["Agent", "Carte d'agent", "Point d'entree", "Competence (skill)", "Donnees acceptees"],
+                 ["AI Stylist", "/a2a/stylist/.well-known/agent-card.json", "POST /a2a/stylist (BO1)", "style-advice, wardrobe-search", "texte ; city, country, unit"],
+                 ["Outfit Builder", "/a2a/outfit/.well-known/agent-card.json", "POST /a2a/outfit (BO1)", "build-outfits", "texte ou occasion, season, city, country, avoid"],
+                 ["Trip Agent", "/a2a/trip/.well-known/agent-card.json", "POST /a2a/trip (8020)", "plan-trip-packing", "texte ou trip {destination, dates, activities, kg}"],
+                 ["Gap Agent", "/a2a/gap/.well-known/agent-card.json", "POST /a2a/gap (BO3 8001)", "wardrobe-gaps", "texte ou goal ; capsule du voyage"]],
+                [24, 50, 38, 32, 26]),
+          H2_("Ce qui est implemente"),
+          *bullets(["Methodes <font face='Courier'>message/send</font> (reponse synchrone : une tache terminee), <font face='Courier'>tasks/get</font> et <font face='Courier'>tasks/cancel</font>.",
+                    "<b>Authentification</b> : la carte est publique ; chaque tache exige le jeton Supabase (en-tete Authorization) et ne travaille que sur la garde-robe de cet utilisateur. Une tache n'est lisible que par celui qui l'a creee.",
+                    "<b>input-required</b> : le Trip Agent demande une precision (\"quelles dates ?\") ; le client renvoie sa reponse avec le meme <font face='Courier'>contextId</font> (c'est l'identifiant de la session de voyage).",
+                    "Un agent qui plante renvoie une tache <b>failed</b> avec un message neutre : aucun detail interne ne sort.",
+                    "Non implemente, et declare tel quel dans la carte : streaming (<font face='Courier'>message/stream</font>) et notifications push."]),
+          H2_("Agent vers agent : le Trip Agent demande au Gap Agent"),
+          P("L'outil <font face='Courier'>check_gaps</font> du Trip Agent etait un crochet vide. Il appelle maintenant le Gap Agent <b>par A2A</b> : "
+            "il lui envoie la capsule du voyage (destination, activites, jours) et le jeton de l'utilisateur ; le Gap Agent choisit l'objectif le plus proche, "
+            "classe les pieces manquantes et repond ; le Trip Agent les propose. Si le Gap Agent est arrete, l'outil renvoie une erreur propre et le voyage "
+            "n'est pas bloque. L'adresse se regle avec <font face='Courier'>GAP_A2A_URL</font> (vide pour desactiver)."),
+          H2_("Decouvrir les agents"),
+          P("<font face='Courier'>python scripts/a2a_discover.py</font> lit les quatre cartes ; avec <font face='Courier'>A2A_TOKEN</font> et "
+            "<font face='Courier'>--ask</font>, il envoie aussi une tache a chaque agent."),
+          H2_("Suite logique"),
+          P("L'orchestrateur devient un <b>client A2A</b> : il lit les quatre cartes, choisit l'agent selon les competences annoncees et lui delegue la tache. "
+            "Les agents sont deja prets pour cela.")]
 
     doc.build(s)
     print("written", OUT)
