@@ -16,47 +16,26 @@ import json
 import logging
 import re
 
-from . import config, rag_client, weather
-from .taxonomy import GROUPS, MODEL_CLASSES, OCCASIONS, PATTERNS, SEASONS, STYLES
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:          # agent_kit/ sits at the root of the repository
+    sys.path.insert(0, str(ROOT))
+
+from agent_kit import run_loop  # noqa: E402
+
+from . import config, rag_client, weather  # noqa: E402
+# The wardrobe is read through the Wardrobe Agent: its search tool and its duplicate check are used here.
+from .wardrobe_agent import DUPLICATE_SYSTEM, RESULT_FIELDS, SEARCH_TOOL, _matches, _run_search, check_duplicate  # noqa: E402,F401
 
 log = logging.getLogger("dressme.agent")
 
 MAX_ROUNDS = 4
 DEFAULT_CITY, DEFAULT_COUNTRY = "Tunis", "Tunisia"
 AGENT_ROUNDS = 8   # the stylist may search the closet, the weather and the books several times
-MAX_RESULTS_PER_CALL = 20
-RESULT_FIELDS = ("id", "name", "category", "category_group", "color_name", "pattern",
-                 "material", "seasons", "style", "occasions", "formality", "warmth")
 
-TOOLS = [{
-    "type": "function",
-    "function": {
-        "name": "search_wardrobe",
-        "description": "Search the user's own wardrobe. Always call this before answering any "
-                       "question about what the user owns or could wear - never guess or invent "
-                       "items. You can call it more than once (e.g. loosen filters if it returns "
-                       "nothing, or narrow down if it returns too much).",
-        "parameters": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "category": {"type": "string", "enum": MODEL_CLASSES,
-                             "description": "Exact garment type, e.g. 'dress', 'jacket'."},
-                "category_group": {"type": "string", "enum": GROUPS,
-                                   "description": "Broader group, use when no single category fits."},
-                "color_name": {"type": "string", "description": "Exact colour the user asked for, if any."},
-                "season": {"type": "string", "enum": SEASONS},
-                "occasion": {"type": "string", "enum": OCCASIONS},
-                "style": {"type": "string", "enum": STYLES},
-                "pattern": {"type": "string", "enum": PATTERNS},
-                "min_warmth": {"type": "integer", "description": "1-5. Set for 'warm'/'cold' requests."},
-                "text": {"type": "string", "description": "Free text to match against name, "
-                                                           "material, description and tags."},
-            },
-            "required": [],
-        },
-    },
-}, {
+TOOLS = [SEARCH_TOOL, {
     "type": "function",
     "function": {
         "name": "fashion_advice",
@@ -165,35 +144,6 @@ WEATHER_REMINDER = ("This is a question about what to wear: call get_weather for
                     "before answering, and build the outfit and the reasons on the real forecast.")
 
 
-def _matches(item: dict, args: dict) -> bool:
-    if args.get("category") and item.get("category") != args["category"]:
-        return False
-    if args.get("category_group") and item.get("category_group") != args["category_group"]:
-        return False
-    if args.get("color_name") and item.get("color_name") != args["color_name"]:
-        return False
-    if args.get("season") and args["season"] not in (item.get("seasons") or []):
-        return False
-    if args.get("occasion") and args["occasion"] not in (item.get("occasions") or []):
-        return False
-    if args.get("style") and item.get("style") != args["style"]:
-        return False
-    if args.get("pattern") and item.get("pattern") != args["pattern"]:
-        return False
-    if args.get("min_warmth") and (item.get("warmth") or 0) < args["min_warmth"]:
-        return False
-    if args.get("text"):
-        hay = " ".join(str(item.get(k, "")) for k in ("name", "subcategory", "material", "description"))
-        hay += " " + " ".join(item.get("tags") or [])
-        if args["text"].lower() not in hay.lower():
-            return False
-    return True
-
-
-def _run_search(items: list[dict], args: dict) -> list[dict]:
-    return [i for i in items if _matches(i, args)][:MAX_RESULTS_PER_CALL]
-
-
 SECTION_KEYS = ("weather", "outfit", "why", "alternatives", "tips")
 
 
@@ -271,7 +221,6 @@ def chat(items: list[dict], message: str, place: dict | None = None) -> dict:
 
     advice_asked = False   # has the model consulted the fashion knowledge base yet?
     weather_asked = False  # ...and the weather?
-    reminded = False       # the reminder below is given at most once
 
     def result(content: str, structured: bool = True) -> dict:
         parsed = parse_reply(content) if structured else None
@@ -290,138 +239,61 @@ def chat(items: list[dict], message: str, place: dict | None = None) -> dict:
                 "sections": {key: parsed[key] for key in SECTION_KEYS},
                 "weather": _forecast_view(forecasts[-1], unit) if forecasts and parsed["weather"] else None}
 
-    for _ in range(AGENT_ROUNDS):
-        try:
-            resp = client.chat.completions.create(
-                model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=1800,
-                messages=messages, tools=TOOLS, response_format={"type": "json_object"})
-        except Exception:
-            log.exception("agent LLM call failed")
-            return result("The AI stylist is having trouble right now, try again in a moment.", structured=False)
+    def call_llm(msgs: list[dict]):
+        return client.chat.completions.create(
+            model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=1800,
+            messages=msgs, tools=TOOLS, response_format={"type": "json_object"}).choices[0].message
 
-        msg = resp.choices[0].message
-        if not msg.tool_calls:
-            missing = []
-            if not advice_asked and config.RAG_URL and KNOWLEDGE_QUESTION.search(message):
-                missing.append(ADVICE_REMINDER)
-            if not weather_asked and city and WEAR_QUESTION.search(message):
-                missing.append(WEATHER_REMINDER)
-            if missing and not reminded:
-                # The model skipped the books or the weather on a question that needs them: ask it once.
-                reminded = True
-                messages.append({"role": "assistant", "content": msg.content or ""})
-                messages.append({"role": "user", "content": " ".join(missing)})
-                continue
-            return result(msg.content or "")
-
-        messages.append({"role": "assistant", "content": msg.content,
-                         "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
-        for tc in msg.tool_calls:
+    def run_tool(name: str, args: dict) -> str:
+        nonlocal advice_asked, weather_asked
+        if name == "get_weather":
+            weather_asked = True
             try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            if tc.function.name == "get_weather":
-                weather_asked = True
-                try:
-                    days_ahead = int(args.get("days_ahead", asked_day if asked_day is not None else 0))
-                except (TypeError, ValueError):
-                    days_ahead = 0
-                where = str(args.get("city") or city).strip()
-                forecast = weather.day_forecast(where, "" if args.get("city") else country, days_ahead)
-                if not forecast and not args.get("city") and where.lower() != DEFAULT_CITY.lower():
-                    # The user's town is unknown to the weather service: use the default city rather than nothing.
-                    forecast = weather.day_forecast(DEFAULT_CITY, DEFAULT_COUNTRY, days_ahead)
-                    if forecast:
-                        forecast = {**forecast, "note": f"{where} is not known to the weather service: this is the "
-                                    f"forecast of {DEFAULT_CITY}, say so."}
+                days_ahead = int(args.get("days_ahead", asked_day if asked_day is not None else 0))
+            except (TypeError, ValueError):
+                days_ahead = 0
+            where = str(args.get("city") or city).strip()
+            forecast = weather.day_forecast(where, "" if args.get("city") else country, days_ahead)
+            if not forecast and not args.get("city") and where.lower() != DEFAULT_CITY.lower():
+                # The user's town is unknown to the weather service: use the default city rather than nothing.
+                forecast = weather.day_forecast(DEFAULT_CITY, DEFAULT_COUNTRY, days_ahead)
                 if forecast:
-                    forecasts.append(forecast)
-                    content = json.dumps(forecast)
-                else:
-                    content = json.dumps({"weather": None, "note": "The weather could not be checked (no city, "
-                                          "unknown city or service down): say so and do not invent it."})
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
-                continue
-            if tc.function.name == "fashion_advice":
-                advice_asked = True
-                advice = rag_client.advise(str(args.get("question") or message))
-                if advice:
-                    for source in advice["sources"]:
-                        sources.setdefault(source["marker"], source)
-                    content = json.dumps({"advice": advice["answer"], "sources": advice["sources"]})
-                else:
-                    content = json.dumps({"advice": None, "note": "The fashion knowledge base is unavailable "
-                                          "or has nothing on this: answer from the wardrobe alone."})
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
-                continue
-            results = _run_search(items, args)
-            if args:
-                filters.append(args)
-            trimmed = [{k: i.get(k) for k in RESULT_FIELDS} for i in results]
-            for i, t in zip(results, trimmed):
-                found[i["id"]] = t
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(trimmed)})
+                    forecast = {**forecast, "note": f"{where} is not known to the weather service: this is the "
+                                f"forecast of {DEFAULT_CITY}, say so."}
+            if forecast:
+                forecasts.append(forecast)
+                return json.dumps(forecast)
+            return json.dumps({"weather": None, "note": "The weather could not be checked (no city, "
+                               "unknown city or service down): say so and do not invent it."})
+        if name == "fashion_advice":
+            advice_asked = True
+            advice = rag_client.advise(str(args.get("question") or message))
+            if advice:
+                for source in advice["sources"]:
+                    sources.setdefault(source["marker"], source)
+                return json.dumps({"advice": advice["answer"], "sources": advice["sources"]})
+            return json.dumps({"advice": None, "note": "The fashion knowledge base is unavailable "
+                               "or has nothing on this: answer from the wardrobe alone."})
+        results = _run_search(items, args)
+        if args:
+            filters.append(args)
+        trimmed = [{k: i.get(k) for k in RESULT_FIELDS} for i in results]
+        for i, t in zip(results, trimmed):
+            found[i["id"]] = t
+        return json.dumps(trimmed)
 
+    def nudge(_content: str) -> str | None:
+        # The model skipped the books or the weather on a question that needs them: ask it once.
+        missing = []
+        if not advice_asked and config.RAG_URL and KNOWLEDGE_QUESTION.search(message):
+            missing.append(ADVICE_REMINDER)
+        if not weather_asked and city and WEAR_QUESTION.search(message):
+            missing.append(WEATHER_REMINDER)
+        return " ".join(missing) or None
+
+    final, outcome = run_loop(messages=messages, call_llm=call_llm, run_tool=run_tool, max_rounds=AGENT_ROUNDS, nudge=nudge)
+    if outcome == "answer":
+        return result(final or "")
+    if outcome == "error":
+        return result("The AI stylist is having trouble right now, try again in a moment.", structured=False)
     return result("That search is taking more digging than usual - try asking more specifically.", structured=False)
-
-
-DUPLICATE_SYSTEM = (
-    "You help catalogue a wardrobe that's being scanned live from a camera. An item was just "
-    "detected and saved. Decide whether the wardrobe already contains a near-duplicate of it - "
-    "call search_wardrobe (at least once) to check, looking at category, colour and whatever else "
-    "you're told. Only call it a duplicate if you're genuinely confident it's the same physical "
-    "garment seen twice (e.g. the user scanned it by accident, or it's a second photo of the same "
-    "jacket) - NOT just 'another navy t-shirt' or 'another pair of jeans', which are normal to own "
-    "more than one of. When you're done, reply with ONLY a compact JSON object, no other text: "
-    '{"duplicate": true or false, "similar_item_id": "<id or null>", "note": "<one short sentence '
-    'for the user if duplicate, else empty>"}.'
-)
-
-
-def check_duplicate(items: list[dict], candidate: dict) -> dict:
-    """Agentic duplicate check run right after a live-scan capture: the LLM decides whether (and
-    how) to search the wardrobe for a near-duplicate of the item that was just saved, instead of
-    a fixed rule - it can look, weigh what it finds, and only flag a genuine match.
-    """
-    empty = {"duplicate": False, "similar_item_id": None, "note": ""}
-    if not config.OPENAI_API_KEY or not items:
-        return empty
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=config.LLM_TIMEOUT, max_retries=2)
-    facts = {k: candidate.get(k) for k in ("category", "color_name", "pattern", "material") if candidate.get(k)}
-    messages: list[dict] = [{"role": "system", "content": DUPLICATE_SYSTEM},
-                            {"role": "user", "content": "Just captured: " + json.dumps(facts)}]
-
-    for _ in range(MAX_ROUNDS):
-        try:
-            resp = client.chat.completions.create(
-                model=config.LLM_MODEL, temperature=0.1, max_completion_tokens=250,
-                messages=messages, tools=TOOLS[:1], response_format={"type": "json_object"})
-        except Exception:
-            log.exception("duplicate-check LLM call failed")
-            return empty
-
-        msg = resp.choices[0].message
-        if not msg.tool_calls:
-            try:
-                data = json.loads(msg.content or "{}")
-            except json.JSONDecodeError:
-                return empty
-            return {"duplicate": bool(data.get("duplicate")),
-                   "similar_item_id": data.get("similar_item_id") or None,
-                   "note": str(data.get("note") or "")[:200]}
-
-        messages.append({"role": "assistant", "content": msg.content,
-                         "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
-        for tc in msg.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            trimmed = [{k: i.get(k) for k in RESULT_FIELDS} for i in _run_search(items, args)]
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(trimmed)})
-
-    return empty

@@ -7,8 +7,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+import sys
+
 from dotenv import load_dotenv
 from openai import OpenAI
+
+_ROOT = Path(__file__).resolve().parents[3]            # agent_kit/ sits at the root of the repository
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from agent_kit import run_loop  # noqa: E402
 
 from .coverage import GOALS
 from .tools import TOOL_SCHEMAS, GapAgentTools
@@ -102,36 +110,26 @@ class GapAgent:
         trace: list[dict[str, Any]] = []
         self.tools.last_ranking = None
         self.tools.shown_items = []
-        for step in range(1, MAX_STEPS + 1):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                tool_choice="auto",
-                temperature=0.2,
-            )
-            message = response.choices[0].message
-            if not message.tool_calls:
-                return AgentResult(message.content or "", trace, self.tools.last_ranking, self.tools.shown_items)
+        step = 0
 
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": [call.model_dump() for call in message.tool_calls],
-                }
-            )
-            for call in message.tool_calls:
-                try:
-                    arguments = json.loads(call.function.arguments or "{}") or {}
-                except json.JSONDecodeError:
-                    arguments = {}
-                result = self.tools.call(call.function.name, arguments)
-                trace.append({"step": step, "tool": call.function.name, "arguments": arguments, "result": result})
-                messages.append(
-                    {"role": "tool", "tool_call_id": call.id, "content": json.dumps(result, default=str)}
-                )
+        def call_llm(msgs: list[dict[str, Any]]):
+            nonlocal step
+            step += 1
+            return self.client.chat.completions.create(
+                model=self.model, messages=msgs, tools=TOOL_SCHEMAS, tool_choice="auto", temperature=0.2,
+            ).choices[0].message
 
+        def run_tool(name: str, arguments: dict[str, Any]) -> str:
+            result = self.tools.call(name, arguments)
+            trace.append({"step": step, "tool": name, "arguments": arguments, "result": result})
+            return json.dumps(result, default=str)
+
+        # The tool loop is the shared LangGraph graph (agent_kit): llm -> tools -> llm ... -> answer.
+        final, outcome = run_loop(messages=messages, call_llm=call_llm, run_tool=run_tool, max_rounds=MAX_STEPS)
+        if outcome == "answer":
+            return AgentResult(final or "", trace, self.tools.last_ranking, self.tools.shown_items)
+        if outcome == "error":
+            raise RuntimeError("The gap agent could not reach the language model.")
         return AgentResult(
             "I could not finish the analysis within the step limit. Please rephrase your request.",
             trace,

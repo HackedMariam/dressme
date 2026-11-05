@@ -94,6 +94,24 @@ export interface AgentReply {
   filters?: Record<string, string | number>[]
 }
 
+/** A correction the Wardrobe Agent proposed: nothing is saved until the user confirms. */
+export interface WardrobePending {
+  item_id: string
+  item_name: string
+  fields: Record<string, unknown>
+  before: Record<string, unknown>
+}
+
+export interface WardrobeAgentReply {
+  reply: string
+  items: WardrobeItem[]
+  filters: Record<string, string | number>[]
+  context_id: string
+  state: "completed" | "input-required" | "failed"
+  pending: WardrobePending | null
+  updated: WardrobeItem | null
+}
+
 /** What the outfit-builder agent returns: outfits as lists of wardrobe item ids, with the reasons for each. */
 export interface OutfitAgentReply {
   outfits: { title: string; items: string[]; weather_note: string; why: string[] }[]

@@ -118,7 +118,7 @@ STD_LEGEND = [("LLM", LLM), ("code deterministe", CODE), ("donnees / stockage", 
 def diagram_overview():
     g = Diagram(170, 118)
     g.box(35, 104, 100, 10, "Interface React 19 (Vite, Tailwind)\nAI Stylist | Outfit Builder | Help Me Pack | Wardrobe | Should I buy | Dashboard", DATA, 7, True)
-    cols = [(2, "BO1  :8000", "garde-robe, detecteur YOLO\nAI Stylist, Outfit Agent\nShould I buy, anti-doublon"),
+    cols = [(2, "BO1  :8000", "Wardrobe Agent, YOLO\nAI Stylist, Outfit Agent\nShould I buy"),
             (44, "BO3  :8001", "Gap Agent\nlacunes de garde-robe\nboutiques tunisiennes"),
             (86, "Help Me Pack  :8020", "Trip Agent (LangGraph)\nsolveur OR-Tools CP-SAT"),
             (128, "RAG  :8010", "connaissance mode\n38 PDF, pgvector\nreponses citees [S#]")]
@@ -314,7 +314,7 @@ def flow(steps, notes=None, height=44, per_row=5, box_h=20, size=6.8):
 
 def diagram_voice():
     return flow([("microphone\n(navigateur)", DATA), ("Web Speech API\nChrome / Edge /\nSafari", EXT), ("texte dicte\n(en direct)", CODE),
-                 ("POST\n/api/agent/search", CODE), ("Agent de recherche\n(agent 1b)\nchoisit les filtres", LLM)],
+                 ("POST\n/api/agent/search", CODE), ("Wardrobe Agent\n(LangGraph)\nchoisit les filtres", LLM)],
                 ["Transcription faite par le navigateur (Chrome et Edge utilisent leur service en ligne) : seul le texte arrive a nos serveurs.",
                  "Voix ou texte : meme chemin. Le LLM choisit les filtres, le code filtre la garde-robe, la page affiche le resultat."],
                 height=40)
@@ -322,7 +322,7 @@ def diagram_voice():
 
 def diagram_live():
     return flow([("camera du\nnavigateur\n(https)", DATA), ("/api/items/\nquick-detect\ncadres en direct", CODE), ("capture\n/api/items/analyze\n(fast, regles)", CODE),
-                 ("item enregistre\n(Supabase)", DATA), ("agent\nanti-doublon\n(agent 5)", LLM)],
+                 ("item enregistre\n(Supabase)", DATA), ("Wardrobe Agent\ncheck_duplicate\n(LangGraph)", LLM)],
                 ["Pendant la camera : YOLO dessine les cadres et signale une photo floue ou un vetement coupe (module quality).",
                  "Apres chaque capture, l'agent decide avec search_wardrobe s'il s'agit du meme vetement scanne deux fois."],
                 height=42)
@@ -357,12 +357,12 @@ def diagram_features():
     g.label(2, 144, "Page de l'interface", 7.8, INK, "start", True)
     g.label(70, 144, "Route", 7.8, INK, "start", True)
     g.label(118, 144, "Agent / moteur", 7.8, INK, "start", True)
-    rows = [("AI Stylist + voix (conseil)", "/api/agent/search", "AI Stylist (agent 1)", LLM),
-            ("Wardrobe : recherche texte + voix", "/api/agent/search", "Agent de recherche (1b)", LLM),
-            ("Outfit Builder", "/api/outfits/agent", "Outfit Agent LangGraph (2)", LLM),
-            ("Help Me Pack", ":8020 /api/trips", "Trip Agent (3) + CP-SAT", LLM),
-            ("Wardrobe Gaps / Shop Smart", ":8001 /api/bo3/*", "Gap Agent (4) + XGBoost", LLM),
-            ("Live scan", "/api/items/quick-detect + /api/agent/check-duplicate", "YOLO + agent anti-doublon (5)", LLM),
+    rows = [("AI Stylist + voix (conseil)", "/api/agent/search", "AI Stylist (LangGraph)", LLM),
+            ("Wardrobe : recherche, voix, corrections", "/api/wardrobe/agent", "Wardrobe Agent (LangGraph)", LLM),
+            ("Outfit Builder", "/api/outfits/agent", "Outfit Builder (LangGraph)", LLM),
+            ("Help Me Pack", ":8020 /api/trips", "Trip Agent (LangGraph) + CP-SAT", LLM),
+            ("Wardrobe Gaps / Shop Smart", ":8001 /api/bo3/*", "Gap Agent (LangGraph) + XGBoost", LLM),
+            ("Live scan", "/api/items/quick-detect + /api/agent/check-duplicate", "YOLO + Wardrobe Agent (doublons)", LLM),
             ("Should I buy this?", "/api/shopping-assistant/evaluate", "detecteur + LLM + moteur d'achat", CODE),
             ("Find Similar", "/api/items/analyze (all_items)", "YOLO + comparaison locale", CODE),
             ("Ajout / Wardrobe / 3D", "/api/items/analyze, /api/items", "YOLO + catalogage vision", CODE),
@@ -422,7 +422,7 @@ def cover_page(canvas, doc):
     canvas.drawString(22 * mm, 176 * mm, "Architecture des agents IA")
     canvas.setFont("Helvetica", 11)
     for i, line in enumerate(["Dossier de validation technique",
-                               "6 agents, 3 pipelines LLM, 1 RAG, 4 services, 11 ecrans, protocole A2A",
+                               "5 agents LangGraph, 3 pipelines LLM, 1 RAG, 4 services, 11 ecrans, protocole A2A",
                                "Graphes, prompts, outils, integration, garde-fous et limites"]):
         canvas.drawString(22 * mm, (160 - i * 7) * mm, line)
     canvas.setFont("Helvetica", 9)
@@ -461,20 +461,20 @@ def build():
     # ---- 2 integration of every feature
     s += [P("2. Integration de toutes les fonctionnalites", H1),
           P("Chaque page de l'interface appelle une route ; la route appelle soit un <b>agent</b> (le LLM choisit des outils ou suit un graphe), "
-            "soit un <b>moteur</b> (detecteur, moteur d'achat, comparaison locale). Le schema relie les 11 ecrans aux 6 agents et aux moteurs."),
+            "soit un <b>moteur</b> (detecteur, moteur d'achat, comparaison locale). Le schema relie les 11 ecrans aux 5 agents (tous LangGraph) et aux moteurs."),
           diagram_features(), P("Figure 2 : de chaque page a l'agent ou au moteur qui la sert.", CAP),
-          P("2.1 Recherche vocale", H2), diagram_voice(), P("Figure 3 : recherche intelligente par la voix ou par le texte (agent 1b).", CAP),
+          P("2.1 Recherche vocale", H2), diagram_voice(), P("Figure 3 : recherche par la voix ou par le texte (Wardrobe Agent).", CAP),
           *bullets(["<b>C'est bien un agent.</b> Le texte (ecrit ou dicte) est envoye au LLM, qui choisit lui-meme les parametres de recherche "
                     "(categorie, couleur, saison, occasion, style, chaleur, texte libre), appelle l'outil <font face='Courier'>search_wardrobe</font>, "
                     "<b>regarde le resultat</b> et recommence avec d'autres filtres si c'est vide ou trop large, puis redige sa reponse.",
                     "Voix : hook <font face='Courier'>useSpeech</font> (Web Speech API du navigateur, transcription en direct) ; a la fin de la phrase le texte part comme une question ecrite.",
                     "Page Wardrobe : la grille est filtree sur les pieces trouvees et les <b>filtres choisis par le LLM</b> s'affichent en pastilles (\"jacket, warmth 4+\"). Navigateur sans l'API vocale : le bouton micro est masque.",
-                    "<b>Meme code, deux usages</b> : la fonction <font face='Courier'>agent.chat</font> sert la recherche de la page Wardrobe (agent 1b : reponse courte + filtres + pieces) "
-                    "et la page AI Stylist (agent 1 : conseil complet avec meteo, tenue, raisons et sources). Le prompt distingue les deux : une simple recherche recoit une phrase, sans conseil ni sections."]),
-          P("2.2 Live scan", H2), diagram_live(), P("Figure 4 : scan en direct avec controle qualite et anti-doublon.", CAP),
+                    "<b>Le Wardrobe Agent</b> (LangGraph) sert cette recherche, mais aussi le comptage (\"combien de hauts ?\"), la recherche de pieces proches "
+                    "et les corrections, qui ne sont jamais enregistrees sans la confirmation de l'utilisateur (voir section 8.1)."]),
+          P("2.2 Live scan", H2), diagram_live(), P("Figure 4 : scan en direct avec controle qualite et verification de doublon.", CAP),
           *bullets(["La camera exige une origine securisee (https ou localhost) : le serveur de dev peut tourner en https avec un certificat local.",
                     "<font face='Courier'>/api/items/quick-detect</font> renvoie les cadres, la couleur principale et un eventuel probleme (flou, coupe, trop petit).",
-                    "La capture passe par <font face='Courier'>/api/items/analyze?fast=true</font> (classification par regles, quelques centaines de ms), puis l'agent anti-doublon decide s'il faut avertir."]),
+                    "La capture passe par <font face='Courier'>/api/items/analyze?fast=true</font> (classification par regles, quelques centaines de ms), puis le Wardrobe Agent (outil check_duplicate) decide s'il faut avertir."]),
           P("2.3 Find Similar", H2), diagram_similar(), P("Figure 5 : de la photo d'une tenue aux pieces manquantes.", CAP),
           *bullets(["Une photo de tenue est decoupee en pieces par le detecteur ; chaque piece est comparee a la garde-robe (meme categorie, couleur, matiere, style) et classee <b>You own it</b>, <b>Close match</b> ou <b>Missing</b>.",
                     "Pour une piece manquante, BO3 renvoie des photos de boutiques tunisiennes et l'utilisateur peut l'essayer sur son avatar avant d'acheter.",
@@ -493,7 +493,7 @@ def build():
     s += [P("2.6 Services partages par les agents", H1),
           table([["Service", "Utilise par", "Role"],
                  ["Supabase (auth, items, storage)", "tous", "jeton verifie sur chaque route, garde-robe de l'utilisateur, photos et cutouts"],
-                 ["OpenAI GPT-4o", "AI Stylist, Outfit Agent, Trip Agent, anti-doublon, catalogage, Should I buy", "raisonnement, redaction, vision"],
+                 ["OpenAI GPT-4o", "AI Stylist, Wardrobe Agent, Outfit Agent, Trip Agent, catalogage, Should I buy", "raisonnement, redaction, vision"],
                  ["Open-Meteo", "AI Stylist, Outfit Agent, Trip Agent", "geocodage + prevision 16 jours, cache 30 min"],
                  ["RAG (8010)", "AI Stylist, Outfit Agent", "conseils de livres de mode avec sources [S#]"],
                  ["YOLO dressme_best.pt", "Wardrobe, Live scan, Find Similar, Should I buy", "detection et segmentation des vetements"],
@@ -505,16 +505,15 @@ def build():
 
     # ---- 2
     s += [P("3. Combien d'agents ?", H1),
-          P("<b>6 agents</b> (5 moteurs distincts, dont un partage entre 1 et 1b) sont appeles depuis l'interface. <b>3 pipelines</b> utilisent un LLM sans etre des agents (le LLM ne choisit pas ses outils). "
+          P("<b>5 agents</b>, tous construits avec <b>LangGraph</b>, sont appeles depuis l'interface. <b>3 pipelines</b> utilisent un LLM sans etre des agents (le LLM ne choisit pas ses outils). "
             "Une <b>pile separee de l'equipe</b> (Stylist BO4 et orchestrateur) existe aussi, non branchee a l'interface React."),
           table([["#", "Agent", "Fonctionnalite", "Technique", "Fichier"],
-                 ["1", "AI Stylist", "page AI Stylist (texte et voix)", "boucle d'appel d'outils GPT-4o, 3 outils", "backend/app/agent.py"],
-                 ["1b", "Agent de recherche intelligente", "recherche texte ou voix de la page Wardrobe", "meme boucle, le LLM choisit les filtres de search_wardrobe", "backend/app/agent.py (chat)"],
-                 ["2", "Outfit Builder Agent", "page Outfit Builder", "graphe LangGraph, 5 noeuds", "backend/app/outfit_agent.py"],
-                 ["3", "Trip Agent", "Help Me Pack", "GPT-4o, 10 outils, LangGraph (2 graphes), CP-SAT", "packing_backend/trip_agent/"],
-                 ["4", "Gap Agent (BO3)", "Wardrobe Gaps, Shop Smart, Outfits to buy", "5 outils, 6 etapes max, XGBoost", "DressMe UI Blueprint/backend/agent/gap_agent.py"],
-                 ["5", "Agent anti-doublon", "Live scan (camera)", "1 outil (search_wardrobe)", "backend/app/agent.py (check_duplicate)"]],
-                [7, 30, 36, 50, 47]),
+                 ["1", "AI Stylist", "page AI Stylist (texte et voix)", "graphe : boucle llm / tools, rappel unique, 3 outils", "backend/app/agent.py"],
+                 ["2", "Wardrobe Agent", "recherche texte et voix, comptage, pieces proches, corrections confirmees, doublons du Live scan", "graphe : gate, apply / cancel / assist ; boucle d'outils, 4 outils", "backend/app/wardrobe_agent.py"],
+                 ["3", "Outfit Builder Agent", "page Outfit Builder", "graphe 5 noeuds : weather, closet, knowledge, compose, validate", "backend/app/outfit_agent.py"],
+                 ["4", "Trip Agent", "Help Me Pack", "GPT-4o, 10 outils, 2 graphes, CP-SAT", "packing_backend/trip_agent/"],
+                 ["5", "Gap Agent (BO3)", "Wardrobe Gaps, Shop Smart, Outfits to buy", "boucle llm / tools (agent_kit), 5 outils, XGBoost", "DressMe UI Blueprint/backend/agent/gap_agent.py"]],
+                [7, 30, 44, 49, 40]),
           Spacer(1, 8),
           table([["Pipeline LLM", "Role", "Fichier"],
                  ["Catalogage vision", "detecteur YOLO, puis GPT-4o vision (JSON strict) : categorie, couleur, matiere, saison, occasion", "backend/app/enricher.py"],
@@ -526,15 +525,16 @@ def build():
                  ["Stylist BO4 (bo4/)", "LangGraph a 9 noeuds, Ollama qwen2.5:3b, moteur de tenues heuristique (couleur 30, style 20, occasion 30, saison 20)"],
                  ["Orchestrateur (orchestrator/, port 8070)", "LangGraph : route_intent (regles puis LLM local) vers stylist, garde-robe, achat, RAG ou clarification"]],
                 [60, 110]),
-          P("LangGraph est utilise par l'Outfit Builder Agent, le Trip Agent, le Stylist BO4 et l'orchestrateur. "
-            "L'AI Stylist, le Gap Agent et l'agent anti-doublon utilisent la boucle d'appel d'outils native d'OpenAI, ecrite a la main.", BODY),
+          P("<b>Tous les agents de l'application sont des graphes LangGraph.</b> La boucle d'appel d'outils est commune : le module "
+            "<font face='Courier'>agent_kit/tool_loop.py</font> (noeuds llm, tools, nudge, finish ; chaque agent branche son LLM, ses outils et ses garde-fous). "
+            "Le Trip Agent et l'Outfit Builder ont en plus des graphes metier (workflow deterministe, composition puis validation).", BODY),
           PageBreak()]
 
     # ---- tools by agent
     s += [P("4. Outils de chaque agent", H1),
           P("Un <b>outil</b> est une fonction que le LLM peut demander ; le code l'execute et renvoie le resultat au LLM. "
             "Le LLM ne touche jamais directement aux donnees."),
-          P("4.1 AI Stylist et agent de recherche : 3 outils", H2),
+          P("4.1 AI Stylist : 3 outils", H2),
           table([["Outil", "Parametres", "Retour", "Garde-fou"],
                  ["search_wardrobe", "category, category_group, color_name, season, occasion, style, pattern, min_warmth (1-5), text (choisis par le LLM, voix ou texte)", "jusqu'a 20 pieces : id, nom, categorie, couleur, matiere, saisons, style, occasions, formalite, chaleur", "valeurs d'enumeration imposees ; seuls les items de l'utilisateur"],
                  ["get_weather", "days_ahead (0 a 15), city (optionnel)", "ville, jour, condition, min/max en C et F, % de pluie, mm, vent, resume", "ville inconnue : premiers mots, puis Tunis, annoncee ; sinon \"non verifiee\""],
@@ -570,10 +570,16 @@ def build():
                  ["show_items", "item_ids (8 max)", "affiche les pieces citees comme cartes photo a cote de la reponse"]],
                 [32, 36, 102]),
           P("Le Gap Agent a une vraie <b>memoire</b> (analyses passees) et un <b>apprentissage</b> : les retours de l'utilisateur sur les suggestions reentrainent le classeur (/api/bo3/retrain).", BODY),
-          P("4.5 Agent anti-doublon : 1 outil", H2),
+          P("4.5 Wardrobe Agent : 4 outils, aucun n'ecrit", H2),
           table([["Outil", "Parametres", "Role"],
-                 ["search_wardrobe", "memes filtres que l'AI Stylist", "cherche un quasi-doublon du vetement capture ; reponse finale JSON {duplicate, similar_item_id, note}"]],
-                [32, 52, 86]),
+                 ["search_wardrobe", "filtres choisis par le LLM (categorie, couleur, saison, occasion, style, chaleur, texte)", "pieces de l'utilisateur ; sert aussi aux autres agents"],
+                 ["find_similar", "item_id, ou category, color_name, material, style", "pieces les plus proches, avec les raisons (meme type, meme couleur...)"],
+                 ["wardrobe_stats", "aucun", "total et repartition par groupe, categorie, famille de couleur, saison, occasion ; pieces a verifier"],
+                 ["update_item", "item_id, fields", "PROPOSE une correction : rien n'est enregistre"]],
+                [32, 60, 78]),
+          P("Une correction n'est <b>appliquee que par le noeud <font face='Courier'>apply</font></b> du graphe, apres un oui explicite de l'utilisateur (message \"oui\" ou confirm=true dans la meme conversation). "
+            "Le LLM n'a aucun outil d'ecriture. Un non, ou une nouvelle demande, annule la proposition ; elle expire apres 15 minutes et est liee a l'utilisateur et a la conversation.", BODY),
+          P("Hors outils LLM, le meme agent expose des actions structurees sans LLM (data.action : list, search, check-duplicate), utilisees par les autres agents et par le Live scan.", BODY),
           PageBreak()]
 
     # ---- 3 AI Stylist
@@ -661,9 +667,11 @@ def build():
                     "<b>Departement</b> (femme, homme) : jamais de piece d'un autre departement ; jamais de genre devine.",
                     "<b>Aval</b> : les lacunes alimentent \"Outfits to buy\" du tableau de bord, avec des produits de boutiques tunisiennes (recherche d'images ddgs) et l'essayage virtuel.",
                     "Reponse dans la langue de l'utilisateur (anglais, francais, arabe tunisien)."]),
-          H2_("Agent anti-doublon (Live scan)"),
-          P("Apres chaque capture camera, GPT-4o (temperature 0,1, 250 tokens) appelle <font face='Courier'>search_wardrobe</font> pour decider s'il s'agit du <b>meme</b> vetement "
-            "scanne deux fois, et non d'\"un autre t-shirt marine\". Reponse JSON : duplicate, similar_item_id, note."),
+          H2_("8.1 Wardrobe Agent et detection des doublons (Live scan)"),
+          P("Le Wardrobe Agent possede la garde-robe. Il reprend la recherche texte ou voix et la detection de doublons du Live scan (GPT-4o, temperature 0,1 : il appelle "
+            "<font face='Courier'>search_wardrobe</font> pour decider s'il s'agit du <b>meme</b> vetement scanne deux fois). Le graphe commence par un noeud "
+            "<b>gate</b> : si une correction attend la reponse de l'utilisateur, un oui mene a <b>apply</b>, un non a <b>cancel</b> ; sinon <b>assist</b> lance la boucle d'outils. "
+            "Les agents AI Stylist et Outfit Builder lisent le placard par lui (<font face='Courier'>list_items</font>), le Trip Agent le lui demande par A2A (action list, repli sur BO1)."),
           PageBreak()]
 
     # ---- 7 pipelines
@@ -707,7 +715,8 @@ def build():
                  ["Help Me Pack", "Trip Agent", "oui", "hook prevu", "oui", "OR-Tools CP-SAT"],
                  ["Wardrobe Gaps, Shop Smart, Outfits to buy", "Gap Agent", "non", "non", "oui", "regles + XGBoost"],
                  ["Should I buy this?", "pipeline detecteur + LLM + moteur d'achat", "non", "non", "oui", "XGBoost"],
-                 ["Live scan", "detecteur + agent anti-doublon", "non", "non", "oui", "YOLO"],
+                 ["Live scan", "detecteur + Wardrobe Agent (doublons)", "non", "non", "oui", "YOLO"],
+                 ["Recherche, comptage, corrections", "Wardrobe Agent", "non", "non", "oui", "non"],
                  ["Ajout d'un vetement", "detecteur + catalogage vision", "non", "non", "non", "YOLO"]],
                 [42, 46, 14, 16, 16, 36]),
           H2_("Prompts : parametres LLM par composant"),
@@ -757,12 +766,14 @@ def build():
           table([["Agent", "Carte d'agent", "Point d'entree", "Competence (skill)", "Donnees acceptees"],
                  ["AI Stylist", "/a2a/stylist/.well-known/agent-card.json", "POST /a2a/stylist (BO1)", "style-advice, wardrobe-search", "texte ; city, country, unit"],
                  ["Outfit Builder", "/a2a/outfit/.well-known/agent-card.json", "POST /a2a/outfit (BO1)", "build-outfits", "texte ou occasion, season, city, country, avoid"],
+                 ["Wardrobe Agent", "/a2a/wardrobe/.well-known/agent-card.json", "POST /a2a/wardrobe (BO1)", "recherche, lecture, correction, stats, similaires, doublons", "texte ; action (list, search, check-duplicate), confirm"],
                  ["Trip Agent", "/a2a/trip/.well-known/agent-card.json", "POST /a2a/trip (8020)", "plan-trip-packing", "texte ou trip {destination, dates, activities, kg}"],
                  ["Gap Agent", "/a2a/gap/.well-known/agent-card.json", "POST /a2a/gap (BO3 8001)", "wardrobe-gaps", "texte ou goal ; capsule du voyage"]],
                 [24, 50, 38, 32, 26]),
           H2_("Ce qui est implemente"),
           *bullets(["Methodes <font face='Courier'>message/send</font> (reponse synchrone : une tache terminee), <font face='Courier'>tasks/get</font> et <font face='Courier'>tasks/cancel</font>.",
                     "<b>Authentification</b> : la carte est publique ; chaque tache exige le jeton Supabase (en-tete Authorization) et ne travaille que sur la garde-robe de cet utilisateur. Une tache n'est lisible que par celui qui l'a creee.",
+                    "<b>Lecture de la garde-robe par A2A</b> : le Trip Agent demande les pieces au Wardrobe Agent (data.action = list) avec le jeton de l'utilisateur ; si le Wardrobe Agent est indisponible, il retombe sur la route BO1.",
                     "<b>input-required</b> : le Trip Agent demande une precision (\"quelles dates ?\") ; le client renvoie sa reponse avec le meme <font face='Courier'>contextId</font> (c'est l'identifiant de la session de voyage).",
                     "Un agent qui plante renvoie une tache <b>failed</b> avec un message neutre : aucun detail interne ne sort.",
                     "Non implemente, et declare tel quel dans la carte : streaming (<font face='Courier'>message/stream</font>) et notifications push."]),
@@ -772,10 +783,10 @@ def build():
             "classe les pieces manquantes et repond ; le Trip Agent les propose. Si le Gap Agent est arrete, l'outil renvoie une erreur propre et le voyage "
             "n'est pas bloque. L'adresse se regle avec <font face='Courier'>GAP_A2A_URL</font> (vide pour desactiver)."),
           H2_("Decouvrir les agents"),
-          P("<font face='Courier'>python scripts/a2a_discover.py</font> lit les quatre cartes ; avec <font face='Courier'>A2A_TOKEN</font> et "
+          P("<font face='Courier'>python scripts/a2a_discover.py</font> lit les cinq cartes ; avec <font face='Courier'>A2A_TOKEN</font> et "
             "<font face='Courier'>--ask</font>, il envoie aussi une tache a chaque agent."),
           H2_("Suite logique"),
-          P("L'orchestrateur devient un <b>client A2A</b> : il lit les quatre cartes, choisit l'agent selon les competences annoncees et lui delegue la tache. "
+          P("L'orchestrateur devient un <b>client A2A</b> : il lit les cinq cartes, choisit l'agent selon les competences annoncees et lui delegue la tache. "
             "Les agents sont deja prets pour cela.")]
 
     doc.build(s)

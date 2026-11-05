@@ -155,7 +155,7 @@ ITEMS = [{"id": "a", "name": "Navy blazer", "category": "jacket"}, {"id": "b", "
 def dressme(monkeypatch):
     from app import main
     monkeypatch.setattr(config, "AUTH_ENABLED", False)           # the local user, no Supabase
-    monkeypatch.setattr(a2a_agents, "get_store", lambda: SimpleNamespace(list_items=lambda user_id: ITEMS))
+    monkeypatch.setattr(a2a_agents.wardrobe_agent, "list_items", lambda user_id: ITEMS)
     test_client = TestClient(main.app)
     return test_client, A2AClient("http://testserver/a2a/stylist", transport=bridge(test_client))
 
@@ -199,6 +199,6 @@ def test_an_empty_stylist_request_asks_for_more_and_an_empty_wardrobe_fails_the_
     test_client, _ = dressme
     a2a = A2AClient("http://testserver/a2a/stylist", transport=bridge(test_client))
     assert a2a.state_of(a2a.send(data={"city": "Tunis"})) == "input-required"
-    monkeypatch.setattr(a2a_agents, "get_store", lambda: SimpleNamespace(list_items=lambda user_id: []))
+    monkeypatch.setattr(a2a_agents.wardrobe_agent, "list_items", lambda user_id: [])
     outfit = A2AClient("http://testserver/a2a/outfit", transport=bridge(test_client))
     assert outfit.state_of(outfit.send("outfits")) == "failed"

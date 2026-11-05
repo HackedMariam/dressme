@@ -347,6 +347,20 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(503, "Invalid response from wardrobe service") from exc
 
+    def load_items(authorization: str | None) -> Any:
+        """The user's wardrobe, asked to the Wardrobe Agent over A2A (BO1); plain BO1 route if that is not possible."""
+        url = os.getenv("WARDROBE_A2A_URL", "http://127.0.0.1:8000/a2a/wardrobe").strip()
+        if url and authorization:
+            try:
+                client = A2AClient(url, token=authorization, timeout=30)
+                task = client.send(data={"action": "list"})
+                items = client.data_of(task).get("items")
+                if client.state_of(task) == "completed" and isinstance(items, list):
+                    return items
+            except A2AError as exc:
+                logger.warning("Wardrobe Agent unavailable over A2A (%s): falling back to BO1", exc)
+        return bo1_get("/api/items", authorization)
+
     origins = {
         "http://localhost:8443",
         "http://127.0.0.1:8443",
@@ -460,7 +474,7 @@ def create_app(
         return app.state.store.get(session_id)
 
     def refresh_wardrobe(session: TripSession, request: Request) -> None:
-        items = bo1_get("/api/items", request.state.authorization)
+        items = load_items(request.state.authorization)
         if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
             raise HTTPException(503, "Invalid wardrobe response")
         if not items:
@@ -514,7 +528,7 @@ def create_app(
                 raise HTTPException(404, "Trip session not found")
             agent = session.agent
         else:
-            items = bo1_get("/api/items", request.state.authorization)
+            items = load_items(request.state.authorization)
             if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
                 raise HTTPException(503, "Invalid wardrobe response")
             if not items:
@@ -775,7 +789,7 @@ def create_app(
         try:
             with_context = SimpleNamespace(state=SimpleNamespace(authorization=who.authorization))
             if session is None:
-                items = bo1_get("/api/items", who.authorization)
+                items = load_items(who.authorization)
                 if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
                     return AgentResult(text="The wardrobe service answered with invalid data.", state="failed")
                 if not items:

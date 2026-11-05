@@ -4,6 +4,7 @@ import type {
   AvatarJob,
   AvatarStatus,
   AgentReply,
+  WardrobeAgentReply,
   OutfitAgentReply,
   AnalyzeResponse,
   DuplicateResult,
@@ -148,6 +149,12 @@ export const api = {
     request<AgentReply>("/api/agent/search", {
       method: "POST",
       body: JSON.stringify({ message, ...place }),
+    }),
+
+  wardrobeAgent: (message: string, options: { confirm?: boolean; contextId?: string } = {}) =>
+    request<WardrobeAgentReply>("/api/wardrobe/agent", {
+      method: "POST",
+      body: JSON.stringify({ message, confirm: options.confirm, context_id: options.contextId }),
     }),
 
   outfitAgent: (query: {

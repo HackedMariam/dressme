@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from . import agent, avatar, config, quality
-from . import a2a_agents, outfit_agent as outfit_agent_module
+from . import a2a_agents, outfit_agent as outfit_agent_module, wardrobe_agent
 from .auth import User, current_user
 from .colors import COLOR_NAMES
 from .detector import GarmentDetector
@@ -361,7 +361,7 @@ class AgentRequest(BaseModel):
 @app.post("/api/agent/search")
 async def agent_search(body: AgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
     """Ask the AI stylist a free-form question; it searches the real wardrobe before answering."""
-    items = store.list_items(user.id)
+    items = wardrobe_agent.list_items(user.id)
     place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
     return await run_in_threadpool(agent.chat, items, body.message, place)
 
@@ -369,6 +369,20 @@ async def agent_search(body: AgentRequest, user: User = Depends(current_user)) -
 # Agent2Agent: Agent Cards and JSON-RPC endpoints of the AI Stylist and the Outfit Builder (see a2a_agents.py).
 app.include_router(a2a_agents.stylist_router)
 app.include_router(a2a_agents.outfit_router)
+app.include_router(a2a_agents.wardrobe_router)
+
+
+class WardrobeAgentRequest(BaseModel):
+    message: str = ""
+    confirm: bool | None = None         # True / False answers a change the agent proposed
+    context_id: str | None = None       # the conversation: ties a proposal to its confirmation
+
+
+@app.post("/api/wardrobe/agent")
+async def wardrobe_agent_chat(body: WardrobeAgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+    """Talk to the Wardrobe Agent: find, compare, count or correct pieces. Changes need the user's confirmation."""
+    return await run_in_threadpool(wardrobe_agent.converse, user.id, body.message[:1000],
+                                   confirm=body.confirm, context_id=body.context_id)
 
 
 class OutfitAgentRequest(BaseModel):
@@ -383,7 +397,7 @@ class OutfitAgentRequest(BaseModel):
 @app.post("/api/outfits/agent")
 async def outfit_agent(body: OutfitAgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
     """The Outfit Builder agent (LangGraph): weather + wardrobe + fashion books -> complete, validated outfits."""
-    items = store.list_items(user.id)
+    items = wardrobe_agent.list_items(user.id)
     place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
     try:
         return await run_in_threadpool(outfit_agent_module.build, items, body.occasion[:40], body.season[:20],
@@ -405,7 +419,7 @@ async def agent_check_duplicate(body: DuplicateCheckRequest, user: User = Depend
     """Run right after a live-scan capture: the agent decides whether to search the wardrobe for
     a near-duplicate of the item that was just saved, and flags it if it finds a confident match.
     """
-    items = [i for i in store.list_items(user.id) if i["id"] != body.id]
+    items = [i for i in wardrobe_agent.list_items(user.id) if i["id"] != body.id]
     return await run_in_threadpool(agent.check_duplicate, items, body.model_dump())
 
 
@@ -653,12 +667,10 @@ def _validate_patch(fields: dict) -> dict:
     return patch
 
 
-@app.patch("/api/items/{item_id}")
-def update_item(item_id: str, body: ItemPatch, user: User = Depends(current_user)) -> dict:
-    item = _get_or_404(user, item_id)
-    patch = _validate_patch(body.fields)
-
-    # log what the model/LLM got wrong â€” this is how accuracy is measured
+def _apply_patch(user_id: str, item: dict, patch: dict, confirm: bool = False) -> dict:
+    """The one validated write path for an item: PATCH /api/items/{id} and the Wardrobe Agent (after the user's yes)."""
+    item_id = item["id"]
+    # log what the model/LLM got wrong - this is how accuracy is measured
     predicted = item.get("predicted") or {}
     corrections = [
         {"item_id": item_id, "field": k, "predicted": predicted[k], "corrected": v,
@@ -668,10 +680,16 @@ def update_item(item_id: str, body: ItemPatch, user: User = Depends(current_user
     ]
     store.insert_corrections(corrections)
 
-    if body.confirm:
+    if confirm:
         patch["status"] = "confirmed"
         patch["needs_review"] = False
-    return store.update_item(user.id, item_id, patch)
+    return store.update_item(user_id, item_id, patch)
+
+
+@app.patch("/api/items/{item_id}")
+def update_item(item_id: str, body: ItemPatch, user: User = Depends(current_user)) -> dict:
+    item = _get_or_404(user, item_id)
+    return _apply_patch(user.id, item, _validate_patch(body.fields), body.confirm)
 
 
 def _norm(v):
@@ -795,3 +813,13 @@ def accuracy(user: User = Depends(current_user)) -> list[dict]:
                     "accuracy": round(1 - len(wrong) / n, 3) if n else None})
     return out
 
+
+# The Wardrobe Agent writes through the same validated path as PATCH /api/items/{id}.
+def _agent_apply(user_id: str, item_id: str, fields: dict) -> dict:
+    item = store.get_item(user_id, item_id)
+    if not item:
+        raise HTTPException(404, "Item not found")
+    return _apply_patch(user_id, item, _validate_patch(dict(fields)), confirm=True)
+
+
+wardrobe_agent.bind(store, _validate_patch, _agent_apply)

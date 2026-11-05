@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { api, asset } from "../../lib/api"
 import { COLORS, TAXONOMY, cap, formatDate, seasonLabel } from "../../lib/taxonomy"
-import type { SkippedItem, WardrobeItem } from "../../lib/types"
+import type { SkippedItem, WardrobeItem, WardrobePending } from "../../lib/types"
 import { useSpeech } from "../../lib/useSpeech"
 import ItemDrawer from "./ItemDrawer"
 import ViewBoundary from "./ViewBoundary"
@@ -140,7 +140,13 @@ export default function WardrobePage({ addSignal = 0 }: { addSignal?: number }) 
   const [photoMatch, setPhotoMatch] = useState<WardrobeItem | null | undefined>(undefined)
   // Natural-language search: the agent picks the filters, searches, and explains its answer.
   const [aiBusy, setAiBusy] = useState(false)
-  const [ai, setAi] = useState<{ reply: string; ids: string[]; filters: Record<string, string | number>[] } | null>(null)
+  const [ai, setAi] = useState<{
+    reply: string
+    ids: string[]
+    filters: Record<string, string | number>[]
+    contextId: string
+    pending: WardrobePending | null
+  } | null>(null)
   // Verdicts of the duplicate agent for photos just added or searched.
   const [dupNotes, setDupNotes] = useState<{ id: string; text: string }[]>([])
   const [held, setHeld] = useState<HeldPhoto[]>([])
@@ -213,17 +219,40 @@ export default function WardrobePage({ addSignal = 0 }: { addSignal?: number }) 
 
   const clearAi = () => setAi(null)
 
+  const answerProposal = async (confirm: boolean) => {
+    if (!ai?.pending || aiBusy) return
+    setAiBusy(true)
+    try {
+      const response = await api.wardrobeAgent("", { confirm, contextId: ai.contextId })
+      if (confirm) await reload()
+      setAi({
+        reply: response.reply,
+        ids: response.updated ? [response.updated.id] : ai.ids,
+        filters: [],
+        contextId: response.context_id,
+        pending: null,
+      })
+    } catch (agentError) {
+      setPhotoError(agentError instanceof Error ? agentError.message : "The wardrobe agent failed.")
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
   const askAi = async (raw?: string) => {
     const text = (raw ?? query).trim()
     if (!text || aiBusy) return
     setAiBusy(true)
     setPhotoMatch(undefined)
     try {
-      const response = await api.agentSearch(text)
+      // The Wardrobe Agent: the LLM chooses the filters; a correction is only proposed until the user confirms.
+      const response = await api.wardrobeAgent(text, { contextId: ai?.pending ? ai.contextId : undefined })
       setAi({
         reply: response.reply,
         ids: response.items.map((item) => item.id),
         filters: response.filters ?? [],
+        contextId: response.context_id,
+        pending: response.pending,
       })
     } catch (searchError) {
       setAi(null)
@@ -712,6 +741,36 @@ export default function WardrobePage({ addSignal = 0 }: { addSignal?: number }) 
             </div>
           )}
           <p className="whitespace-pre-line leading-relaxed">{ai.reply}</p>
+          {ai.pending && (
+            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <p className="text-xs font-bold text-amber-900">Change proposed for {ai.pending.item_name}</p>
+              <ul className="space-y-0.5 text-xs text-amber-900">
+                {Object.entries(ai.pending.fields).map(([field, value]) => (
+                  <li key={field}>
+                    {field.replace(/_/g, " ")}: {String(ai.pending?.before[field] ?? "-")} &rarr; <b>{String(value)}</b>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={aiBusy}
+                  onClick={() => void answerProposal(true)}
+                  className="rounded-lg bg-[#1C1C1C] px-3 py-1.5 text-xs font-semibold text-white hover:bg-black disabled:opacity-40"
+                >
+                  Confirm change
+                </button>
+                <button
+                  type="button"
+                  disabled={aiBusy}
+                  onClick={() => void answerProposal(false)}
+                  className="rounded-lg border border-[#E2E0D8] bg-white px-3 py-1.5 text-xs font-semibold text-[#1C1C1C] hover:bg-[#F0EFEA] disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           <button type="button" onClick={clearAi} className="text-xs text-[#556B2F] underline">
             Clear AI search
           </button>

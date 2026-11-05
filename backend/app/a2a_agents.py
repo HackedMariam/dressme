@@ -6,6 +6,11 @@
 Both authenticate the caller with the same Supabase bearer token as the rest of the API and work on that user's
 wardrobe. Another agent (or the orchestrator) can therefore ask them for advice or for outfits without going through
 the React app.
+
+    GET  /a2a/wardrobe/.well-known/agent-card.json     POST /a2a/wardrobe
+
+The Wardrobe Agent also answers structured requests without any LLM (data.action = list | search | check-duplicate),
+which is how the other agents, even those running in another service, read the wardrobe.
 """
 from __future__ import annotations
 
@@ -19,9 +24,8 @@ if str(ROOT) not in sys.path:      # a2a_protocol/ sits at the root of the repos
 
 from a2a_protocol import AgentCall, AgentResult, Skill, build_router  # noqa: E402
 
-from . import agent, outfit_agent  # noqa: E402
+from . import agent, outfit_agent, wardrobe_agent  # noqa: E402
 from .auth import current_user  # noqa: E402
-from .storage import get_store  # noqa: E402
 from .taxonomy import OCCASIONS, SEASONS  # noqa: E402
 
 VERSION = "1.0.0"
@@ -44,7 +48,7 @@ def _word_in(text: str, options: list[str]) -> str | None:
 
 # ------------------------------------------------------------------------------------------------ AI Stylist
 def handle_stylist(call: AgentCall) -> AgentResult:
-    items = get_store().list_items(call.principal.id)
+    items = wardrobe_agent.list_items(call.principal.id)
     if not call.text:
         return AgentResult(text="Ask me what to wear, how to style a piece, or to find something in the wardrobe.",
                            state="input-required")
@@ -57,7 +61,7 @@ def handle_stylist(call: AgentCall) -> AgentResult:
 
 # ------------------------------------------------------------------------------------------------ Outfit Builder
 def handle_outfit(call: AgentCall) -> AgentResult:
-    items = get_store().list_items(call.principal.id)
+    items = wardrobe_agent.list_items(call.principal.id)
     if not items:
         return AgentResult(text="The wardrobe is empty: add clothes before building outfits.", state="failed")
     occasion = str(call.data.get("occasion") or _word_in(call.text, OCCASIONS) or "everyday")
@@ -92,3 +96,45 @@ outfit_router = build_router(
     skills=[Skill("build-outfits", "Build outfits", "Three complete outfits (top and bottom or dress, shoes, layer when cold) "
                   "with the reasons for each choice.", ["outfit", "weather", "rag"],
                   ["Build me outfits for work this winter"])])
+
+
+# ------------------------------------------------------------------------------------------------ Wardrobe Agent
+def handle_wardrobe(call: AgentCall) -> AgentResult:
+    user_id = call.principal.id
+    action = str(call.data.get("action") or "")
+    if action == "list":
+        items = wardrobe_agent.list_items(user_id)
+        return AgentResult(text=f"{len(items)} piece(s) in the wardrobe.", data={"items": items})
+    if action == "search":
+        filters = call.data.get("filters") if isinstance(call.data.get("filters"), dict) else {}
+        found = [wardrobe_agent.trim(i) for i in wardrobe_agent.search(wardrobe_agent.list_items(user_id), filters)]
+        return AgentResult(text=f"{len(found)} piece(s) found.", data={"items": found})
+    if action == "check-duplicate":
+        candidate = call.data.get("candidate") if isinstance(call.data.get("candidate"), dict) else {}
+        verdict = wardrobe_agent.check_duplicate(wardrobe_agent.list_items(user_id), candidate)
+        return AgentResult(text=verdict["note"] or ("Possible duplicate." if verdict["duplicate"] else "No duplicate."), data=verdict)
+    confirm = call.data.get("confirm")
+    reply = wardrobe_agent.converse(user_id, call.text, confirm=confirm if isinstance(confirm, bool) else None,
+                                    context_id=call.context_id)
+    return AgentResult(text=reply["reply"], state=reply["state"], context_id=reply["context_id"], data={
+        "items": [{"id": i.get("id"), "name": i.get("name"), "category": i.get("category")} for i in reply["items"]],
+        "filters": reply["filters"], "pending": reply["pending"], "updated": reply["updated"]})
+
+
+wardrobe_router = build_router(
+    prefix="/a2a/wardrobe", name="DressMe Wardrobe Agent", version=VERSION, handler=handle_wardrobe, principal=current_user,
+    description="Owns the user's wardrobe: finds, compares and counts pieces, and corrects them. A correction is only "
+                "proposed (task state input-required) and saved when the same conversation (contextId) answers yes or "
+                "sends data.confirm=true. Structured requests need no LLM: data.action = list | search | check-duplicate.",
+    skills=[Skill("wardrobe-search", "Search the wardrobe", "Finds pieces from a free-form request; the LLM chooses the filters.",
+                  ["wardrobe", "search"], ["Show me a warm jacket for work"]),
+            Skill("wardrobe-read", "Read the wardrobe", "Lists or filters the wardrobe without an LLM (data.action).",
+                  ["wardrobe", "read"], ["list"]),
+            Skill("wardrobe-correct", "Correct a piece", "Proposes a correction and applies it only after confirmation.",
+                  ["wardrobe", "write", "confirmation"], ["Change the colour of my grey skirt to navy"]),
+            Skill("wardrobe-stats", "Wardrobe statistics", "Counts by group, category, colour, season and occasion.",
+                  ["wardrobe", "stats"], ["How many tops do I own?"]),
+            Skill("wardrobe-similar", "Find similar pieces", "Which owned pieces look like this one?",
+                  ["wardrobe", "similarity"], ["Do I already have something like my navy blazer?"]),
+            Skill("duplicate-check", "Duplicate check", "Is this just-scanned piece already in the wardrobe?",
+                  ["wardrobe", "scan"], ["data.action = check-duplicate"])])

@@ -32,6 +32,7 @@ def bridge(test_client: TestClient) -> httpx.MockTransport:
 
 @pytest.fixture()
 def trip(monkeypatch):
+    monkeypatch.setenv("WARDROBE_A2A_URL", "")          # BO1 over plain HTTP in these tests
     monkeypatch.setattr("backend.main.requests.get", lambda url, **kwargs: Reply(
         {"id": "user-1"} if url.endswith("/api/me") else [{"id": "example"}]))
     app = create_app(use_llm=False, allow_weather_network=False,
@@ -93,3 +94,44 @@ def test_the_trip_agent_asks_the_gap_agent_over_a2a_with_the_users_token(trip, m
     assert ("http://127.0.0.1:8001/a2a/gap", "Bearer t") in calls                            # the user's token travels
     sent = [data for _, data in calls if isinstance(data, dict)]
     assert len(sent) == 1 and sent[0]["capsule"]["trip"]["destination"] == "Paris"           # and the trip, as data
+
+
+def test_the_trip_agent_reads_the_wardrobe_from_the_wardrobe_agent_over_a2a(trip, monkeypatch):
+    test_client, a2a = trip
+    monkeypatch.setenv("WARDROBE_A2A_URL", "http://wardrobe.test/a2a/wardrobe")
+    asked = []
+
+    class FakeWardrobeClient:
+        def __init__(self, url, token=None, timeout=0):
+            asked.append((url, token))
+
+        def send(self, text="", data=None, context_id=None):
+            asked.append(data)
+            return {"status": {"state": "completed"}, "artifacts": [{"parts": [{"kind": "data", "data": {"items": [{"id": "example"}]}}]}]}
+
+        state_of = staticmethod(A2AClient.state_of)
+        data_of = staticmethod(A2AClient.data_of)
+
+    monkeypatch.setattr(main, "A2AClient", FakeWardrobeClient)
+    task = a2a.send(data={"trip": {"destination": "Paris", "start_date": "2027-06-03", "end_date": "2027-06-07",
+                                   "activities": ["sightseeing"], "max_luggage_weight_kg": 8}})
+    assert a2a.state_of(task) == "completed"
+    assert ("http://wardrobe.test/a2a/wardrobe", "Bearer t") in asked and {"action": "list"} in asked
+
+
+def test_when_the_wardrobe_agent_is_unreachable_the_trip_agent_falls_back_to_bo1(trip, monkeypatch):
+    test_client, a2a = trip
+    monkeypatch.setenv("WARDROBE_A2A_URL", "http://wardrobe.test/a2a/wardrobe")
+
+    class Down:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def send(self, *args, **kwargs):
+            raise main.A2AError("unreachable")
+
+    monkeypatch.setattr(main, "A2AClient", Down)
+    real = A2AClient("http://testserver/a2a/trip", token="t", transport=bridge(test_client))
+    task = real.send(data={"trip": {"destination": "Paris", "start_date": "2027-06-03", "end_date": "2027-06-07",
+                                    "activities": ["sightseeing"], "max_luggage_weight_kg": 8}})
+    assert real.state_of(task) == "completed"
