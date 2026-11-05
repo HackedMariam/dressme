@@ -314,9 +314,9 @@ def flow(steps, notes=None, height=44, per_row=5, box_h=20, size=6.8):
 
 def diagram_voice():
     return flow([("microphone\n(navigateur)", DATA), ("Web Speech API\nChrome / Edge /\nSafari", EXT), ("texte dicte\n(en direct)", CODE),
-                 ("POST\n/api/agent/search", CODE), ("AI Stylist\n(agent 1)", LLM)],
+                 ("POST\n/api/agent/search", CODE), ("Agent de recherche\n(agent 1b)\nchoisit les filtres", LLM)],
                 ["Transcription faite par le navigateur (Chrome et Edge utilisent leur service en ligne) : seul le texte arrive a nos serveurs.",
-                 "Sur la fin de la phrase, le texte part comme une question ecrite. Meme chemin pour AI Stylist et recherche Wardrobe."],
+                 "Voix ou texte : meme chemin. Le LLM choisit les filtres, le code filtre la garde-robe, la page affiche le resultat."],
                 height=40)
 
 
@@ -357,8 +357,8 @@ def diagram_features():
     g.label(2, 144, "Page de l'interface", 7.8, INK, "start", True)
     g.label(70, 144, "Route", 7.8, INK, "start", True)
     g.label(118, 144, "Agent / moteur", 7.8, INK, "start", True)
-    rows = [("AI Stylist + voix", "/api/agent/search", "AI Stylist (agent 1)", LLM),
-            ("Wardrobe : recherche + voix", "/api/agent/search", "AI Stylist (agent 1)", LLM),
+    rows = [("AI Stylist + voix (conseil)", "/api/agent/search", "AI Stylist (agent 1)", LLM),
+            ("Wardrobe : recherche texte + voix", "/api/agent/search", "Agent de recherche (1b)", LLM),
             ("Outfit Builder", "/api/outfits/agent", "Outfit Agent LangGraph (2)", LLM),
             ("Help Me Pack", ":8020 /api/trips", "Trip Agent (3) + CP-SAT", LLM),
             ("Wardrobe Gaps / Shop Smart", ":8001 /api/bo3/*", "Gap Agent (4) + XGBoost", LLM),
@@ -402,7 +402,7 @@ def cover_page(canvas, doc):
     canvas.drawString(22 * mm, 176 * mm, "Architecture des agents IA")
     canvas.setFont("Helvetica", 11)
     for i, line in enumerate(["Dossier de validation technique",
-                               "5 agents, 3 pipelines LLM, 1 RAG, 4 services, 11 ecrans",
+                               "6 agents, 3 pipelines LLM, 1 RAG, 4 services, 11 ecrans",
                                "Graphes, prompts, outils, integration, garde-fous et limites"]):
         canvas.drawString(22 * mm, (160 - i * 7) * mm, line)
     canvas.setFont("Helvetica", 9)
@@ -441,12 +441,16 @@ def build():
     # ---- 2 integration of every feature
     s += [P("2. Integration de toutes les fonctionnalites", H1),
           P("Chaque page de l'interface appelle une route ; la route appelle soit un <b>agent</b> (le LLM choisit des outils ou suit un graphe), "
-            "soit un <b>moteur</b> (detecteur, moteur d'achat, comparaison locale). Le schema relie les 11 ecrans aux 5 agents et aux moteurs."),
+            "soit un <b>moteur</b> (detecteur, moteur d'achat, comparaison locale). Le schema relie les 11 ecrans aux 6 agents et aux moteurs."),
           diagram_features(), P("Figure 2 : de chaque page a l'agent ou au moteur qui la sert.", CAP),
-          P("2.1 Recherche vocale", H2), diagram_voice(), P("Figure 3 : recherche par la voix (AI Stylist et Wardrobe).", CAP),
-          *bullets(["Hook <font face='Courier'>useSpeech</font> : Web Speech API du navigateur (SpeechRecognition ou webkitSpeechRecognition), langue du navigateur, transcription en direct.",
-                    "Quand la phrase est terminee, le texte est envoye comme une question ecrite : l'AI Stylist utilise alors la garde-robe, la meteo et le RAG.",
-                    "Sur la page Wardrobe, la meme question filtre la grille et affiche les filtres choisis par l'agent. Navigateur sans l'API : le bouton micro est masque."]),
+          P("2.1 Recherche vocale", H2), diagram_voice(), P("Figure 3 : recherche intelligente par la voix ou par le texte (agent 1b).", CAP),
+          *bullets(["<b>C'est bien un agent.</b> Le texte (ecrit ou dicte) est envoye au LLM, qui choisit lui-meme les parametres de recherche "
+                    "(categorie, couleur, saison, occasion, style, chaleur, texte libre), appelle l'outil <font face='Courier'>search_wardrobe</font>, "
+                    "<b>regarde le resultat</b> et recommence avec d'autres filtres si c'est vide ou trop large, puis redige sa reponse.",
+                    "Voix : hook <font face='Courier'>useSpeech</font> (Web Speech API du navigateur, transcription en direct) ; a la fin de la phrase le texte part comme une question ecrite.",
+                    "Page Wardrobe : la grille est filtree sur les pieces trouvees et les <b>filtres choisis par le LLM</b> s'affichent en pastilles (\"jacket, warmth 4+\"). Navigateur sans l'API vocale : le bouton micro est masque.",
+                    "<b>Meme code, deux usages</b> : la fonction <font face='Courier'>agent.chat</font> sert la recherche de la page Wardrobe (agent 1b : reponse courte + filtres + pieces) "
+                    "et la page AI Stylist (agent 1 : conseil complet avec meteo, tenue, raisons et sources). Le prompt distingue les deux : une simple recherche recoit une phrase, sans conseil ni sections."]),
           P("2.2 Live scan", H2), diagram_live(), P("Figure 4 : scan en direct avec controle qualite et anti-doublon.", CAP),
           *bullets(["La camera exige une origine securisee (https ou localhost) : le serveur de dev peut tourner en https avec un certificat local.",
                     "<font face='Courier'>/api/items/quick-detect</font> renvoie les cadres, la couleur principale et un eventuel probleme (flou, coupe, trop petit).",
@@ -481,10 +485,11 @@ def build():
 
     # ---- 2
     s += [P("3. Combien d'agents ?", H1),
-          P("<b>5 agents</b> sont appeles depuis l'interface. <b>3 pipelines</b> utilisent un LLM sans etre des agents (le LLM ne choisit pas ses outils). "
+          P("<b>6 agents</b> (5 moteurs distincts, dont un partage entre 1 et 1b) sont appeles depuis l'interface. <b>3 pipelines</b> utilisent un LLM sans etre des agents (le LLM ne choisit pas ses outils). "
             "Une <b>pile separee de l'equipe</b> (Stylist BO4 et orchestrateur) existe aussi, non branchee a l'interface React."),
           table([["#", "Agent", "Fonctionnalite", "Technique", "Fichier"],
-                 ["1", "AI Stylist", "page AI Stylist", "boucle d'appel d'outils GPT-4o, 3 outils", "backend/app/agent.py"],
+                 ["1", "AI Stylist", "page AI Stylist (texte et voix)", "boucle d'appel d'outils GPT-4o, 3 outils", "backend/app/agent.py"],
+                 ["1b", "Agent de recherche intelligente", "recherche texte ou voix de la page Wardrobe", "meme boucle, le LLM choisit les filtres de search_wardrobe", "backend/app/agent.py (chat)"],
                  ["2", "Outfit Builder Agent", "page Outfit Builder", "graphe LangGraph, 5 noeuds", "backend/app/outfit_agent.py"],
                  ["3", "Trip Agent", "Help Me Pack", "GPT-4o, 10 outils, LangGraph (2 graphes), CP-SAT", "packing_backend/trip_agent/"],
                  ["4", "Gap Agent (BO3)", "Wardrobe Gaps, Shop Smart, Outfits to buy", "5 outils, 6 etapes max, XGBoost", "DressMe UI Blueprint/backend/agent/gap_agent.py"],
@@ -509,9 +514,9 @@ def build():
     s += [P("4. Outils de chaque agent", H1),
           P("Un <b>outil</b> est une fonction que le LLM peut demander ; le code l'execute et renvoie le resultat au LLM. "
             "Le LLM ne touche jamais directement aux donnees."),
-          P("4.1 AI Stylist : 3 outils", H2),
+          P("4.1 AI Stylist et agent de recherche : 3 outils", H2),
           table([["Outil", "Parametres", "Retour", "Garde-fou"],
-                 ["search_wardrobe", "category, category_group, color_name, season, occasion, style, pattern, min_warmth (1-5), text", "jusqu'a 20 pieces : id, nom, categorie, couleur, matiere, saisons, style, occasions, formalite, chaleur", "valeurs d'enumeration imposees ; seuls les items de l'utilisateur"],
+                 ["search_wardrobe", "category, category_group, color_name, season, occasion, style, pattern, min_warmth (1-5), text (choisis par le LLM, voix ou texte)", "jusqu'a 20 pieces : id, nom, categorie, couleur, matiere, saisons, style, occasions, formalite, chaleur", "valeurs d'enumeration imposees ; seuls les items de l'utilisateur"],
                  ["get_weather", "days_ahead (0 a 15), city (optionnel)", "ville, jour, condition, min/max en C et F, % de pluie, mm, vent, resume", "ville inconnue : premiers mots, puis Tunis, annoncee ; sinon \"non verifiee\""],
                  ["fashion_advice", "question (anglais, un seul sujet)", "answer + sources [{marker, title, page}]", "None si RAG arrete ou sans citation : l'agent le dit"]],
                 [27, 50, 52, 41]),
