@@ -27,6 +27,7 @@ from agent import planner
 from agent.memory import AgentMemory
 from agent.tools import GapAgentTools, load_profile, load_wardrobe, score_candidates
 from agent.wardrobe_source import source_info
+import a2a_gap
 from agent.web_images import search_images
 from xgboost_ranker import FEATURES
 
@@ -108,6 +109,10 @@ class PlanRequest(BaseModel):
     objective: str = Field("", max_length=300)
     budget_tnd: float | None = Field(None, gt=0, le=planner.MAX_BUDGET_TND)
     goals: list[str] | None = Field(None, max_length=len(GOALS))
+
+
+# Agent2Agent: Agent Card and JSON-RPC endpoint of the Gap Agent (a2a_gap.py).
+app.include_router(a2a_gap.make_router(memory, current_user))
 
 
 @app.get("/api/health")

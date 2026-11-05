@@ -20,12 +20,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from types import SimpleNamespace
 from pydantic import BaseModel, ConfigDict, Field
 import requests
 
 if __package__ in {None, ""}:  # allow `python backend/main.py`
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from a2a_protocol import A2AClient, A2AError, AgentCall, AgentResult, Skill, build_router
 from packing_backend.trip_agent.agent import TripAgent
 from packing_backend.trip_agent.config import get_api_key, llm_enabled
 from packing_backend.trip_agent.logging_utils import configure_logging, log_event
@@ -360,7 +362,8 @@ def create_app(
     async def request_logging(request: Request, call_next):
         started = time.perf_counter()
         try:
-            if request.url.path.startswith("/api/trips") and request.method != "OPTIONS":
+            if (request.url.path.startswith("/api/trips")
+                    or (request.url.path.startswith("/a2a/trip") and request.method == "POST")):
                 authorization = request.headers.get("authorization")
                 if authorization and not authorization.lower().startswith("bearer "):
                     raise HTTPException(401, "Invalid authorization header")
@@ -423,11 +426,33 @@ def create_app(
             content={"detail": f"Internal server error: {type(exc).__name__}"},
         )
 
-    def new_agent(wardrobe_items: list[dict[str, Any]]) -> TripAgent:
+    def make_gap_checker(authorization: str | None) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
+        """The Trip Agent's `check_gaps` hook: an injected callable (tests) or the Gap Agent reached over A2A."""
+        if app.state.gap_checker:
+            return app.state.gap_checker
+        url = os.getenv("GAP_A2A_URL", "http://127.0.0.1:8001/a2a/gap").strip()
+        if not url:
+            return None
+        client = A2AClient(url, token=authorization, timeout=90)
+
+        def check(capsule: dict[str, Any]) -> dict[str, Any]:
+            trip = capsule.get("trip") or {}
+            task = client.send(
+                text="This is a trip the user is packing for. Which pieces is their wardrobe missing for it?",
+                data={"capsule": {"trip": trip, "days": capsule.get("days") or []}})
+            if client.state_of(task) == "failed":
+                raise A2AError(client.text_of(task) or "The Gap Agent failed")
+            ranking = (client.data_of(task).get("ranking") or {})
+            return {"provider": "a2a:gap-agent", "task_id": task.get("id"), "state": client.state_of(task),
+                    "answer": client.text_of(task), "ranked_gaps": (ranking.get("ranked_gaps") or [])[:5]}
+
+        return check
+
+    def new_agent(wardrobe_items: list[dict[str, Any]], authorization: str | None = None) -> TripAgent:
         return TripAgent(
             use_llm=app.state.use_llm,
             allow_weather_network=app.state.allow_weather_network,
-            gap_checker=app.state.gap_checker,
+            gap_checker=make_gap_checker(authorization),
             wardrobe_provider=wardrobe_provider_factory(wardrobe_items),
         )
 
@@ -475,7 +500,7 @@ def create_app(
             "llm_configured": bool(get_api_key()),
             "llm_enabled": bool(app.state.use_llm and get_api_key()),
             "weather_network_enabled": bool(app.state.allow_weather_network),
-            "gap_agent": "configured" if app.state.gap_checker else "unavailable",
+            "gap_agent": "configured" if (app.state.gap_checker or os.getenv("GAP_A2A_URL", "http://127.0.0.1:8001/a2a/gap").strip()) else "unavailable",
         }
 
     # ------------------------------------------------------------------
@@ -496,7 +521,7 @@ def create_app(
                 raise HTTPException(422, "Your wardrobe is empty. Add clothing before planning a trip.")
             if len(items) > 500:
                 raise HTTPException(422, "Packing currently supports up to 500 wardrobe items.")
-            session = app.state.store.add(new_agent(items), request.state.user_id)
+            session = app.state.store.add(new_agent(items, request.state.authorization), request.state.user_id)
             agent = session.agent
 
         with session.lock:
@@ -534,6 +559,7 @@ def create_app(
         with session.lock:
             try:
                 refresh_wardrobe(session, request)
+                session.agent.tools.gap_checker = make_gap_checker(request.state.authorization)
                 response = session.agent.handle(body.text)
             except HTTPException:
                 raise
@@ -730,6 +756,61 @@ def create_app(
                 "gap_analysis": result,
                 "capsule": _capsule_payload(session.agent),
             }
+
+    # ------------------------------------------------------------------
+    # Agent2Agent: Agent Card and JSON-RPC endpoint of the Trip Agent
+    # ------------------------------------------------------------------
+    async def trip_caller(request: Request) -> Any:
+        # The middleware already verified the token with BO1 and stored who is calling.
+        return SimpleNamespace(id=request.state.user_id, authorization=request.state.authorization)
+
+    def handle_trip(call: AgentCall) -> AgentResult:
+        who = call.principal
+        session = None
+        try:
+            existing = app.state.store.get(call.context_id)
+            session = existing if existing.user_id == who.id else None
+        except HTTPException:
+            session = None
+        try:
+            with_context = SimpleNamespace(state=SimpleNamespace(authorization=who.authorization))
+            if session is None:
+                items = bo1_get("/api/items", who.authorization)
+                if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                    return AgentResult(text="The wardrobe service answered with invalid data.", state="failed")
+                if not items:
+                    return AgentResult(text="The wardrobe is empty: add clothes before planning a trip.", state="failed")
+                if len(items) > 500:
+                    return AgentResult(text="Packing supports up to 500 wardrobe items.", state="failed")
+                session = app.state.store.add(new_agent(items, who.authorization), who.id)
+            with session.lock:
+                agent = session.agent
+                if agent.state.optimization_result is not None or agent.state.messages:
+                    refresh_wardrobe(session, with_context)
+                agent.tools.gap_checker = make_gap_checker(who.authorization)
+                trip = call.data.get("trip")
+                response = agent.handle_structured(trip) if isinstance(trip, dict) and trip else agent.handle(call.text)
+                payload = _response_payload(agent, response)
+        except HTTPException as error:
+            return AgentResult(text=str(error.detail), state="failed")
+        question = payload.get("clarification_question")
+        state = ("input-required" if payload.get("status") == "needs_clarification" and question
+                 else "failed" if payload.get("status") == "failed" else "completed")
+        text = str(question if state == "input-required" else payload.get("message") or "")
+        keep = ("session_id", "status", "optimization_status", "trip_details", "weather", "capsule", "checklist",
+                "suggestions", "missing_items", "errors")
+        return AgentResult(text=text, state=state, context_id=payload["session_id"],
+                           data={key: payload.get(key) for key in keep})
+
+    app.include_router(build_router(
+        prefix="/a2a/trip", name="DressMe Trip Agent", version="1.0.0", handler=handle_trip, principal=trip_caller,
+        description="Plans a trip wardrobe: reads the destination weather, picks the smallest set of the user's own "
+                    "clothes that makes every day's outfit (OR-Tools CP-SAT), and produces a packing checklist. "
+                    "When a detail is missing the task is `input-required`: answer with the same contextId.",
+        skills=[Skill("plan-trip-packing", "Plan a packing list",
+                      "From a trip description (destination, dates, activities, luggage limit) to a capsule wardrobe "
+                      "and checklist.", ["travel", "packing", "weather", "optimization"],
+                      ["Paris for 5 days, sightseeing and a formal dinner, 8 kg"])]))
 
     return app
 
