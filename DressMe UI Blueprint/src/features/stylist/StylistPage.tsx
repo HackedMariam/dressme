@@ -4,6 +4,8 @@ import { cap } from "../../lib/taxonomy"
 import type { AdviceSource, StylistSections, StylistWeather, WardrobeItem, WardrobePending } from "../../lib/types"
 import StylistAnswer, { type OutfitCard } from "./StylistAnswer"
 import type { Page } from "../shell/navigation"
+import { useAuth } from "../auth/AuthProvider"
+import { tripSessionKey } from "../helpmepack/session"
 import { useSpeech } from "../../lib/useSpeech"
 import { useUserData } from "../profile/UserDataProvider"
 import { parseLocation } from "../profile/types"
@@ -19,7 +21,7 @@ interface ChatMessage {
   weather?: StylistWeather | null
   agentLabel?: string
   agentsCalled?: string[]
-  action?: { page: string; label: string } | null
+  action?: { page: string; label: string; session_id?: string } | null
   outfits?: OutfitCard[]
   pending?: WardrobePending | null
   error?: boolean
@@ -41,6 +43,7 @@ function createId() {
 export default function StylistPage({ onNavigate }: { onNavigate?: (page: Page) => void }) {
   const { items, health, error: wardrobeError } = useWardrobe()
   const { profile, preferences } = useUserData()
+  const { user } = useAuth()
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -213,7 +216,20 @@ export default function StylistPage({ onNavigate }: { onNavigate?: (page: Page) 
                     </div>
                   )}
                   {message.action && onNavigate && (
-                    <button type="button" onClick={() => onNavigate(message.action!.page as Page)}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const action = message.action!
+                        // Help Me Pack reopens the trip the Trip Agent just planned for this user.
+                        if (action.page === "help-me-pack" && action.session_id) {
+                          try {
+                            localStorage.setItem(tripSessionKey(user?.id), action.session_id)
+                          } catch {
+                            /* storage can be blocked: the page then opens empty */
+                          }
+                        }
+                        onNavigate(action.page as Page)
+                      }}
                       className="rounded-lg bg-[#556B2F] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#6B8A3A]">
                       {message.action.label}
                     </button>

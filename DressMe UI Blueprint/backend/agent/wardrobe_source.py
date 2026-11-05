@@ -23,7 +23,7 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
-from . import piece_classifier
+from . import a2a_wardrobe, piece_classifier
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BACKEND_DIR / "data"
@@ -188,6 +188,12 @@ def _info(source: str, item_count: int, reason: str = "") -> dict[str, Any]:
 
 def _load(user_id: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     demo = is_demo_user(user_id)
+    if not demo:
+        # The wardrobe belongs to the Wardrobe Agent: ask it first (A2A, with the user's own token).
+        rows = a2a_wardrobe.fetch_rows(user_id)
+        if rows:
+            items = refine_unrecognised(rows, [to_bo3_item(row) for row in rows])
+            return items, _info("supabase", len(items), "BO1 pieces, read through the Wardrobe Agent (A2A)")
     try:
         items = _fetch_supabase(None if demo else user_id)
         if items:

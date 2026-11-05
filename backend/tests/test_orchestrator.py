@@ -90,6 +90,8 @@ def test_the_trip_agent_is_called_over_a2a_with_the_users_token_and_its_question
     # the answer has no keyword at all: the open question decides who gets it, with the same A2A context
     second = orch.chat("u1", "from 3 to 7 June, 8 kg", authorization="Bearer tok", thread_id="th1")
     assert second["agent"] == "trip" and second["reply"] == "Packing list ready." and second["agents_called"] == ["Trip Agent (A2A)"]
+    assert second["action"] == {"page": "help-me-pack", "label": "Open Help Me Pack", "session_id": "trip-7"}   # opens this very trip
+    assert first["action"]["session_id"] == "trip-7"
     assert FakeA2A.calls[1][3] == "trip-7"
     third = orch.chat("u1", "how many tops do I own?", thread_id="th1")                 # the question is closed: back to routing
     assert third["agent"] == "wardrobe"

@@ -27,6 +27,7 @@ from agent import planner
 from agent.memory import AgentMemory
 from agent.tools import GapAgentTools, load_profile, load_wardrobe, score_candidates
 from agent.wardrobe_source import source_info
+from agent import a2a_wardrobe
 import a2a_gap
 from agent.web_images import search_images
 from xgboost_ranker import FEATURES
@@ -58,6 +59,7 @@ def current_user(authorization: str | None = Header(None)) -> str:
     with _tokens_lock:
         hit = _tokens.get(cache_key)
         if hit and hit[0] > now:
+            a2a_wardrobe.remember(hit[1], token)       # lets the Gap Agent ask the Wardrobe Agent for this user
             return hit[1]
     try:
         reply = httpx.get(f"{url.rstrip('/')}/auth/v1/user",
@@ -69,6 +71,7 @@ def current_user(authorization: str | None = Header(None)) -> str:
     user_id = reply.json()["id"]
     with _tokens_lock:
         _tokens[cache_key] = (now + _TOKEN_TTL, user_id)
+    a2a_wardrobe.remember(user_id, token)
     return user_id
 
 

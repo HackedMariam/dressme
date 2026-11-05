@@ -19,8 +19,8 @@ import { useWardrobe } from "../wardrobe/WardrobeProvider";
 import { ChoiceGroup, FieldLabel, HowItWorks, TripSummary, WardrobeReadiness } from "./TripFormParts";
 import { dayLabels, readableSuggestion, recoveryItems, recoveryReason } from "./recovery";
 import OutfitRepeatOption from "./OutfitRepeatOption";
+import { tripSessionKey } from "./session";
 
-const SESSION_KEY = "dressme.trip.session";
 
 const TRIP_TYPE_ACTIVITIES: Record<string, string[]> = {
   Leisure: ["sightseeing", "shopping"],
@@ -213,7 +213,7 @@ export default function HelpMePack({
     ? "Formal"
     : preferences?.preferred_styles?.some((style) => ["casual", "sporty"].includes(style.toLowerCase()))
       ? "Casual" : "Smart Casual";
-  const sessionKey = `${SESSION_KEY}.${user?.id || "local"}`;
+  const sessionKey = tripSessionKey(user?.id);
   const [inputMode, setInputMode] = useState<"manual" | "ai">("manual");
   const [destination, setDestination] = useState("");
   const [startDate, setStartDate] = useState("");

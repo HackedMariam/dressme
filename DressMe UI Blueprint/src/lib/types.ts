@@ -117,7 +117,7 @@ export interface AssistantReply {
     outfits?: AssistantOutfit[]
     pending?: WardrobePending | null
   }
-  action: { page: string; label: string } | null
+  action: { page: string; label: string; session_id?: string } | null
   state: string
   thread_id: string
 }

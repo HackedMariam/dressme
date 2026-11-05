@@ -182,7 +182,10 @@ def _a2a(state: State, url: str, label: str, key: str) -> dict:
         return {"reply": f"The {label} is not reachable right now ({error}). Try again in a moment.", "state": "failed",
                 "awaiting": None, "agents_called": [f"{label} (unreachable)"], "data": {}}
     open_question = client.state_of(task) == "input-required"
-    return {"reply": client.text_of(task), "state": client.state_of(task), "agents_called": [f"{label} (A2A)"],
+    # The trip lives in the Trip Agent's session (its A2A contextId): the page Help Me Pack can open that very trip.
+    action = ({"page": "help-me-pack", "label": "Open Help Me Pack", "session_id": task.get("contextId")}
+              if key == "trip" and client.state_of(task) in ("completed", "input-required") and task.get("contextId") else None)
+    return {"reply": client.text_of(task), "state": client.state_of(task), "agents_called": [f"{label} (A2A)"], "action": action,
             "awaiting": {"agent": key, "context": task.get("contextId")} if open_question else None, "data": client.data_of(task)}
 
 
