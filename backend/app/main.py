@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from . import agent, avatar, config, quality
-from . import a2a_agents, outfit_agent as outfit_agent_module, wardrobe_agent
+from . import a2a_agents, orchestrator_agent, outfit_agent as outfit_agent_module, similar_agent, wardrobe_agent
 from .auth import User, current_user
 from .colors import COLOR_NAMES
 from .detector import GarmentDetector
@@ -370,6 +370,7 @@ async def agent_search(body: AgentRequest, user: User = Depends(current_user)) -
 app.include_router(a2a_agents.stylist_router)
 app.include_router(a2a_agents.outfit_router)
 app.include_router(a2a_agents.wardrobe_router)
+app.include_router(a2a_agents.similar_router)
 
 
 class WardrobeAgentRequest(BaseModel):
@@ -383,6 +384,33 @@ async def wardrobe_agent_chat(body: WardrobeAgentRequest, user: User = Depends(c
     """Talk to the Wardrobe Agent: find, compare, count or correct pieces. Changes need the user's confirmation."""
     return await run_in_threadpool(wardrobe_agent.converse, user.id, body.message[:1000],
                                    confirm=body.confirm, context_id=body.context_id)
+
+
+class SimilarAgentRequest(BaseModel):
+    pieces: list[dict]                  # the garments detected in the inspiration photo
+
+
+@app.post("/api/similar/agent")
+async def similar_agent_compare(body: SimilarAgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+    """The Similar Agent: for each detected piece, owned / close / missing, with the reason."""
+    items = wardrobe_agent.list_items(user.id)
+    return await run_in_threadpool(similar_agent.compare, items, body.pieces[:similar_agent.MAX_PIECES])
+
+
+class AssistantRequest(BaseModel):
+    message: str = ""
+    thread_id: str | None = None        # the conversation: the orchestrator remembers it
+    city: str = ""
+    country: str = ""
+    unit: str = ""
+
+
+@app.post("/api/assistant/chat")
+async def assistant_chat(body: AssistantRequest, request: Request, user: User = Depends(current_user)) -> dict[str, Any]:
+    """The Orchestrator: one conversation, routed to the right agent (stylist, wardrobe, outfit, trip, gap)."""
+    place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
+    return await run_in_threadpool(orchestrator_agent.chat, user.id, body.message[:1000],
+                                   authorization=request.headers.get("authorization"), place=place, thread_id=body.thread_id)
 
 
 class OutfitAgentRequest(BaseModel):

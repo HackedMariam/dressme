@@ -281,6 +281,7 @@ class State(TypedDict, total=False):
     proposed: Optional[dict]
     updated: Optional[dict]
     state: str
+    read_only: bool
 
 
 def _decision(state: State) -> Optional[bool]:
@@ -371,12 +372,19 @@ def node_assist(state: State) -> dict:
     from openai import OpenAI
 
     client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=config.LLM_TIMEOUT, max_retries=2)
+    read_only = bool(state.get("read_only"))
+    tools = [t for t in TOOLS if not (read_only and t["function"]["name"] == "update_item")]
+    system = SYSTEM + (" This request comes from another agent: it is read-only, never propose a change, and answer in one "
+                       "short sentence listing what you found. Be generous: when the request is about what to wear for an "
+                       "occasion, a season or the weather, search each role separately (tops, bottoms, dresses, outerwear, "
+                       "shoes) and use occasion or season filters only when they still return pieces, otherwise search "
+                       "without them: the other agent chooses among your results." if read_only else "")
 
     def call_llm(messages: list[dict]):
         return client.chat.completions.create(model=config.LLM_MODEL, temperature=0.2, max_completion_tokens=700,
-                                              messages=messages, tools=TOOLS).choices[0].message
+                                              messages=messages, tools=tools).choices[0].message
 
-    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": state["text"][:1000]}]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": state["text"][:1000]}]
     final, outcome = run_loop(messages=messages, call_llm=call_llm, run_tool=run_tool, max_rounds=MAX_ROUNDS)
     if outcome == "error":
         return {"reply": "The wardrobe agent is having trouble right now, try again in a moment.", "state": "failed",
@@ -424,6 +432,18 @@ def converse(user_id: str, text: str, *, confirm: Optional[bool] = None, context
             "pending": ({"item_id": proposed["item_id"], "item_name": proposed["item_name"], "fields": proposed["fields"],
                          "before": proposed["before"]} if proposed else None),
             "updated": result.get("updated")}
+
+
+def ask(items: list[dict], request: str) -> dict:
+    """Agent to agent: another agent asks the Wardrobe Agent, in plain words, for pieces of the wardrobe (read-only).
+
+    The Wardrobe Agent's own LLM chooses the filters and looks again if the first search is empty; the caller gets its
+    short answer, the pieces it found and the filters it used."""
+    request = (request or "").strip()
+    if not request or not config.OPENAI_API_KEY:
+        return {"reply": "", "items": [], "filters": []}
+    result = node_assist({"user_id": "", "context_id": "", "text": request, "items": items, "read_only": True})
+    return {"reply": result.get("reply", ""), "items": result.get("shown") or [], "filters": result.get("filters") or []}
 
 
 # ------------------------------------------------------------------------------------------ duplicate check (live scan)

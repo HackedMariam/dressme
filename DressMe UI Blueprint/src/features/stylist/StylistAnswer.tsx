@@ -92,6 +92,13 @@ function WeatherStrip({ weather, lines, sources }: { weather: StylistWeather | n
   )
 }
 
+export interface OutfitCard {
+  title: string
+  weather_note: string
+  why: string[]
+  items: WardrobeItem[]
+}
+
 // The stylist's reply: the answer, then one zone per section (title in bold), the outfit as pictures, and the
 // fashion books it relied on. A reply without sections (a plain search) is the text and the pieces found.
 export default function StylistAnswer({
@@ -100,7 +107,9 @@ export default function StylistAnswer({
   items,
   sources,
   weather,
+  outfits,
 }: {
+  outfits?: OutfitCard[]
   text: string
   sections?: StylistSections | null
   weather?: StylistWeather | null
@@ -139,7 +148,18 @@ export default function StylistAnswer({
           <Bullets lines={outfit} sources={sources} />
         </Zone>
       )}
-      {!hasOutfit && items.length > 0 && <Tiles items={items.slice(0, 8)} />}
+      {(outfits ?? []).map((outfitCard, index) => (
+        <Zone key={index} title={`Outfit ${index + 1}: ${outfitCard.title}`}>
+          {outfitCard.items.length > 0 && (
+            <div className="mb-2">
+              <Tiles items={outfitCard.items} />
+            </div>
+          )}
+          {outfitCard.weather_note && <p className="mb-1 text-xs text-[#1C1C1C]"><b>Weather: </b>{outfitCard.weather_note}</p>}
+          {outfitCard.why.length > 0 && <Bullets lines={outfitCard.why} sources={sources} />}
+        </Zone>
+      ))}
+      {!hasOutfit && !outfits?.length && items.length > 0 && <Tiles items={items.slice(0, 8)} />}
       {why.length > 0 && (
         <Zone title="Why I chose this">
           <Bullets lines={why} sources={sources} />

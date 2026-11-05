@@ -7,7 +7,8 @@ Integrates:
 - Teammate Outfit Recommendation Engine (bo4 outfit_engine)
 - Teammate Wardrobe Gap Analysis (bo3 coverage & XGBoost ranker)
 - XGBoost Decision Classifier
-- OpenAI GPT-4 Stylist Interpretation
+- Fine-tuned Qwen decision agent (Hugging Face, tool-calling) - see decision_agent.py
+- OpenAI GPT-4 Stylist Interpretation (it only rewrites Qwen's JSON verdict)
 """
 
 import os
@@ -19,6 +20,7 @@ import argparse
 import tempfile
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, Any, List, Optional, Tuple
 
 # Set UTF-8 encoding for standard output if running in Windows console
@@ -71,8 +73,10 @@ from tools import (
     analyze_wardrobe_gaps,
     calculate_purchase_value,
     analyze_item,
+    PURCHASE_TOOLS_SCHEMA,
 )
 from ml_model import predict_purchase_ml
+from decision_agent import PurchaseToolbox, QwenBackend, run_decision_agent
 
 DEFAULT_LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 
@@ -103,13 +107,16 @@ class DressMeInferenceEngine:
         model_id: Optional[str] = None,
         user_id: Optional[str] = None,
         wardrobe: Optional[List[Garment]] = None,
+        use_qwen: Optional[bool] = None,
     ):
-        self.skip_llm = skip_llm
+        self.skip_llm = skip_llm          # skips the GPT stylist interpretation only
         self.openai_key = openai_key or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
         self.model_id = model_id or DEFAULT_LLM_MODEL
         self.user_id = user_id or os.getenv("WARDROBE_USER_ID")
         self.wardrobe: List[Garment] = wardrobe if wardrobe is not None else []
         self.openai_client = None
+        # The decision agent: fine-tuned Qwen on Hugging Face. Unavailable (no HF_TOKEN, no model) -> deterministic evaluation.
+        self.qwen = None if use_qwen is False else QwenBackend()
 
         if wardrobe is None:
             self._load_wardrobe()
@@ -177,7 +184,8 @@ class DressMeInferenceEngine:
             "XGBoost, scores or model names; never write the words redundancy, risk or score: say \"you already own...\" instead), no emojis, no markdown, no asterisks, no section titles inside the "
             "text (the app adds the titles). Be convincing and honest: take a clear position, back every claim "
             "with a concrete fact from the data (a number, or the name of a piece the shopper owns), and never "
-            "invent facts that are not in the data. Write prices as plain numbers, without currency symbols."
+            "invent facts that are not in the data. Write prices as plain numbers, without currency symbols. The decision in agent_verdict was made by the purchase "
+            "decision agent: explain it and never change or contradict it."
         )
         user_content = (
             f"The shopper asks: \"{summary_payload['user_query']}\"\n\n"
@@ -230,6 +238,7 @@ class DressMeInferenceEngine:
         user_prompt: str = "Should I buy this?",
         wardrobe: Optional[List[Garment]] = None,
         detected: Optional[Garment] = None,
+        interpret: bool = True,
     ) -> Dict[str, Any]:
         """Runs end-to-end evaluation pipeline.
 
@@ -268,25 +277,32 @@ class DressMeInferenceEngine:
         cand.occasions = [occasion]
         cand.style = styles
 
-        # 3. Tool Analysis
-        sims = find_similar_items(cand, active_wardrobe, top_k=3)
-        top_sim = sims[0].similarity_score if sims else 0.0
-        redundancy_pct = round(top_sim * 100.0, 1)
+        # 3. The decision agent (fine-tuned Qwen) drives the purchase tools; the tools are Python functions on the real
+        #    wardrobe, so their results are authoritative. If Qwen cannot run, the same tools are run in a fixed order.
+        box = PurchaseToolbox(
+            candidate=cand, wardrobe=active_wardrobe, price=price, budget=budget, occasion=occasion,
+            tools=SimpleNamespace(
+                find_similar_items=find_similar_items, check_outfit_compatibility=check_outfit_compatibility,
+                analyze_wardrobe_gaps=analyze_wardrobe_gaps, calculate_purchase_value=calculate_purchase_value,
+                predict_purchase_ml=predict_purchase_ml))
+        qwen_verdict = None
+        if self.qwen is not None and self.qwen.available:
+            qwen_verdict = run_decision_agent(box, self.qwen, user_prompt, PURCHASE_TOOLS_SCHEMA)
+        box.complete()                       # the page shows every piece of evidence, whatever Qwen asked for
 
-        compat_data = check_outfit_compatibility(cand, active_wardrobe, target_occasion=occasion)
+        sims = box.sims
+        redundancy_pct = box.redundancy_pct
+        compat_data = box.compat()
         comp_count = compat_data["compatible_count"]
         avg_score = compat_data["average_score"]
 
         matching_outfits = []
-        paired_item_ids = []
+        paired_item_ids = box.paired_item_ids
         for combo in compat_data.get("combinations", [])[:3]:
             paired_summary = [
                 {"item_id": g.id, "name": g.name, "category": g.category, "color": g.color}
                 for g in combo.paired_garments
             ]
-            for g in combo.paired_garments:
-                if g.id not in paired_item_ids:
-                    paired_item_ids.append(g.id)
             matching_outfits.append({
                 "outfit_id": combo.outfit_id,
                 "description": combo.description,
@@ -294,32 +310,13 @@ class DressMeInferenceEngine:
                 "paired_items": paired_summary,
             })
 
-        gap_res = analyze_wardrobe_gaps(cand, active_wardrobe)
+        gap_res = box.gap
         gap_score = gap_res.gap_fill_score
 
-        # 4. XGBoost Model & Deterministic Evaluation
-        penalty = min(25.0, round(((price - budget) / budget) * 20.0, 2)) if budget > 0 and price > budget else 0.0
-
-        ml_res = predict_purchase_ml(
-            outfit_compatibility=avg_score,
-            wardrobe_gap=gap_score,
-            redundancy=redundancy_pct,
-            versatility=min(100.0, 50.0 + comp_count * 15.0),
-            style_match=80.0,
-            budget_penalty=penalty,
-        )
-
-        val_res = calculate_purchase_value(
-            outfit_compatibility_score=avg_score,
-            wardrobe_gap_score=gap_score,
-            versatility_score=min(100.0, 50.0 + comp_count * 15.0),
-            personal_style_score=80.0,
-            redundancy_score=redundancy_pct,
-            price=price,
-            budget=budget,
-            ml_decision=ml_res["ml_decision"],
-            ml_confidence=ml_res["confidence"],
-        )
+        # 4. XGBoost model and deterministic value (computed by the tools above)
+        penalty = box.penalty
+        ml_res = box.ml
+        val_res = box.value
 
         # 5. Build structured payload
         payload = {
@@ -360,11 +357,21 @@ class DressMeInferenceEngine:
                     f"Redundancy risk: {redundancy_pct}%.",
                 ],
                 "uncertainties": [],
+                "decision_source": "deterministic",
             },
         }
+        payload["tool_evidence"]["deterministic_decision"] = val_res.decision.value
+        payload["decision_agent"] = {"source": "deterministic", "model": None, "tools_called": []}
+        if qwen_verdict:
+            verdict = payload["agent_verdict"]
+            verdict.update({"decision": qwen_verdict["decision"], "score": qwen_verdict["score"],
+                            "matching_item_ids": qwen_verdict["matching_item_ids"] or paired_item_ids,
+                            "reasons": qwen_verdict["reasons"] or verdict["reasons"], "decision_source": "qwen-agent"})
+            payload["decision_agent"] = {"source": "qwen-agent", "model": self.qwen.label, "tools_called": list(box.called)}
 
         # 6. Generate GPT-4 styling interpretation if enabled
-        if not self.skip_llm and self.openai_client:
+        # GPT only rewrites the JSON verdict of the decision agent as stylist advice: it decides nothing.
+        if interpret and not self.skip_llm and self.openai_client:
             sections = self._interpret_sections(payload)
             if sections:
                 payload["stylist_sections"] = sections

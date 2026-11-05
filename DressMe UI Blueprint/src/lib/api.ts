@@ -5,6 +5,8 @@ import type {
   AvatarStatus,
   AgentReply,
   WardrobeAgentReply,
+  SimilarReply,
+  AssistantReply,
   OutfitAgentReply,
   AnalyzeResponse,
   DuplicateResult,
@@ -150,6 +152,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message, ...place }),
     }),
+
+  assistant: (message: string, options: { threadId?: string; city?: string; country?: string; unit?: string } = {}) =>
+    request<AssistantReply>("/api/assistant/chat", {
+      method: "POST",
+      body: JSON.stringify({ message, thread_id: options.threadId, city: options.city, country: options.country, unit: options.unit }),
+    }),
+
+  similarAgent: (pieces: Record<string, unknown>[]) =>
+    request<SimilarReply>("/api/similar/agent", { method: "POST", body: JSON.stringify({ pieces }) }),
 
   wardrobeAgent: (message: string, options: { confirm?: boolean; contextId?: string } = {}) =>
     request<WardrobeAgentReply>("/api/wardrobe/agent", {

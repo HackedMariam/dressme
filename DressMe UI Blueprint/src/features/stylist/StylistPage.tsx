@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { api } from "../../lib/api"
 import { cap } from "../../lib/taxonomy"
-import type { AdviceSource, StylistSections, StylistWeather, WardrobeItem } from "../../lib/types"
-import StylistAnswer from "./StylistAnswer"
+import type { AdviceSource, StylistSections, StylistWeather, WardrobeItem, WardrobePending } from "../../lib/types"
+import StylistAnswer, { type OutfitCard } from "./StylistAnswer"
+import type { Page } from "../shell/navigation"
 import { useSpeech } from "../../lib/useSpeech"
 import { useUserData } from "../profile/UserDataProvider"
 import { parseLocation } from "../profile/types"
@@ -16,6 +17,11 @@ interface ChatMessage {
   sources?: AdviceSource[]
   sections?: StylistSections | null
   weather?: StylistWeather | null
+  agentLabel?: string
+  agentsCalled?: string[]
+  action?: { page: string; label: string } | null
+  outfits?: OutfitCard[]
+  pending?: WardrobePending | null
   error?: boolean
 }
 
@@ -32,13 +38,14 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-export default function StylistPage() {
+export default function StylistPage({ onNavigate }: { onNavigate?: (page: Page) => void }) {
   const { items, health, error: wardrobeError } = useWardrobe()
   const { profile, preferences } = useUserData()
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [error, setError] = useState("")
+  const [threadId, setThreadId] = useState<string | undefined>()
   const scrollRef = useRef<HTMLDivElement>(null)
   const displayName = profile?.display_name?.trim() || "there"
   const place = parseLocation(profile?.location ?? null)
@@ -59,11 +66,14 @@ export default function StylistPage() {
     ])
     setBusy(true)
     try {
-      const response = await api.agentSearch(text, {
+      // The orchestrator reads the request, picks the agent (stylist, wardrobe, outfits, trip, gaps) and remembers the thread.
+      const response = await api.assistant(text, {
+        threadId,
         city: place.city || "Tunis",
         country: place.country || "Tunisia",
         unit: profile?.temperature_unit ?? "Celsius",
       })
+      setThreadId(response.thread_id)
       setMessages((previous) => [
         ...previous,
         {
@@ -71,9 +81,19 @@ export default function StylistPage() {
           role: "assistant",
           text: response.reply,
           items: response.items.map((found) => items.find((owned) => owned.id === found.id) ?? found),
-          sources: response.sources ?? [],
-          sections: response.sections ?? null,
-          weather: response.weather ?? null,
+          sources: response.data.sources ?? [],
+          sections: response.data.sections ?? null,
+          weather: response.data.weather ?? null,
+          agentLabel: response.agent_label,
+          agentsCalled: response.agents_called,
+          action: response.action,
+          pending: response.data.pending ?? null,
+          outfits: (response.data.outfits ?? []).map((outfit) => ({
+            ...outfit,
+            items: outfit.items
+              .map((piece) => items.find((owned) => owned.id === piece.id))
+              .filter((owned): owned is WardrobeItem => Boolean(owned)),
+          })),
         },
       ])
     } catch (sendError) {
@@ -107,7 +127,7 @@ export default function StylistPage() {
       <div>
         <h1 className="font-display text-3xl font-semibold text-[#1C1C1C]">AI Stylist</h1>
         <p className="mt-1 text-sm text-[#8C8A82]">
-          Answers grounded in the items you own, the weather in your city and fashion books
+          One assistant, several agents: styling, wardrobe, outfits, trips and gaps, each answered by the right one
         </p>
         {!place.city && (
           <p className="mt-1 text-xs text-[#8C8A82]">
@@ -160,9 +180,43 @@ export default function StylistPage() {
                       weather={message.weather}
                       items={message.items ?? []}
                       sources={message.sources ?? []}
+                      outfits={message.outfits}
                     />
                   ) : (
                     <p className="whitespace-pre-line">{message.text}</p>
+                  )}
+                  {message.role === "assistant" && !message.error && message.agentLabel && (
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8C8A82]">
+                      Answered by {message.agentsCalled?.length ? message.agentsCalled.join(" + ") : message.agentLabel}
+                    </p>
+                  )}
+                  {message.pending && (
+                    <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                      <p className="text-xs font-bold text-amber-900">Change proposed for {message.pending.item_name}</p>
+                      <ul className="space-y-0.5 text-xs text-amber-900">
+                        {Object.entries(message.pending.fields).map(([field, value]) => (
+                          <li key={field}>
+                            {field.replace(/_/g, " ")}: {String(message.pending?.before[field] ?? "-")} &rarr; <b>{String(value)}</b>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="flex gap-2">
+                        <button type="button" disabled={busy} onClick={() => void send("yes")}
+                          className="rounded-lg bg-[#1C1C1C] px-3 py-1.5 text-xs font-semibold text-white hover:bg-black disabled:opacity-40">
+                          Confirm change
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => void send("no")}
+                          className="rounded-lg border border-[#E2E0D8] bg-white px-3 py-1.5 text-xs font-semibold text-[#1C1C1C] hover:bg-[#F0EFEA] disabled:opacity-40">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {message.action && onNavigate && (
+                    <button type="button" onClick={() => onNavigate(message.action!.page as Page)}
+                      className="rounded-lg bg-[#556B2F] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#6B8A3A]">
+                      {message.action.label}
+                    </button>
                   )}
                 </div>
               </div>

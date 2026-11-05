@@ -94,6 +94,49 @@ export interface AgentReply {
   filters?: Record<string, string | number>[]
 }
 
+/** An outfit built by the Outfit Builder, as the orchestrator relays it. */
+export interface AssistantOutfit {
+  title: string
+  weather_note: string
+  why: string[]
+  items: { id: string; name: string | null; category: string | null }[]
+}
+
+/** The orchestrator's answer: which agent replied, what it said and what the page can show or open next. */
+export interface AssistantReply {
+  reply: string
+  agent: string
+  agent_label: string
+  why: string
+  agents_called: string[]
+  items: WardrobeItem[]
+  data: {
+    sections?: StylistSections | null
+    weather?: StylistWeather | null
+    sources?: AdviceSource[]
+    outfits?: AssistantOutfit[]
+    pending?: WardrobePending | null
+  }
+  action: { page: string; label: string } | null
+  state: string
+  thread_id: string
+}
+
+/** The Similar Agent's verdict on one detected piece of a look. */
+export interface SimilarVerdict {
+  index: number
+  status: "owned" | "close" | "missing"
+  closest_item_id: string | null
+  reason: string
+  score: number
+  by: "agent" | "rules"
+}
+
+export interface SimilarReply {
+  pieces: SimilarVerdict[]
+  summary: string
+}
+
 /** A correction the Wardrobe Agent proposed: nothing is saved until the user confirms. */
 export interface WardrobePending {
   item_id: string

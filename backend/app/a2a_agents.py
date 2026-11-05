@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:      # a2a_protocol/ sits at the root of the repos
 
 from a2a_protocol import AgentCall, AgentResult, Skill, build_router  # noqa: E402
 
-from . import agent, outfit_agent, wardrobe_agent  # noqa: E402
+from . import agent, outfit_agent, similar_agent, wardrobe_agent  # noqa: E402
 from .auth import current_user  # noqa: E402
 from .taxonomy import OCCASIONS, SEASONS  # noqa: E402
 
@@ -138,3 +138,23 @@ wardrobe_router = build_router(
                   ["wardrobe", "similarity"], ["Do I already have something like my navy blazer?"]),
             Skill("duplicate-check", "Duplicate check", "Is this just-scanned piece already in the wardrobe?",
                   ["wardrobe", "scan"], ["data.action = check-duplicate"])])
+
+
+# ------------------------------------------------------------------------------------------------ Similar Agent
+def handle_similar(call: AgentCall) -> AgentResult:
+    pieces = call.data.get("pieces")
+    if not isinstance(pieces, list) or not pieces:
+        return AgentResult(text="Send the pieces of the look as data.pieces (category, color_name, material, style...).",
+                           state="input-required")
+    verdict = similar_agent.compare(wardrobe_agent.list_items(call.principal.id), pieces)
+    lines = [f"{p['index'] + 1}. {p['status']}: {p['reason']}" for p in verdict["pieces"]]
+    summary = verdict["summary"] + "\n" if verdict["summary"] else ""
+    return AgentResult(text=summary + "\n".join(lines), data=verdict)
+
+
+similar_router = build_router(
+    prefix="/a2a/similar", name="DressMe Similar Agent", version=VERSION, handler=handle_similar, principal=current_user,
+    description="Tells, for each garment of a look, whether the user already owns it, owns something close or owns "
+                "nothing like it. It asks the Wardrobe Agent and never reads the wardrobe itself. Data: pieces.",
+    skills=[Skill("find-similar", "Find similar pieces", "owned / close / missing for every detected piece of a look.",
+                  ["wardrobe", "similarity", "shopping"], ["Do I already own this look?"])])

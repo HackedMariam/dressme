@@ -19,7 +19,9 @@ class PurchaseAgent:
     """Agent adapter for legacy tests and API calls."""
 
     def __init__(self, wardrobe: Optional[List[Garment]] = None):
-        self.engine = DressMeInferenceEngine(skip_llm=True, wardrobe=wardrobe)
+        # The Qwen decision agent runs by default; without HF_TOKEN (or if the model cannot run) the deterministic
+        # evaluation answers. `skip_llm` below only switches the GPT stylist interpretation off.
+        self.engine = DressMeInferenceEngine(skip_llm=False, wardrobe=wardrobe)
 
     def evaluate(
         self,
@@ -32,6 +34,7 @@ class PurchaseAgent:
             price=cand.price or 50.0,
             budget=cand.budget or 100.0,
             user_prompt=request.user_query or cand.name or "Should I buy this?",
+            interpret=not skip_llm,
         )
 
         similar_items = [

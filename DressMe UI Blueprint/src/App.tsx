@@ -63,7 +63,7 @@ function AuthenticatedApp() {
       case "help-me-pack": return <HelpMePack onOpenWardrobe={() => goTo("wardrobe")} onOpenShop={() => goTo("wardrobe-gaps")} />;
       case "should-i-buy": return <ShouldIBuyPage />;
       case "outfit-builder": return <OutfitBuilderPage onNavigate={goTo} />;
-      case "ai-stylist": return <StylistPage />;
+      case "ai-stylist": return <StylistPage onNavigate={goTo} />;
       case "avatar": return <AvatarPage onNavigate={goTo} />;
       case "style-profile": return <StyleProfile onNavigate={goTo} />;
       case "find-similar": return <FindSimilarPage onOpenAvatar={() => goTo("avatar")} />;

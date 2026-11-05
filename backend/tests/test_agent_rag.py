@@ -1,5 +1,6 @@
 """The AI stylist asks the fashion-knowledge RAG as a tool. The LLM and the RAG service are replaced by fakes."""
 import json
+import re
 from types import SimpleNamespace
 
 import httpx
@@ -83,6 +84,17 @@ def _message(content=None, tool_calls=None):
     return SimpleNamespace(content=content, tool_calls=tool_calls)
 
 
+@pytest.fixture(autouse=True)
+def fake_wardrobe_agent(monkeypatch):
+    """The stylist asks the Wardrobe Agent in words: here a stand-in that matches the words against the pieces."""
+    def ask(items, request):
+        words = [w for w in re.findall(r"[a-z]+", request.lower()) if w not in {"pieces", "my", "autumn", "the"}]
+        found = [i for i in items if not words or any(w in " ".join(str(i.get(k, "")) for k in ("name", "category", "color_name")).lower() for w in words)]
+        return {"reply": f"{len(found)} piece(s) found.", "items": [{k: v for k, v in i.items() if k in agent.RESULT_FIELDS} for i in found],
+                "filters": [{"text": request}] if request else []}
+    monkeypatch.setattr(agent, "_ask_wardrobe", ask)
+
+
 @pytest.fixture
 def llm(monkeypatch):
     holder = {}
@@ -107,7 +119,7 @@ def test_the_stylist_combines_the_wardrobe_with_book_advice_and_keeps_only_cited
 
     monkeypatch.setattr(rag_client, "advise", advise)
     fake = llm([
-        _message(tool_calls=[_tool_call("a", "search_wardrobe", text="navy"),
+        _message(tool_calls=[_tool_call("a", "ask_wardrobe_agent", request="navy pieces"),
                              _tool_call("b", "fashion_advice", question="Which colours go with navy?")]),
         _message("Your Navy blazer works with grey trousers [S1]."),
     ])
@@ -118,7 +130,7 @@ def test_the_stylist_combines_the_wardrobe_with_book_advice_and_keeps_only_cited
     assert [s["marker"] for s in reply["sources"]] == ["[S1]"]                # [S2] was not used in the answer
     assert reply["sources"][0]["title"] == "Color Harmony Workbook"
     offered = [tool["function"]["name"] for tool in fake.calls[0]["tools"]]
-    assert offered == ["search_wardrobe", "fashion_advice", "get_weather"]
+    assert offered == ["ask_wardrobe_agent", "fashion_advice", "get_weather"]
     tool_messages = [m for m in fake.calls[1]["messages"] if m["role"] == "tool"]
     assert "Navy pairs with grey" in tool_messages[1]["content"]              # the advice reaches the model
 
@@ -127,7 +139,7 @@ def test_without_the_knowledge_service_the_stylist_still_answers_from_the_wardro
     monkeypatch.setattr(rag_client, "advise", lambda question: None)
     fake = llm([
         _message(tool_calls=[_tool_call("b", "fashion_advice", question="How to style a blazer?"),
-                             _tool_call("a", "search_wardrobe", text="blazer")]),
+                             _tool_call("a", "ask_wardrobe_agent", request="blazer")]),
         _message("Wear your Navy blazer with jeans."),
     ])
     reply = agent.chat(ITEMS, "How do I style my blazer?")
@@ -159,7 +171,7 @@ def test_a_style_question_answered_without_the_knowledge_base_is_sent_back_to_co
 
 def test_a_plain_item_search_is_not_sent_to_the_knowledge_base(monkeypatch, llm):
     monkeypatch.setattr(rag_client, "advise", lambda question: pytest.fail("the knowledge base was not needed"))
-    fake = llm([_message(tool_calls=[_tool_call("a", "search_wardrobe", color_name="navy")]),
+    fake = llm([_message(tool_calls=[_tool_call("a", "ask_wardrobe_agent", request="navy pieces")]),
                 _message("Here is your Navy blazer.")])
     reply = agent.chat(ITEMS, "Show me my navy pieces")
     assert reply["reply"] == "Here is your Navy blazer." and reply["sources"] == [] and len(fake.calls) == 2
@@ -186,7 +198,7 @@ def test_the_answer_comes_in_sections_with_the_outfit_pieces_and_only_the_source
         "sources": [{"marker": "[S1]", "title": "Color Harmony Workbook", "page": 8, "source": "c.pdf"},
                     {"marker": "[S2]", "title": "Dress to Impress Guide", "page": 3, "source": "d.pdf"}]})
     llm([
-        _message(tool_calls=[_tool_call("a", "search_wardrobe", season="autumn"),
+        _message(tool_calls=[_tool_call("a", "ask_wardrobe_agent", request="autumn pieces"),
                              _tool_call("b", "fashion_advice", question="Colours that go with navy?")]),
         _message(json.dumps({
             "answer": "Try your **Navy blazer** with light jeans.",
@@ -208,7 +220,7 @@ def test_the_answer_comes_in_sections_with_the_outfit_pieces_and_only_the_source
 
 def test_a_plain_search_answer_keeps_every_item_found_and_has_empty_sections(monkeypatch, llm):
     monkeypatch.setattr(rag_client, "advise", lambda question: pytest.fail("not needed"))
-    llm([_message(tool_calls=[_tool_call("a", "search_wardrobe", color_name="navy")]),
+    llm([_message(tool_calls=[_tool_call("a", "ask_wardrobe_agent", request="navy pieces")]),
          _message(json.dumps({"answer": "Here is your Navy blazer.", "outfit": [], "why": [], "tips": []}))])
     reply = agent.chat(ITEMS2, "Show me my navy pieces")
     assert reply["reply"] == "Here is your Navy blazer." and [i["id"] for i in reply["items"]] == ["jacket-1"]
@@ -216,7 +228,7 @@ def test_a_plain_search_answer_keeps_every_item_found_and_has_empty_sections(mon
 
 
 def test_a_model_that_ignores_the_format_still_gets_its_text_shown(llm):
-    llm([_message(tool_calls=[_tool_call("a", "search_wardrobe", text="blazer")]), _message("Wear the Navy blazer.")])
+    llm([_message(tool_calls=[_tool_call("a", "ask_wardrobe_agent", request="blazer")]), _message("Wear the Navy blazer.")])
     reply = agent.chat(ITEMS2, "Show me a blazer")
     assert reply["reply"] == "Wear the Navy blazer." and reply["sections"] is None
 
@@ -239,7 +251,7 @@ def test_the_stylist_checks_the_weather_of_the_users_city_and_returns_it_with_th
                         lambda city, country="", days_ahead=0: asked.append((city, country, days_ahead)) or FORECAST)
     monkeypatch.setattr(rag_client, "advise", lambda question: None)
     fake = llm([
-        _message(tool_calls=[_tool_call("a", "get_weather", days_ahead=1), _tool_call("b", "search_wardrobe"),
+        _message(tool_calls=[_tool_call("a", "get_weather", days_ahead=1), _tool_call("b", "ask_wardrobe_agent", request="my pieces"),
                              _tool_call("c", "fashion_advice", question="Dress code?")]),
         _message(json.dumps({"answer": "My pick: the Navy blazer.", "weather": "12 to 17 C and 70% chance of rain.",
                              "outfit": ["Navy blazer"], "why": ["Warmth 3 suits 12 C."], "alternatives": ["No coat."],

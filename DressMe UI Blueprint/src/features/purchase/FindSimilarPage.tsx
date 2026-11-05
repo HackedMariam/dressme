@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { api, asset } from "../../lib/api"
 import { tryOnGroup } from "../../lib/pieces"
 import { TAXONOMY, cap, seasonLabel } from "../../lib/taxonomy"
-import type { WardrobeItem } from "../../lib/types"
+import type { SimilarReply, WardrobeItem } from "../../lib/types"
 import TryOnModal, { type Garment } from "../shop/TryOnModal"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
 import { fetchPlanPhotos, type WebPhoto } from "../wardrobegaps/api"
@@ -164,6 +164,7 @@ function ShopRow({ piece, index, onTryOn }: { piece: WardrobeItem; index: number
 export default function FindSimilarPage({ onOpenAvatar }: { onOpenAvatar?: () => void }) {
   const { items } = useWardrobe()
   const [pieces, setPieces] = useState<WardrobeItem[] | null>(null)
+  const [verdicts, setVerdicts] = useState<SimilarReply | null>(null)
   const [preview, setPreview] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -180,11 +181,23 @@ export default function FindSimilarPage({ onOpenAvatar }: { onOpenAvatar?: () =>
     if (!file) return
     setError("")
     setPieces(null)
+    setVerdicts(null)
     setPreview(URL.createObjectURL(file))
     setBusy(true)
     try {
       const response = await api.analyze(file, { allItems: true, save: false, fast: true })
       setPieces(response.items)
+      // The Similar Agent decides owned / close / missing (it asks the Wardrobe Agent); the local rules are the fallback.
+      try {
+        const fields = ["name", "category", "category_group", "color_name", "color_family", "material", "style", "pattern"] as const
+        setVerdicts(
+          await api.similarAgent(
+            response.items.map((piece) => Object.fromEntries(fields.map((field) => [field, (piece as unknown as Record<string, unknown>)[field]]))),
+          ),
+        )
+      } catch {
+        setVerdicts(null)
+      }
     } catch (analyseError) {
       setError(analyseError instanceof Error ? analyseError.message : "Could not analyse this photo.")
     } finally {
@@ -194,7 +207,16 @@ export default function FindSimilarPage({ onOpenAvatar }: { onOpenAvatar?: () =>
 
   const parts = useMemo<Part[]>(() => {
     if (!pieces) return []
-    return pieces.map((piece) => {
+    return pieces.map((piece, index) => {
+      const verdict = verdicts?.pieces.find((entry) => entry.index === index)
+      if (verdict) {
+        const owned = items.find((item) => item.id === verdict.closest_item_id)
+        return {
+          piece,
+          status: verdict.status,
+          match: owned ? { item: owned, score: verdict.score, reasons: [verdict.reason] } : null,
+        }
+      }
       const ranked = items
         .map((item) => ({ item, ...similarity(item, piece) }))
         .filter((entry) => entry.score >= 45)
@@ -202,7 +224,7 @@ export default function FindSimilarPage({ onOpenAvatar }: { onOpenAvatar?: () =>
       const match = ranked[0] ?? null
       return { piece, status: statusOf(match?.score ?? 0), match }
     })
-  }, [pieces, items])
+  }, [pieces, items, verdicts])
 
   const counts = {
     owned: parts.filter((part) => part.status === "owned").length,

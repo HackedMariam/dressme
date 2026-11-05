@@ -2,7 +2,7 @@
 
 Unlike the plain text/photo search (deterministic filtering in the frontend),
 this lets the user ask a free-form question ("something warm for a rainy work
-day") and has an LLM decide how to search: it calls the search_wardrobe tool
+day") and has an LLM decide how to search: it asks the Wardrobe Agent
 with whatever filters it thinks fit, can look again with different filters if
 the first search comes back empty, and only then writes a reply - grounded in
 the user's real items instead of guessing.
@@ -27,7 +27,11 @@ from agent_kit import run_loop  # noqa: E402
 
 from . import config, rag_client, weather  # noqa: E402
 # The wardrobe is read through the Wardrobe Agent: its search tool and its duplicate check are used here.
-from .wardrobe_agent import DUPLICATE_SYSTEM, RESULT_FIELDS, SEARCH_TOOL, _matches, _run_search, check_duplicate  # noqa: E402,F401
+from . import wardrobe_agent  # noqa: E402
+from .wardrobe_agent import DUPLICATE_SYSTEM, RESULT_FIELDS, _matches, _run_search, check_duplicate  # noqa: E402,F401
+
+# Agent to agent: the stylist asks the Wardrobe Agent in plain words instead of filtering the closet itself.
+_ask_wardrobe = wardrobe_agent.ask
 
 log = logging.getLogger("dressme.agent")
 
@@ -35,7 +39,25 @@ MAX_ROUNDS = 4
 DEFAULT_CITY, DEFAULT_COUNTRY = "Tunis", "Tunisia"
 AGENT_ROUNDS = 8   # the stylist may search the closet, the weather and the books several times
 
-TOOLS = [SEARCH_TOOL, {
+ASK_WARDROBE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "ask_wardrobe_agent",
+        "description": "Ask the Wardrobe Agent, in plain words, for pieces of the user's own wardrobe (for example "
+                       "'warm jackets for a rainy work day' or 'my black shoes'). It chooses the filters itself, looks "
+                       "again if nothing comes back, and answers with the pieces it found. Always call it before "
+                       "answering anything about what the user owns or could wear; never invent a piece. For an outfit "
+                       "question ask broadly (for example 'tops, bottoms, dresses, jackets and shoes for a casual dinner in "
+                       "autumn') and choose among the pieces it returns.",
+        "parameters": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"request": {"type": "string", "description": "What you need from the wardrobe, in plain words."}},
+            "required": ["request"],
+        },
+    },
+}
+
+TOOLS = [ASK_WARDROBE_TOOL, {
     "type": "function",
     "function": {
         "name": "fashion_advice",
@@ -43,7 +65,7 @@ TOOLS = [SEARCH_TOOL, {
                        "suits an occasion or dress code, how to combine colours or fabrics, how to style or "
                        "care for a type of garment, what to wear for a climate or trip. Use it for any "
                        "'how / what / why' style question, and phrase the question in English. It never "
-                       "knows the user's wardrobe, so combine it with search_wardrobe. The answer carries "
+                       "knows the user's wardrobe, so combine it with ask_wardrobe_agent. The answer carries "
                        "numbered sources like [S1]: keep those markers when you use its advice.",
         "parameters": {
             "type": "object",
@@ -77,9 +99,9 @@ TOOLS = [SEARCH_TOOL, {
 
 SYSTEM = (
     "You are the styling assistant inside DressMe, a personal wardrobe app. "
-    "You may only talk about items the user actually owns: always call search_wardrobe at least "
-    "once before answering, and call it again with different filters if a search comes back "
-    "empty or clearly too broad. Reply in the language the user wrote in. If nothing in the wardrobe "
+    "You may only talk about items the user actually owns: always call ask_wardrobe_agent (the Wardrobe Agent: "
+    "say in plain words which pieces you need) at least once before answering, and ask again with other words "
+    "if the answer is empty or clearly too broad. Reply in the language the user wrote in. If nothing in the wardrobe "
     "fits, say so plainly instead of inventing something. "
     "WEATHER: whenever the user asks what to wear, for an outfit or a look, or which piece to choose, call "
     "get_weather for the day they mean (days_ahead 0 = today, 1 = tomorrow...) and build the answer on it: "
@@ -90,7 +112,7 @@ SYSTEM = (
     "colours that go together, a fabric or material, a season or climate, how to wear, combine or care "
     "for something - you MUST also call fashion_advice, once per topic (up to three, each question in English "
     "and about ONE topic: for an outfit, ask about the occasion or dress code, about the colours, and about the "
-    "fabrics for this weather). A plain request to find or show items needs search_wardrobe only. Never "
+    "fabrics for this weather). A plain request to find or show items needs ask_wardrobe_agent only. Never "
     "present book advice as if it came from the wardrobe, and do not invent sources: if fashion_advice "
     "returns nothing, answer from the wardrobe alone. "
     "Be convincing, and honest: when the user asks for advice, take a clear position and justify it in "
@@ -113,7 +135,7 @@ SYSTEM = (
     "temperature, rain, wind), (2) how it suits the occasion or dress code and its formality, (3) why the "
     "colours work together, (4) why the fabrics or materials are right, (5) the role of each key piece. "
     "Each reason must point to a concrete fact about the user's real pieces (colour, material, warmth, "
-    "season, occasion or style as returned by search_wardrobe), and, whenever fashion_advice gave a relevant "
+    "season, occasion or style as returned by the Wardrobe Agent), and, whenever fashion_advice gave a relevant "
     "rule, link it to that rule and keep its source marker such as [S1] right after the claim (when the books "
     "answered, at least two reasons must rest on them). Never state a "
     "fact about a piece that the search did not return; "
@@ -274,13 +296,12 @@ def chat(items: list[dict], message: str, place: dict | None = None) -> dict:
                 return json.dumps({"advice": advice["answer"], "sources": advice["sources"]})
             return json.dumps({"advice": None, "note": "The fashion knowledge base is unavailable "
                                "or has nothing on this: answer from the wardrobe alone."})
-        results = _run_search(items, args)
-        if args:
-            filters.append(args)
-        trimmed = [{k: i.get(k) for k in RESULT_FIELDS} for i in results]
-        for i, t in zip(results, trimmed):
-            found[i["id"]] = t
-        return json.dumps(trimmed)
+        # ask_wardrobe_agent: the Wardrobe Agent (its own LLM and tools) answers in words and with the pieces it found
+        answer = _ask_wardrobe(items, str(args.get("request") or message))
+        for piece in answer["items"]:
+            found[piece["id"]] = piece
+        filters.extend(answer["filters"])
+        return json.dumps({"wardrobe_agent_says": answer["reply"], "pieces": answer["items"]})
 
     def nudge(_content: str) -> str | None:
         # The model skipped the books or the weather on a question that needs them: ask it once.
