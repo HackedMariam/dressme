@@ -75,7 +75,7 @@ def test_a_follow_up_is_routed_with_the_recent_conversation():
 
 
 def test_the_stylist_answers_style_questions_in_this_service(env):
-    env.setattr(agent, "chat", lambda items, message, place: {"reply": "Wear the blazer.", "items": items, "sections": {"why": ["x"]},
+    env.setattr(agent, "chat", lambda items, message, place, authorization=None: {"reply": "Wear the blazer.", "items": items, "sections": {"why": ["x"]},
                                                               "weather": None, "sources": [], "filters": []})
     result = orch.chat("u1", "What should I wear tomorrow?", place={"city": "Tunis"})
     assert (result["agent"], result["agent_label"], result["reply"]) == ("stylist", "AI Stylist", "Wear the blazer.")
@@ -123,7 +123,7 @@ def test_shopping_questions_point_to_the_page_that_has_the_photo_upload(env):
 
 
 def test_the_conversations_of_two_users_do_not_mix(env):
-    env.setattr(agent, "chat", lambda items, message, place: {"reply": "ok", "items": [], "sections": None, "weather": None, "sources": [], "filters": []})
+    env.setattr(agent, "chat", lambda items, message, place, authorization=None: {"reply": "ok", "items": [], "sections": None, "weather": None, "sources": [], "filters": []})
     FakeA2A.script = [task("input-required", "Which dates?", "trip-1")]
     orch.chat("u1", "Prepare ma valise", thread_id="shared")
     other = orch.chat("u2", "what should I wear", thread_id="shared")             # same thread id, another user
@@ -136,6 +136,6 @@ def test_the_route_returns_the_orchestrators_answer(env):
     from app import main
 
     env.setattr(config, "AUTH_ENABLED", False)
-    env.setattr(agent, "chat", lambda items, message, place: {"reply": "Wear it.", "items": [], "sections": None, "weather": None, "sources": [], "filters": []})
+    env.setattr(agent, "chat", lambda items, message, place, authorization=None: {"reply": "Wear it.", "items": [], "sections": None, "weather": None, "sources": [], "filters": []})
     reply = TestClient(main.app).post("/api/assistant/chat", json={"message": "what should I wear", "city": "Tunis"})
     assert reply.status_code == 200 and reply.json()["agent"] == "stylist" and reply.json()["thread_id"]

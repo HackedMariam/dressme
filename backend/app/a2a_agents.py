@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:      # a2a_protocol/ sits at the root of the repos
 
 from a2a_protocol import AgentCall, AgentResult, Skill, build_router  # noqa: E402
 
-from . import agent, outfit_agent, similar_agent, wardrobe_agent  # noqa: E402
+from . import agent, outfit_agent, similar_agent, wardrobe_a2a, wardrobe_agent  # noqa: E402
 from .auth import current_user  # noqa: E402
 from .taxonomy import OCCASIONS, SEASONS  # noqa: E402
 
@@ -48,11 +48,11 @@ def _word_in(text: str, options: list[str]) -> str | None:
 
 # ------------------------------------------------------------------------------------------------ AI Stylist
 def handle_stylist(call: AgentCall) -> AgentResult:
-    items = wardrobe_agent.list_items(call.principal.id)
+    items = wardrobe_a2a.list_items(call.principal.id, call.authorization)
     if not call.text:
         return AgentResult(text="Ask me what to wear, how to style a piece, or to find something in the wardrobe.",
                            state="input-required")
-    reply = agent.chat(items, call.text, _place(call.data))
+    reply = agent.chat(items, call.text, _place(call.data), call.authorization)
     return AgentResult(text=reply["reply"], data={
         "sections": reply.get("sections"), "weather": reply.get("weather"), "sources": reply.get("sources", []),
         "items": [{"id": i.get("id"), "name": i.get("name"), "category": i.get("category")} for i in reply.get("items", [])],
@@ -61,7 +61,7 @@ def handle_stylist(call: AgentCall) -> AgentResult:
 
 # ------------------------------------------------------------------------------------------------ Outfit Builder
 def handle_outfit(call: AgentCall) -> AgentResult:
-    items = wardrobe_agent.list_items(call.principal.id)
+    items = wardrobe_a2a.list_items(call.principal.id, call.authorization)
     if not items:
         return AgentResult(text="The wardrobe is empty: add clothes before building outfits.", state="failed")
     occasion = str(call.data.get("occasion") or _word_in(call.text, OCCASIONS) or "everyday")
@@ -105,6 +105,10 @@ def handle_wardrobe(call: AgentCall) -> AgentResult:
     if action == "list":
         items = wardrobe_agent.list_items(user_id)
         return AgentResult(text=f"{len(items)} piece(s) in the wardrobe.", data={"items": items})
+    if action == "ask":                      # another agent asks in plain words: read-only, with the pieces it found
+        found = wardrobe_agent.ask(wardrobe_agent.list_items(user_id), str(call.data.get("request") or call.text))
+        return AgentResult(text=found["reply"], data={"reply": found["reply"], "items": [wardrobe_agent.trim(i) for i in found["items"]],
+                                                      "filters": found["filters"]})
     if action == "search":
         filters = call.data.get("filters") if isinstance(call.data.get("filters"), dict) else {}
         found = [wardrobe_agent.trim(i) for i in wardrobe_agent.search(wardrobe_agent.list_items(user_id), filters)]
@@ -146,7 +150,7 @@ def handle_similar(call: AgentCall) -> AgentResult:
     if not isinstance(pieces, list) or not pieces:
         return AgentResult(text="Send the pieces of the look as data.pieces (category, color_name, material, style...).",
                            state="input-required")
-    verdict = similar_agent.compare(wardrobe_agent.list_items(call.principal.id), pieces)
+    verdict = similar_agent.compare(wardrobe_a2a.list_items(call.principal.id, call.authorization), pieces, call.authorization)
     lines = [f"{p['index'] + 1}. {p['status']}: {p['reason']}" for p in verdict["pieces"]]
     summary = verdict["summary"] + "\n" if verdict["summary"] else ""
     return AgentResult(text=summary + "\n".join(lines), data=verdict)

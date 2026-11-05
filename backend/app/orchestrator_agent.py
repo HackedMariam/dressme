@@ -35,7 +35,7 @@ from a2a_protocol import A2AClient, A2AError, AgentCall  # noqa: E402
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 
-from . import a2a_agents, agent, config, wardrobe_agent  # noqa: E402
+from . import a2a_agents, agent, config, wardrobe_a2a, wardrobe_agent  # noqa: E402
 
 log = logging.getLogger("dressme.orchestrator")
 
@@ -148,7 +148,8 @@ def pick(state: State) -> str:
 
 
 def node_stylist(state: State) -> dict:
-    result = agent.chat(wardrobe_agent.list_items(state["user_id"]), state["message"], state.get("place"))
+    authorization = state.get("authorization")
+    result = agent.chat(wardrobe_a2a.list_items(state["user_id"], authorization), state["message"], state.get("place"), authorization)
     return {"reply": result["reply"], "items": result.get("items", []), "agents_called": ["AI Stylist"], "awaiting": None,
             "data": {k: result.get(k) for k in ("sections", "weather", "sources", "filters")}}
 
@@ -164,7 +165,8 @@ def node_wardrobe(state: State) -> dict:
 
 def node_outfit(state: State) -> dict:
     result = a2a_agents.handle_outfit(AgentCall(text=state["message"], data=dict(state.get("place") or {}), context_id=state["context_id"],
-                                                principal=SimpleUser(state["user_id"]), message_id=""))
+                                                principal=SimpleUser(state["user_id"]), message_id="",
+                                                authorization=state.get("authorization")))
     return {"reply": result.text, "state": result.state, "awaiting": None, "agents_called": ["Outfit Builder"], "data": result.data or {}}
 
 

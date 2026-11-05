@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
 from agent_kit import run_loop  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 
-from . import config, wardrobe_agent  # noqa: E402
+from . import config, wardrobe_a2a, wardrobe_agent  # noqa: E402
 
 log = logging.getLogger("dressme.similar_agent")
 
@@ -64,6 +64,7 @@ SYSTEM = (
 class State(TypedDict, total=False):
     items: list[dict]
     pieces: list[dict]
+    authorization: Optional[str]
     draft: Optional[str]
     outcome: str
     result: dict
@@ -87,7 +88,8 @@ def node_ask(state: State) -> dict:
                                               messages=messages, tools=[ASK_TOOL]).choices[0].message
 
     def run_tool(name: str, args: dict) -> str:
-        answer = _ask_wardrobe(items, str(args.get("request") or ""))
+        request_text = str(args.get("request") or "")
+        answer = wardrobe_a2a.ask(items, request_text, state.get("authorization")) if state.get("authorization") else _ask_wardrobe(items, request_text)
         return json.dumps({"wardrobe_agent_says": answer["reply"],
                            "pieces": [{k: i.get(k) for k in ("id", "name", "category", "color_name", "material", "style")}
                                       for i in answer["items"]]})
@@ -151,11 +153,11 @@ def build_graph():
 _GRAPH = None
 
 
-def compare(items: list[dict], pieces: list[dict]) -> dict:
+def compare(items: list[dict], pieces: list[dict], authorization: Optional[str] = None) -> dict:
     """{"pieces": [{index, status, closest_item_id, reason, score, by}], "summary": str} for the detected pieces."""
     global _GRAPH
     pieces = [p for p in pieces if isinstance(p, dict)][:MAX_PIECES]
     if not pieces:
         return {"pieces": [], "summary": ""}
     _GRAPH = _GRAPH or build_graph()
-    return _GRAPH.invoke({"items": items, "pieces": pieces})["result"]
+    return _GRAPH.invoke({"items": items, "pieces": pieces, "authorization": authorization})["result"]

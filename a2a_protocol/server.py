@@ -59,6 +59,7 @@ class AgentCall:
     context_id: str
     principal: Any
     message_id: str
+    authorization: Optional[str] = None     # the caller's Authorization header, to call other agents on their behalf
 
 
 @dataclass
@@ -194,7 +195,8 @@ def build_router(*, prefix: str, name: str, description: str, version: str, skil
                 return _rpc_error(request_id, INVALID_PARAMS, "The message is empty")
             task_id, context_id = str(uuid.uuid4()), context_id or str(uuid.uuid4())
             call = AgentCall(text=text, data=data, context_id=context_id, principal=caller,
-                             message_id=str(params["message"].get("messageId") or uuid.uuid4()))
+                             message_id=str(params["message"].get("messageId") or uuid.uuid4()),
+                             authorization=request.headers.get("authorization"))
             started = time.perf_counter()
             try:
                 result = await run_in_threadpool(handler, call)

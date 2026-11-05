@@ -164,7 +164,7 @@ def test_the_ai_stylist_is_discoverable_and_answers_over_a2a(dressme, monkeypatc
     test_client, _ = dressme
     seen = {}
 
-    def chat(items, message, place):
+    def chat(items, message, place, authorization=None):
         seen.update(items=items, message=message, place=place)
         return {"reply": "My pick: the Navy blazer.", "items": [ITEMS[0]], "sources": [], "weather": None,
                 "sections": {"outfit": ["Navy blazer"]}}

@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from . import agent, avatar, config, quality
-from . import a2a_agents, orchestrator_agent, outfit_agent as outfit_agent_module, similar_agent, wardrobe_agent
+from . import a2a_agents, orchestrator_agent, outfit_agent as outfit_agent_module, similar_agent, wardrobe_a2a, wardrobe_agent
 from .auth import User, current_user
 from .colors import COLOR_NAMES
 from .detector import GarmentDetector
@@ -359,11 +359,12 @@ class AgentRequest(BaseModel):
 
 
 @app.post("/api/agent/search")
-async def agent_search(body: AgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
-    """Ask the AI stylist a free-form question; it searches the real wardrobe before answering."""
-    items = wardrobe_agent.list_items(user.id)
+async def agent_search(body: AgentRequest, request: Request, user: User = Depends(current_user)) -> dict[str, Any]:
+    """Ask the AI stylist a free-form question; it asks the Wardrobe Agent (A2A) about the real wardrobe before answering."""
+    auth = request.headers.get("authorization")
+    items = await run_in_threadpool(wardrobe_a2a.list_items, user.id, auth)    # a thread: it calls this very service over A2A
     place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
-    return await run_in_threadpool(agent.chat, items, body.message, place)
+    return await run_in_threadpool(agent.chat, items, body.message, place, auth)
 
 
 # Agent2Agent: Agent Cards and JSON-RPC endpoints of the AI Stylist and the Outfit Builder (see a2a_agents.py).
@@ -391,10 +392,11 @@ class SimilarAgentRequest(BaseModel):
 
 
 @app.post("/api/similar/agent")
-async def similar_agent_compare(body: SimilarAgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+async def similar_agent_compare(body: SimilarAgentRequest, request: Request, user: User = Depends(current_user)) -> dict[str, Any]:
     """The Similar Agent: for each detected piece, owned / close / missing, with the reason."""
-    items = wardrobe_agent.list_items(user.id)
-    return await run_in_threadpool(similar_agent.compare, items, body.pieces[:similar_agent.MAX_PIECES])
+    auth = request.headers.get("authorization")
+    items = await run_in_threadpool(wardrobe_a2a.list_items, user.id, auth)
+    return await run_in_threadpool(similar_agent.compare, items, body.pieces[:similar_agent.MAX_PIECES], auth)
 
 
 class AssistantRequest(BaseModel):
@@ -423,9 +425,9 @@ class OutfitAgentRequest(BaseModel):
 
 
 @app.post("/api/outfits/agent")
-async def outfit_agent(body: OutfitAgentRequest, user: User = Depends(current_user)) -> dict[str, Any]:
+async def outfit_agent(body: OutfitAgentRequest, request: Request, user: User = Depends(current_user)) -> dict[str, Any]:
     """The Outfit Builder agent (LangGraph): weather + wardrobe + fashion books -> complete, validated outfits."""
-    items = wardrobe_agent.list_items(user.id)
+    items = await run_in_threadpool(wardrobe_a2a.list_items, user.id, request.headers.get("authorization"))
     place = {"city": body.city[:80], "country": body.country[:80], "unit": body.unit[:12]}
     try:
         return await run_in_threadpool(outfit_agent_module.build, items, body.occasion[:40], body.season[:20],

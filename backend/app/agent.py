@@ -27,7 +27,7 @@ from agent_kit import run_loop  # noqa: E402
 
 from . import config, rag_client, weather  # noqa: E402
 # The wardrobe is read through the Wardrobe Agent: its search tool and its duplicate check are used here.
-from . import wardrobe_agent  # noqa: E402
+from . import wardrobe_a2a, wardrobe_agent  # noqa: E402
 from .wardrobe_agent import DUPLICATE_SYSTEM, RESULT_FIELDS, _matches, _run_search, check_duplicate  # noqa: E402,F401
 
 # Agent to agent: the stylist asks the Wardrobe Agent in plain words instead of filtering the closet itself.
@@ -207,7 +207,7 @@ def _forecast_view(forecast: dict | None, unit: str) -> dict | None:
     return {**forecast, "unit": "F" if fahrenheit else "C", "temp_min": low, "temp_max": high}
 
 
-def chat(items: list[dict], message: str, place: dict | None = None) -> dict:
+def chat(items: list[dict], message: str, place: dict | None = None, authorization: str | None = None) -> dict:
     """One user turn: returns {"reply": str, "items": [...]} grounded in `items`.
 
     `place` ({"city", "country", "unit"}) is where the user lives: the stylist can then check the real weather."""
@@ -297,7 +297,8 @@ def chat(items: list[dict], message: str, place: dict | None = None) -> dict:
             return json.dumps({"advice": None, "note": "The fashion knowledge base is unavailable "
                                "or has nothing on this: answer from the wardrobe alone."})
         # ask_wardrobe_agent: the Wardrobe Agent (its own LLM and tools) answers in words and with the pieces it found
-        answer = _ask_wardrobe(items, str(args.get("request") or message))
+        request_text = str(args.get("request") or message)
+        answer = wardrobe_a2a.ask(items, request_text, authorization) if authorization else _ask_wardrobe(items, request_text)
         for piece in answer["items"]:
             found[piece["id"]] = piece
         filters.extend(answer["filters"])
