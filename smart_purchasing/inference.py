@@ -148,9 +148,8 @@ class DressMeInferenceEngine:
 
     # The sections of the stylist's answer, in the order the UI shows them. The UI draws each one in its own zone and
     # writes the label itself (in bold), so the model returns plain text per section, with no markdown and no labels.
-    SECTION_KEYS = ("verdict", "why_it_works", "ready_to_wear", "final_advice")
-    SECTION_TITLES = {"verdict": "The Verdict", "why_it_works": "Why It Works", "ready_to_wear": "Ready-to-Wear Outfits",
-                      "final_advice": "Stylist's Final Advice"}
+    SECTION_KEYS = ("verdict", "why_it_works", "final_advice")
+    SECTION_TITLES = {"verdict": "Our Answer", "why_it_works": "Why", "final_advice": "Tip"}
 
     @classmethod
     def _clean_section(cls, value: Any) -> List[str]:
@@ -173,27 +172,33 @@ class DressMeInferenceEngine:
             return None
 
         system_prompt = (
-            "You are DressMe Shopping Assistant, an expert personal stylist and wardrobe consultant. "
-            "You turn raw technical decision data (vision analysis, redundancy scores, outfit combinations, wardrobe "
-            "gaps and budget math) into clear, actionable advice for the shopper. Chic, professional, concise tone. "
-            "Never use emojis, markdown, asterisks or section titles inside the text: the app adds the titles."
+            "You are DressMe Shopping Assistant, a personal stylist who helps a shopper decide in seconds. "
+            "Write simply, like a trusted friend with great taste: short sentences, no jargon (never mention "
+            "XGBoost, scores or model names; never write the words redundancy, risk or score: say \"you already own...\" instead), no emojis, no markdown, no asterisks, no section titles inside the "
+            "text (the app adds the titles). Be convincing and honest: take a clear position, back every claim "
+            "with a concrete fact from the data (a number, or the name of a piece the shopper owns), and never "
+            "invent facts that are not in the data. Write prices as plain numbers, without currency symbols."
         )
         user_content = (
-            f"User Question: \"{summary_payload['user_query']}\"\n\n"
-            f"Technical evaluation data from the agent tools:\n{json.dumps(summary_payload, indent=2)}\n\n"
+            f"The shopper asks: \"{summary_payload['user_query']}\"\n\n"
+            f"What the tools found (the item is shown in 'candidate_item', its closet matches in "
+            f"'tool_evidence'):\n{json.dumps(summary_payload, indent=2)}\n\n"
             "Answer with ONLY a JSON object with exactly these keys, each a list of short plain-text strings:\n"
-            '- "verdict": one string: BUY, CONSIDER or DON\'T BUY, then the confidence rating and a one-sentence reason.\n'
-            '- "why_it_works": 3 to 4 strings summarising redundancy, wardrobe gap and budget in plain language.\n'
-            '- "ready_to_wear": 2 to 3 strings, each one outfit built from the closet pieces named in '
-            '"matching_outfits" plus the candidate item (use the exact piece names).\n'
-            '- "final_advice": 2 to 3 practical tips on wearing and versatility.'
+            '- "verdict": ONE string, 20 words at most. Start with "Yes, buy it:", "Think twice:" or "Skip it:" '
+            "(matching agent_verdict.decision BUY, CONSIDER or SKIP), then the single strongest reason.\n"
+            '- "why_it_works": exactly 3 strings, one short sentence each, each with a concrete fact: how many '
+            'outfits it makes with what they already own and the names of one or two of those pieces, whether it '
+            "fills a gap or duplicates something they own (name the closest piece), and the price "
+            "(cost_per_outfit, within_budget when a price is given).\n"
+            '- "final_advice": 1 or 2 strings: one practical tip on how to wear it, and, if the decision is not '
+            "BUY, what to check before paying."
         )
         try:
             response = self.openai_client.chat.completions.create(
                 model=self.model_id,
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}],
                 temperature=0.5,
-                max_tokens=700,
+                max_tokens=600,
                 response_format={"type": "json_object"},
             )
             data = json.loads(response.choices[0].message.content or "{}")
@@ -224,8 +229,14 @@ class DressMeInferenceEngine:
         budget: float,
         user_prompt: str = "Should I buy this?",
         wardrobe: Optional[List[Garment]] = None,
+        detected: Optional[Garment] = None,
     ) -> Dict[str, Any]:
-        """Runs end-to-end evaluation pipeline."""
+        """Runs end-to-end evaluation pipeline.
+
+        `detected` is the candidate as recognised by the app's main pipeline (detector + LLM, the one that classifies
+        the closet): when given, its category, colour, style, seasons and occasions are used as they are instead of
+        this engine's own, less accurate, vision step.
+        """
         active_wardrobe = wardrobe if wardrobe is not None else self.wardrobe
         # 1. Download image if URL
         local_image = str(image_path)
@@ -237,17 +248,25 @@ class DressMeInferenceEngine:
 
         # 2. Computer Vision Analysis (YOLO segmentation + CIEDE2000)
         cand = CandidateItem(name=user_prompt, category="unknown", image_path=local_image, price=price, budget=budget)
-        vision_data = analyze_item(cand)
-
-        category = vision_data["category"]
-        color = vision_data["color"]
-        occasion, styles = self.infer_occasion_and_style(user_prompt, category)
+        if detected is not None:
+            category, color = detected.category, detected.color
+            occasion, styles = self.infer_occasion_and_style(user_prompt, category)
+            if not any(re.search(r"\b" + kw + r"\b", user_prompt.lower()) for kw in OCCASION_KEYWORDS):
+                occasion = detected.occasions[0] if detected.occasions else occasion   # the prompt names no occasion
+                styles = list(detected.style) or styles
+            cand.name = detected.name or user_prompt
+            cand.seasons = list(detected.seasons) or (["all"] if occasion == "work" else ["autumn"])
+        else:
+            vision_data = analyze_item(cand)
+            category = vision_data["category"]
+            color = vision_data["color"]
+            occasion, styles = self.infer_occasion_and_style(user_prompt, category)
+            cand.seasons = ["all"] if occasion == "work" else ["autumn"]
 
         cand.category = category
         cand.color = color
         cand.occasions = [occasion]
         cand.style = styles
-        cand.seasons = ["all"] if occasion == "work" else ["autumn"]
 
         # 3. Tool Analysis
         sims = find_similar_items(cand, active_wardrobe, top_k=3)
@@ -307,6 +326,7 @@ class DressMeInferenceEngine:
             "status": "success",
             "user_query": user_prompt,
             "candidate_item": {
+                "name": detected.name if detected is not None else None,
                 "image_source": str(image_path),
                 "detected_category": category,
                 "detected_color": color,
@@ -314,6 +334,8 @@ class DressMeInferenceEngine:
                 "inferred_style": styles,
                 "price": price,
                 "budget": budget,
+                "within_budget": (price <= budget) if (price > 0 and budget > 0) else None,
+                "cost_per_outfit": round(price / comp_count, 2) if (price > 0 and comp_count > 0) else None,
             },
             "tool_evidence": {
                 "redundancy_score": redundancy_pct,

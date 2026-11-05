@@ -704,30 +704,39 @@ async def shopping_assistant_evaluate(
         if image_file and image_file.filename:
             data = await image_file.read()
             suffix = _Path(image_file.filename).suffix or ".jpg"
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-            tmp.write(data); tmp.close()
-            tmp_path = tmp.name
         elif image_url.strip():
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-            tmp.close()
-            tmp_path = tmp.name
+            suffix = ".jpg"
             req = urllib.request.Request(image_url.strip(), headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp, open(tmp_path, "wb") as f:
-                f.write(resp.read())
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = resp.read()
         else:
             raise HTTPException(422, "Provide either image_file or image_url.")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp.write(data); tmp.close()
+        tmp_path = tmp.name
+
+        # What is this item? The same pipeline that classifies the closet answers (detector + GPT vision on the
+        # cut-out): far more reliable than the purchase engine's own vision step, and it uses the same vocabulary.
+        analysed = await run_in_threadpool(_analyze_sync, data, False, False, False, user)
+        recognised = analysed["items"][0]
 
         def _run():
+            from wardrobe_loader import row_to_garment  # type: ignore
+
             engine = DressMeInferenceEngine(skip_llm=False, user_id=user.id)   # the signed-in user's own closet
-            return engine.evaluate(
+            result = engine.evaluate(
                 image_path=tmp_path,
                 price=float(price or 0),
                 budget=float(budget or 0),
                 user_prompt=prompt or "Should I buy this?",
+                detected=row_to_garment(recognised),
             )
+            result["detected_item"] = {key: recognised.get(key) for key in (
+                "name", "category", "category_group", "color_name", "material", "pattern", "style",
+                "seasons", "occasions", "description")}
+            return result
 
-        result = await run_in_threadpool(_run)
-        return result
+        return await run_in_threadpool(_run)
 
     except HTTPException:
         raise

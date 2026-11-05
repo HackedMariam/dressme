@@ -138,6 +138,19 @@ export interface PurchaseEvaluationResult {
     inferred_style?: string[]
     price?: number
     budget?: number
+    name?: string | null
+    within_budget?: boolean | null
+    cost_per_outfit?: number | null
+  }
+  /** The item as recognised by the main detector + LLM pipeline (same vocabulary as the closet). */
+  detected_item?: {
+    name?: string | null
+    category?: string | null
+    color_name?: string | null
+    material?: string | null
+    pattern?: string | null
+    style?: string | null
+    description?: string | null
   }
   tool_evidence?: {
     redundancy_score?: number

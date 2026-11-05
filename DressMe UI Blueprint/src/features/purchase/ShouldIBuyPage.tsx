@@ -9,19 +9,19 @@ const VERDICT_THEME: Record<string, { bg: string; text: string; badge: string; l
     bg: "bg-[#E8EDE0] border-[#556B2F]/30",
     text: "text-[#556B2F]",
     badge: "bg-[#556B2F] text-white",
-    label: "Recommended: Buy It",
+    label: "Yes, buy it",
   },
   CONSIDER: {
     bg: "bg-amber-50 border-amber-200",
     text: "text-amber-800",
     badge: "bg-amber-600 text-white",
-    label: "Consider With Care",
+    label: "Think twice",
   },
   SKIP: {
     bg: "bg-red-50 border-red-200",
     text: "text-red-700",
     badge: "bg-red-600 text-white",
-    label: "Skip / Don't Buy",
+    label: "Skip this one",
   },
 }
 
@@ -49,11 +49,24 @@ function OutfitTile({ image, label, highlight = false }: { image: string; label:
 
 // The zones of the stylist's answer, in order. The backend sends the text; these titles are the page's.
 const SECTION_TITLES = [
-  ["verdict", "The Verdict"],
-  ["why_it_works", "Why It Works"],
-  ["ready_to_wear", "Ready-to-Wear Outfits"],
-  ["final_advice", "Stylist's Final Advice"],
+  ["verdict", "Our answer"],
+  ["why_it_works", "Why"],
+  ["final_advice", "Tip"],
 ] as const
+
+type Tone = "good" | "warn" | "neutral"
+
+// One plain-language proof: a short label, a big word, and one sentence.
+function EvidenceCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: Tone }) {
+  const color = tone === "good" ? "text-[#556B2F]" : tone === "warn" ? "text-amber-700" : "text-[#1C1C1C]"
+  return (
+    <div className="rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-3.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8C8A82]">{label}</p>
+      <p className={`mt-1 font-display text-lg font-semibold leading-tight ${color}`}>{value}</p>
+      <p className="mt-1 text-xs leading-snug text-[#1C1C1C]/80">{detail}</p>
+    </div>
+  )
+}
 
 export default function ShouldIBuyPage() {
   const { items, health, addItems } = useWardrobe()
@@ -177,6 +190,39 @@ export default function ShouldIBuyPage() {
   const verdictTheme = VERDICT_THEME[verdict] || VERDICT_THEME.CONSIDER
   const toolEvidence = evalResult?.tool_evidence
   const candidate = evalResult?.candidate_item
+  const detected = evalResult?.detected_item
+  const itemName = detected?.name || candidate?.name || ""
+  const closest = toolEvidence?.closest_wardrobe_match
+  const redundancy = toolEvidence?.redundancy_score ?? 0
+  const gap = toolEvidence?.wardrobe_gap_score ?? 0
+  const outfitCount = toolEvidence?.compatible_outfits_count ?? 0
+  const evidence: { label: string; value: string; detail: string; tone: Tone }[] = toolEvidence
+    ? [
+        redundancy >= 70
+          ? { label: "In your closet", value: "Already owned", tone: "warn" as const,
+              detail: closest ? `You own something very close: ${closest}.` : "You own something very close." }
+          : redundancy >= 40
+            ? { label: "In your closet", value: "Similar", tone: "neutral" as const,
+                detail: closest ? `Close to your ${closest}.` : "Close to something you own." }
+            : { label: "In your closet", value: "Something new", tone: "good" as const,
+                detail: "Nothing like it in your closet yet." },
+        gap >= 60
+          ? { label: "Your wardrobe", value: "Fills a gap", tone: "good" as const, detail: "It adds something you are missing." }
+          : gap >= 30
+            ? { label: "Your wardrobe", value: "Adds a little", tone: "neutral" as const, detail: "Useful, but not a missing piece." }
+            : { label: "Your wardrobe", value: "No real gap", tone: "warn" as const, detail: "Your wardrobe already covers this." },
+        outfitCount > 0
+          ? { label: "Outfits", value: `${outfitCount} outfit${outfitCount === 1 ? "" : "s"}`, tone: "good" as const,
+              detail: "You can make with pieces you already own." }
+          : { label: "Outfits", value: "Hard to match", tone: "warn" as const, detail: "Few of your pieces go with it." },
+        ...(candidate?.within_budget != null
+          ? [candidate.within_budget
+              ? { label: "Price", value: "Within budget", tone: "good" as const,
+                  detail: candidate.cost_per_outfit != null ? `About ${candidate.cost_per_outfit} per outfit.` : "It fits your budget." }
+              : { label: "Price", value: "Over budget", tone: "warn" as const, detail: "It costs more than you planned." }]
+          : []),
+      ]
+    : []
   const sections = SECTION_TITLES.flatMap(([key, title]) => {
     const lines = evalResult?.stylist_sections?.[key] ?? []
     return lines.length ? [{ key, title, lines }] : []
@@ -351,15 +397,11 @@ export default function ShouldIBuyPage() {
 
           {evalResult && (
             <div className="space-y-5 rounded-2xl border border-[#E2E0D8] bg-white p-6 shadow-sm">
-              {/* Verdict banner */}
+              {/* 1. The answer at a glance */}
               <div className={`flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4 ${verdictTheme.bg}`}>
                 <div>
-                  <span className={`inline-block rounded-md px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${verdictTheme.badge}`}>
-                    {verdict}
-                  </span>
-                  <h2 className="mt-1 font-display text-2xl font-bold text-[#1C1C1C]">
-                    {verdictTheme.label}
-                  </h2>
+                  <p className={`text-xs font-bold uppercase tracking-wider ${verdictTheme.text}`}>Our answer</p>
+                  <h2 className="mt-1 font-display text-3xl font-bold text-[#1C1C1C]">{verdictTheme.label}</h2>
                 </div>
                 {evalResult.agent_verdict?.score != null && (
                   <div className="text-right">
@@ -367,45 +409,57 @@ export default function ShouldIBuyPage() {
                       {Math.round(evalResult.agent_verdict.score)}
                     </span>
                     <span className="text-sm font-medium text-[#8C8A82]">/100</span>
-                    <p className="text-xs text-[#8C8A82]">Suitability Score</p>
+                    <p className="text-xs text-[#8C8A82]">Match score</p>
                   </div>
                 )}
               </div>
 
-              {/* Detected tags */}
-              {candidate && (
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {candidate.detected_category && (
-                    <span className="rounded-full border border-[#E2E0D8] bg-[#FAF9F6] px-3 py-1 font-medium text-[#1C1C1C]">
-                      Category: {cap(candidate.detected_category)}
-                    </span>
-                  )}
-                  {candidate.detected_color && (
-                    <span className="rounded-full border border-[#E2E0D8] bg-[#FAF9F6] px-3 py-1 font-medium text-[#1C1C1C]">
-                      Colour: {cap(candidate.detected_color)}
-                    </span>
-                  )}
-                  {candidate.inferred_occasion && (
-                    <span className="rounded-full border border-[#E2E0D8] bg-[#FAF9F6] px-3 py-1 font-medium text-[#1C1C1C]">
-                      Occasion: {candidate.inferred_occasion.replace("_", " ")}
-                    </span>
-                  )}
+              {/* 2. What we recognised: the shopper can check we understood the item */}
+              {(itemName || candidate) && (
+                <div className="flex items-center gap-3 rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-3">
+                  {preview && <img src={preview} alt="" className="h-16 w-14 shrink-0 rounded-lg bg-white object-contain" />}
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8C8A82]">We see</p>
+                    <p className="truncate text-sm font-semibold text-[#1C1C1C]">{itemName || cap(candidate?.detected_category ?? "")}</p>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {[detected?.category ?? candidate?.detected_category, detected?.color_name ?? candidate?.detected_color, detected?.material]
+                        .filter((value): value is string => Boolean(value))
+                        .map((value) => (
+                          <span key={value} className="rounded-full bg-white px-2 py-0.5 text-[11px] text-[#1C1C1C] ring-1 ring-[#E2E0D8]">
+                            {cap(value)}
+                          </span>
+                        ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* The stylist's answer: one zone per section, the label written by the page in bold */}
+              {/* 3. The proof, in plain words */}
+              {evidence.length > 0 && (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {evidence.map((card) => (
+                    <EvidenceCard key={card.label} {...card} />
+                  ))}
+                </div>
+              )}
+
+              {/* 4. The explanation: one zone per section, the title written by the page in bold */}
               {sections.length > 0 ? (
                 <div className="grid gap-3 md:grid-cols-2">
                   {sections.map((section) => (
                     <div
                       key={section.key}
-                      className={`rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-4 ${
-                        section.key === "verdict" ? "md:col-span-2" : ""
+                      className={`rounded-xl border p-4 ${
+                        section.key === "verdict"
+                          ? "border-[#556B2F]/40 bg-[#E8EDE0] md:col-span-2"
+                          : "border-[#E2E0D8] bg-[#FAF9F6]"
                       }`}
                     >
                       <p className="text-sm font-bold text-[#1C1C1C]">{section.title}</p>
                       {section.lines.length === 1 ? (
-                        <p className="mt-2 text-sm leading-relaxed text-[#1C1C1C]">{section.lines[0]}</p>
+                        <p className={`mt-2 leading-relaxed text-[#1C1C1C] ${section.key === "verdict" ? "text-base font-medium" : "text-sm"}`}>
+                          {section.lines[0]}
+                        </p>
                       ) : (
                         <ul className="mt-2 space-y-1.5">
                           {section.lines.map((line, index) => (
@@ -422,7 +476,7 @@ export default function ShouldIBuyPage() {
               ) : (
                 evalResult.stylist_interpretation && (
                   <div className="rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-4">
-                    <p className="text-sm font-bold text-[#1C1C1C]">Stylist's Verdict</p>
+                    <p className="text-sm font-bold text-[#1C1C1C]">Our answer</p>
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#1C1C1C]">
                       {evalResult.stylist_interpretation}
                     </p>
@@ -430,102 +484,10 @@ export default function ShouldIBuyPage() {
                 )
               )}
 
-              {/* Metrics */}
-              {toolEvidence && (
-                <div className="space-y-3 rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#8C8A82]">
-                    Key Signals
-                  </p>
-
-                  <div className="grid gap-3 text-sm sm:grid-cols-3">
-                    <div>
-                      <div className="flex justify-between text-xs text-[#8C8A82]">
-                        <span>Redundancy Risk</span>
-                        <span className="font-semibold text-[#1C1C1C]">{toolEvidence.redundancy_score ?? 0}%</span>
-                      </div>
-                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-[#E2E0D8]">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            (toolEvidence.redundancy_score || 0) > 60 ? "bg-amber-600" : "bg-[#556B2F]"
-                          }`}
-                          style={{ width: `${Math.min(100, toolEvidence.redundancy_score || 0)}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-xs text-[#8C8A82]">
-                        <span>Wardrobe Gap Fill</span>
-                        <span className="font-semibold text-[#1C1C1C]">
-                          {toolEvidence.wardrobe_gap_score?.toFixed(0) ?? 0}/100
-                        </span>
-                      </div>
-                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-[#E2E0D8]">
-                        <div
-                          className="h-full rounded-full bg-[#556B2F] transition-all"
-                          style={{ width: `${Math.min(100, toolEvidence.wardrobe_gap_score || 0)}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-xs text-[#8C8A82]">
-                        <span>Outfit Pairings</span>
-                        <span className="font-semibold text-[#1C1C1C]">
-                          {toolEvidence.compatible_outfits_count ?? 0} found
-                        </span>
-                      </div>
-                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-[#E2E0D8]">
-                        <div
-                          className="h-full rounded-full bg-[#556B2F] transition-all"
-                          style={{
-                            width: `${Math.min(100, (toolEvidence.compatible_outfits_count || 0) * 20)}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {toolEvidence.closest_wardrobe_match && (
-                    <div className="mt-2 text-xs text-[#8C8A82]">
-                      Closest item in closet: <b className="text-[#1C1C1C]">{toolEvidence.closest_wardrobe_match}</b>
-                    </div>
-                  )}
-
-                  {toolEvidence.xgboost_prediction && (
-                    <div className="text-xs text-[#8C8A82]">
-                      ML Model Decision: <b className="text-[#1C1C1C]">{toolEvidence.xgboost_prediction}</b>{" "}
-                      {toolEvidence.xgboost_confidence != null && (
-                        <span>({Math.round(toolEvidence.xgboost_confidence * 100)}% confidence)</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Reasons */}
-              {evalResult.agent_verdict?.reasons && evalResult.agent_verdict.reasons.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#8C8A82]">
-                    Evaluation Breakdown
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm text-[#1C1C1C]">
-                    {evalResult.agent_verdict.reasons.map((reason, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="text-[#556B2F]">•</span>
-                        <span>{reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Possible outfits: the pieces are shown as pictures, with the new piece first */}
+              {/* 5. What to wear it with: the pieces are shown as pictures, with the new piece first */}
               {toolEvidence?.matching_outfits && toolEvidence.matching_outfits.length > 0 && (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#8C8A82]">
-                    Possible Outfits
-                  </p>
+                  <p className="text-sm font-bold text-[#1C1C1C]">Wear it with what you own</p>
                   <div className="mt-2 space-y-3">
                     {toolEvidence.matching_outfits.map((combo, idx) => (
                       <div key={idx} className="rounded-xl border border-[#E2E0D8] bg-[#FAF9F6] p-3">
@@ -533,11 +495,8 @@ export default function ShouldIBuyPage() {
                           <span>Outfit {idx + 1}</span>
                           {combo.compatibility_score != null && <span>{Math.round(combo.compatibility_score)}% match</span>}
                         </div>
-                        {combo.description && <p className="mt-1 text-xs text-[#1C1C1C]">{combo.description}</p>}
                         <div className="mt-3 flex flex-wrap gap-3">
-                          {preview && (
-                            <OutfitTile image={preview} label="New piece" highlight />
-                          )}
+                          {preview && <OutfitTile image={preview} label="New piece" highlight />}
                           {(combo.paired_items ?? []).map((pi, pj) => {
                             const owned = items.find((entry) => entry.id === pi.item_id)
                             return (
@@ -555,16 +514,35 @@ export default function ShouldIBuyPage() {
                 </div>
               )}
 
-              {/* Add to wardrobe button if file uploaded */}
+              {/* 6. The numbers behind it, for whoever wants them */}
+              <details className="rounded-xl border border-[#E2E0D8] bg-white p-3 text-xs text-[#8C8A82]">
+                <summary className="cursor-pointer font-semibold text-[#1C1C1C]">See the details</summary>
+                <ul className="mt-2 space-y-1">
+                  <li>Overlap with your closet: {redundancy}%</li>
+                  <li>Gap it fills: {gap.toFixed(0)}/100</li>
+                  <li>Outfits it makes: {outfitCount}</li>
+                  {toolEvidence?.xgboost_prediction && (
+                    <li>
+                      Model decision: {toolEvidence.xgboost_prediction}
+                      {toolEvidence.xgboost_confidence != null && ` (${Math.round(toolEvidence.xgboost_confidence * 100)}% confidence)`}
+                    </li>
+                  )}
+                  {(evalResult.agent_verdict?.reasons ?? []).map((reason, i) => (
+                    <li key={i}>{reason}</li>
+                  ))}
+                </ul>
+              </details>
+
+              {/* 7. Act on it */}
               {file && (
-                <div className="pt-2">
+                <div className="pt-1">
                   <button
                     type="button"
                     disabled={addBusy || added}
                     onClick={() => void addToWardrobe()}
                     className="rounded-lg bg-[#1C1C1C] px-5 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {added ? "✓ Added to wardrobe" : addBusy ? "Adding..." : "+ Decide to buy: Add to Wardrobe"}
+                    {added ? "Added to my wardrobe" : addBusy ? "Adding..." : "I bought it: add it to my wardrobe"}
                   </button>
                 </div>
               )}
