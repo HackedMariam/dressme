@@ -422,7 +422,7 @@ def cover_page(canvas, doc):
     canvas.drawString(22 * mm, 176 * mm, "Architecture des agents IA")
     canvas.setFont("Helvetica", 11)
     for i, line in enumerate(["Dossier de validation technique",
-                               "5 agents LangGraph, 3 pipelines LLM, 1 RAG, 4 services, 11 ecrans, protocole A2A",
+                               "8 agents LangGraph dont un orchestrateur, Qwen, 1 RAG, A2A",
                                "Graphes, prompts, outils, integration, garde-fous et limites"]):
         canvas.drawString(22 * mm, (160 - i * 7) * mm, line)
     canvas.setFont("Helvetica", 9)
@@ -461,7 +461,7 @@ def build():
     # ---- 2 integration of every feature
     s += [P("2. Integration de toutes les fonctionnalites", H1),
           P("Chaque page de l'interface appelle une route ; la route appelle soit un <b>agent</b> (le LLM choisit des outils ou suit un graphe), "
-            "soit un <b>moteur</b> (detecteur, moteur d'achat, comparaison locale). Le schema relie les 11 ecrans aux 5 agents (tous LangGraph) et aux moteurs."),
+            "soit un <b>moteur</b> (detecteur, moteur d'achat, comparaison locale). Le schema relie les 11 ecrans aux 8 agents (tous LangGraph) et aux moteurs."),
           diagram_features(), P("Figure 2 : de chaque page a l'agent ou au moteur qui la sert.", CAP),
           P("2.1 Recherche vocale", H2), diagram_voice(), P("Figure 3 : recherche par la voix ou par le texte (Wardrobe Agent).", CAP),
           *bullets(["<b>C'est bien un agent.</b> Le texte (ecrit ou dicte) est envoye au LLM, qui choisit lui-meme les parametres de recherche "
@@ -505,25 +505,28 @@ def build():
 
     # ---- 2
     s += [P("3. Combien d'agents ?", H1),
-          P("<b>5 agents</b>, tous construits avec <b>LangGraph</b>, sont appeles depuis l'interface. <b>3 pipelines</b> utilisent un LLM sans etre des agents (le LLM ne choisit pas ses outils). "
-            "Une <b>pile separee de l'equipe</b> (Stylist BO4 et orchestrateur) existe aussi, non branchee a l'interface React."),
-          table([["#", "Agent", "Fonctionnalite", "Technique", "Fichier"],
-                 ["1", "AI Stylist", "page AI Stylist (texte et voix)", "graphe : boucle llm / tools, rappel unique, 3 outils", "backend/app/agent.py"],
-                 ["2", "Wardrobe Agent", "recherche texte et voix, comptage, pieces proches, corrections confirmees, doublons du Live scan", "graphe : gate, apply / cancel / assist ; boucle d'outils, 4 outils", "backend/app/wardrobe_agent.py"],
-                 ["3", "Outfit Builder Agent", "page Outfit Builder", "graphe 5 noeuds : weather, closet, knowledge, compose, validate", "backend/app/outfit_agent.py"],
-                 ["4", "Trip Agent", "Help Me Pack", "GPT-4o, 10 outils, 2 graphes, CP-SAT", "packing_backend/trip_agent/"],
-                 ["5", "Gap Agent (BO3)", "Wardrobe Gaps, Shop Smart, Outfits to buy", "boucle llm / tools (agent_kit), 5 outils, XGBoost", "DressMe UI Blueprint/backend/agent/gap_agent.py"]],
-                [7, 30, 44, 49, 40]),
+          P("<b>8 agents</b>, tous construits avec <b>LangGraph</b>, sont dans l'application. Les agents ne filtrent plus la garde-robe eux-memes : "
+            "ils la <b>demandent au Wardrobe Agent</b> en langage naturel (agent a agent). Trois composants LLM ne sont pas des agents : le catalogage, le calcul des preuves d'achat et la reponse du RAG."),
+          table([["#", "Agent", "Role", "Technique", "Fichier"],
+                 ["0", "Orchestrateur", "un seul assistant : choisit l'agent, delegue, garde le fil", "graphe : route > agent > respond, memoire de conversation, A2A", "backend/app/orchestrator_agent.py"],
+                 ["1", "AI Stylist", "conseil de style (meteo, RAG)", "boucle llm / tools ; outils ask_wardrobe_agent, get_weather, fashion_advice", "backend/app/agent.py"],
+                 ["2", "Wardrobe Agent", "recherche texte/voix, comptage, corrections confirmees, doublons", "graphe : gate, apply / cancel / assist ; 4 outils", "backend/app/wardrobe_agent.py"],
+                 ["3", "Similar Agent", "owned / close / missing pour chaque piece d'un look", "boucle llm / tools ; demande au Wardrobe Agent ; verification par code", "backend/app/similar_agent.py"],
+                 ["4", "Outfit Builder Agent", "3 tenues validees", "graphe 5 noeuds : weather, closet, knowledge, compose, validate", "backend/app/outfit_agent.py"],
+                 ["5", "Trip Agent", "Help Me Pack", "GPT-4o, 10 outils, 2 graphes, CP-SAT", "packing_backend/trip_agent/"],
+                 ["6", "Gap Agent (BO3)", "Wardrobe Gaps, Shop Smart", "boucle llm / tools, 5 outils, XGBoost", "DressMe UI Blueprint/backend/agent/gap_agent.py"],
+                 ["7", "Purchase Agent (Should I buy)", "decide BUY / CONSIDER / SKIP", "Qwen2.5-3B + LoRA (Hugging Face) pilote 6 outils d'achat ; GPT redige seulement", "smart_purchasing/decision_agent.py"]],
+                [6, 28, 40, 54, 42]),
           Spacer(1, 8),
           table([["Pipeline LLM", "Role", "Fichier"],
                  ["Catalogage vision", "detecteur YOLO, puis GPT-4o vision (JSON strict) : categorie, couleur, matiere, saison, occasion", "backend/app/enricher.py"],
-                 ["Should I buy this?", "detecteur + LLM, moteur d'achat (XGBoost + regles), puis LLM qui redige 3 sections", "smart_purchasing/inference.py"],
+                 ["Should I buy this? (preuves)", "detecteur + LLM reconnait l'article ; les outils d'achat calculent les preuves que le Purchase Agent lit", "smart_purchasing/inference.py"],
                  ["Reponse RAG", "recherche hybride, puis LLM qui repond uniquement avec les sources", "rag_backend/rag/rag_service.py"]],
                 [34, 98, 38]),
           Spacer(1, 8),
           table([["Pile separee (non branchee a React)", "Technique"],
                  ["Stylist BO4 (bo4/)", "LangGraph a 9 noeuds, Ollama qwen2.5:3b, moteur de tenues heuristique (couleur 30, style 20, occasion 30, saison 20)"],
-                 ["Orchestrateur (orchestrator/, port 8070)", "LangGraph : route_intent (regles puis LLM local) vers stylist, garde-robe, achat, RAG ou clarification"]],
+                 ["Ancien orchestrateur (orchestrator/, port 8070)", "remplace par l'orchestrateur de BO1 (section 14) : LangGraph, route_intent par LLM local puis regles, services de l'ancienne version"]],
                 [60, 110]),
           P("<b>Tous les agents de l'application sont des graphes LangGraph.</b> La boucle d'appel d'outils est commune : le module "
             "<font face='Courier'>agent_kit/tool_loop.py</font> (noeuds llm, tools, nudge, finish ; chaque agent branche son LLM, ses outils et ses garde-fous). "
@@ -680,13 +683,14 @@ def build():
           diagram_catalog(), P("Figure 6 : de la photo a la fiche vetement.", CAP),
           P("GPT-4o ne change la categorie du detecteur que si l'image le montre clairement ; la couleur est choisie dans la palette la plus proche de la mesure sur les pixels ; "
             "les scores de confiance doivent etre honnetes (bas si l'image est ambigue)."),
-          H2_("9.2 Should I buy this?"),
+          H2_("9.2 Should I buy this? : le Purchase Agent"),
           diagram_buy(), P("Figure 7 : de la photo a la reponse en trois zones.", CAP),
-          *bullets(["L'article est reconnu par le <b>meme</b> detecteur + LLM que le placard : pas de second moteur de vision.",
-                    "Le moteur d'achat calcule redondance, lacune comblee, tenues possibles avec les pieces possedees et prix par tenue.",
-                    "Le LLM (temperature 0,5) ne redige que trois sections : <b>verdict</b> (\"Yes, buy it:\", \"Think twice:\", \"Skip it:\" + raison), "
-                    "<b>why_it_works</b> (3 phrases avec un fait : nombre de tenues, nom d'une piece possedee, prix) et <b>final_advice</b>.",
-                    "Le prompt interdit le jargon (XGBoost, score, redondance), les emojis, le markdown et les symboles monetaires ; l'application ecrit les titres en gras."]),
+          *bullets(["<b>Le decideur est un agent</b> : Qwen2.5-3B-Instruct + adaptateur LoRA <font face='Courier'>meriemgharbi123/dressme_qwen3b_lora</font>, charge depuis Hugging Face (HF_TOKEN), sans Ollama. Il choisit lui-meme ses outils dans une boucle LangGraph (agent_kit).",
+                    "Ses 6 outils (smart_purchasing/tools.py) : analyze_item, find_similar_items, check_outfit_compatibility, analyze_wardrobe_gaps, predict_purchase_ml (XGBoost), calculate_purchase_value. Ils sont calcules par du code sur la vraie garde-robe : leurs resultats font foi.",
+                    "Qwen termine par un <b>verdict JSON</b> {decision BUY / CONSIDER / SKIP, score, matching_item_ids, reasons}. Le code le verifie : decision connue, score 0 a 100, identifiants reellement dans la garde-robe, raisons courtes.",
+                    "<b>GPT-4o ne decide plus</b> : il recoit le JSON de Qwen et le reecrit en trois sections (verdict, pourquoi, conseil) ; son prompt lui interdit de changer ou contredire la decision. L'application ecrit les titres en gras.",
+                    "<b>Replis</b> : sans HF_TOKEN, sans GPU/RAM suffisants, sans reseau ou si Qwen repond mal, l'evaluation deterministe (XGBoost + regles) donne le verdict. La reponse indique <font face='Courier'>decision_source</font> (qwen-agent ou deterministic) ; la forme de /api/shopping-assistant/evaluate est inchangee.",
+                    "Backends (QWEN_BACKEND) : local (transformers + peft, necessite peft et assez de memoire), hf_api (InferenceClient, point de terminaison HF_ENDPOINT_URL), auto, off."]),
           PageBreak()]
 
     # ---- 8 RAG
@@ -767,6 +771,7 @@ def build():
                  ["AI Stylist", "/a2a/stylist/.well-known/agent-card.json", "POST /a2a/stylist (BO1)", "style-advice, wardrobe-search", "texte ; city, country, unit"],
                  ["Outfit Builder", "/a2a/outfit/.well-known/agent-card.json", "POST /a2a/outfit (BO1)", "build-outfits", "texte ou occasion, season, city, country, avoid"],
                  ["Wardrobe Agent", "/a2a/wardrobe/.well-known/agent-card.json", "POST /a2a/wardrobe (BO1)", "recherche, lecture, correction, stats, similaires, doublons", "texte ; action (list, search, check-duplicate), confirm"],
+                 ["Similar Agent", "/a2a/similar/.well-known/agent-card.json", "POST /a2a/similar (BO1)", "find-similar", "data.pieces (liste de pieces detectees)"],
                  ["Trip Agent", "/a2a/trip/.well-known/agent-card.json", "POST /a2a/trip (8020)", "plan-trip-packing", "texte ou trip {destination, dates, activities, kg}"],
                  ["Gap Agent", "/a2a/gap/.well-known/agent-card.json", "POST /a2a/gap (BO3 8001)", "wardrobe-gaps", "texte ou goal ; capsule du voyage"]],
                 [24, 50, 38, 32, 26]),
@@ -783,11 +788,39 @@ def build():
             "classe les pieces manquantes et repond ; le Trip Agent les propose. Si le Gap Agent est arrete, l'outil renvoie une erreur propre et le voyage "
             "n'est pas bloque. L'adresse se regle avec <font face='Courier'>GAP_A2A_URL</font> (vide pour desactiver)."),
           H2_("Decouvrir les agents"),
-          P("<font face='Courier'>python scripts/a2a_discover.py</font> lit les cinq cartes ; avec <font face='Courier'>A2A_TOKEN</font> et "
+          P("<font face='Courier'>python scripts/a2a_discover.py</font> lit les six cartes ; avec <font face='Courier'>A2A_TOKEN</font> et "
             "<font face='Courier'>--ask</font>, il envoie aussi une tache a chaque agent."),
           H2_("Suite logique"),
-          P("L'orchestrateur devient un <b>client A2A</b> : il lit les cinq cartes, choisit l'agent selon les competences annoncees et lui delegue la tache. "
+          P("L'orchestrateur devient un <b>client A2A</b> : il lit les cartes, choisit l'agent selon les competences annoncees et lui delegue la tache (c'est ce que fait deja l'orchestrateur de la section 14 pour le Trip Agent et le Gap Agent). "
             "Les agents sont deja prets pour cela.")]
+
+    # ---- 14 orchestrator
+    s += [PageBreak(), P("14. L'orchestrateur", H1),
+          P("Un seul assistant dans l'application : la page <b>AI Stylist</b> envoie chaque message a <font face='Courier'>POST /api/assistant/chat</font>. "
+            "L'orchestrateur (graphe LangGraph de BO1) choisit l'agent, lui delegue la demande et garde le fil de la conversation. Les autres ecrans continuent d'appeler leur agent directement."),
+          table([["Noeud", "Role"],
+                 ["route", "choisit l'agent : GPT-4o en JSON (seuls les agents autorises sont acceptes) ; regles FR/EN si le LLM est indisponible ou repond hors liste ; si un agent attend une reponse, la suite va au meme agent"],
+                 ["stylist / wardrobe / outfit", "appel direct dans BO1 : AI Stylist, Wardrobe Agent (corrections avec oui / non), Outfit Builder"],
+                 ["trip / gap", "appel <b>A2A</b> avec le jeton de l'utilisateur vers Help Me Pack (8020) et BO3 (8001) ; service arrete = message clair, pas d'erreur"],
+                 ["redirect", "\"Should I buy\" et \"Find Similar\" ont besoin d'une photo : la reponse ouvre la bonne page (bouton d'action)"],
+                 ["clarify", "demande ce que l'utilisateur veut quand la demande est trop vague"],
+                 ["respond", "ajoute le tour a l'historique (8 derniers echanges, un fil par utilisateur et par conversation)"]],
+                [38, 132]),
+          H2_("Memoire et suite de conversation"),
+          *bullets(["Le graphe est compile avec un checkpointer : le fil est conserve par utilisateur ; deux utilisateurs ne partagent jamais un fil.",
+                    "Exemple : \"Prepare ma valise pour Paris\" (Trip Agent, tache input-required : \"quelles dates ?\"), puis \"du 3 au 7 juin, 8 kg\" : la reponse n'a aucun mot-cle, mais la question est restee ouverte, donc elle repart au Trip Agent avec le meme contextId.",
+                    "Une correction proposee par le Wardrobe Agent n'est continuee que par un oui ou un non ; toute autre phrase est une nouvelle demande.",
+                    "Interface : chaque reponse indique l'agent qui a repondu (\"Answered by ...\"), les tenues de l'Outfit Builder s'affichent avec leurs photos, une correction affiche Confirm / Cancel, et un bouton ouvre la page demandee."]),
+          H2_("Autres agents ajoutes"),
+          table([["Agent", "Outils / noeuds", "Ce que fait le code"],
+                 ["Similar Agent", "ask_wardrobe_agent", "valide les statuts (owned, close, missing), verifie que la piece citee existe, decide par le classement du Wardrobe Agent si le LLM oublie une piece ou tombe"],
+                 ["Purchase Agent", "analyze_item, find_similar_items, check_outfit_compatibility, analyze_wardrobe_gaps, predict_purchase_ml, calculate_purchase_value", "calcule chaque outil, verifie le verdict JSON de Qwen, repli deterministe"],
+                 ["Orchestrateur", "route > stylist | wardrobe | outfit | trip | gap | redirect | clarify > respond", "routage garde-fou, memoire, appels A2A"]],
+                [30, 60, 80]),
+          H2_("A dire clairement"),
+          *bullets(["Le Purchase Agent depend de Hugging Face : sans HF_TOKEN il n'est pas actif (repli deterministe). Sur une machine avec 4 Go de GPU et peu de memoire libre, Qwen2.5-3B en local est trop lourd : il faut le point de terminaison HF ou une machine plus grande.",
+                    "Les appels agent a agent ajoutent un appel LLM par demande de garde-robe : plus precis, un peu plus lent et plus cher que le filtrage direct.",
+                    "Le Gap Agent lit encore Supabase seul ; il ne passe pas par le Wardrobe Agent."])]
 
     doc.build(s)
     print("written", OUT)
