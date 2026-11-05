@@ -62,10 +62,18 @@ export interface AdviceSource {
   source?: string | null
 }
 
+/** The sections of a stylist answer; the page writes their titles. */
+export interface StylistSections {
+  outfit: string[]
+  why: string[]
+  tips: string[]
+}
+
 export interface AgentReply {
   reply: string
   items: WardrobeItem[]
   sources?: AdviceSource[]
+  sections?: StylistSections | null
   /** Search filters the agent chose, e.g. { category: "jacket", min_warmth: 4 } */
   filters?: Record<string, string | number>[]
 }

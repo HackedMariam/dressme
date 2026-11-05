@@ -80,17 +80,22 @@ SYSTEM = (
     "You are the styling assistant inside DressMe, a personal wardrobe app. "
     "You may only talk about items the user actually owns: always call search_wardrobe at least "
     "once before answering, and call it again with different filters if a search comes back "
-    "empty or clearly too broad. Keep replies short (1-3 sentences), friendly, and specific - "
-    "name the actual items you found by name and say briefly why they fit (warmth, season, "
-    "occasion, style). Reply in the language the user wrote in. If nothing in the wardrobe fits, "
-    "say so plainly instead of inventing something. "
+    "empty or clearly too broad. Reply in the language the user wrote in. If nothing in the wardrobe "
+    "fits, say so plainly instead of inventing something. "
     "Whenever the user asks WHAT, WHICH or HOW about style knowledge - a dress code or occasion, "
     "colours that go together, a fabric or material, a season or climate, how to wear, combine or care "
-    "for something - you MUST also call fashion_advice (together with search_wardrobe), add its advice "
-    "to your answer in your own words, and keep its source markers such as [S1] right after the claim "
-    "they support. A plain request to find or show items needs search_wardrobe only. Never present book "
-    "advice as if it came from the wardrobe, and do not invent sources: if fashion_advice returns "
-    "nothing, answer from the wardrobe alone."
+    "for something - you MUST also call fashion_advice (together with search_wardrobe). A plain request "
+    "to find or show items needs search_wardrobe only. Never present book advice as if it came from the "
+    "wardrobe, and do not invent sources: if fashion_advice returns nothing, answer from the wardrobe alone. "
+    "Your FINAL message (after the tool calls) must be ONLY a JSON object, plain text without markdown, "
+    "asterisks or emojis, with these keys: "
+    '"answer": one or two friendly sentences that answer the question directly; '
+    '"outfit": 0 to 3 strings, each one outfit built only from the user\'s own pieces, written with the exact '
+    "item names joined by ' + ' (leave empty if the user did not ask what to wear or for a look); "
+    '"why": 0 to 4 short strings saying why it works; every claim that comes from fashion_advice must keep '
+    "its source marker such as [S1] right after it; "
+    '"tips": 0 to 3 short practical tips (colours, fabrics, how to wear it), with [S1]-style markers when '
+    "they come from fashion_advice. Use an empty list for a section that does not apply."
 )
 
 
@@ -133,6 +138,38 @@ def _run_search(items: list[dict], args: dict) -> list[dict]:
     return [i for i in items if _matches(i, args)][:MAX_RESULTS_PER_CALL]
 
 
+SECTION_KEYS = ("outfit", "why", "tips")
+
+
+def _lines(value) -> list[str]:
+    """A section as a list of short plain-text lines (the model may answer with a string or a list)."""
+    if isinstance(value, str):
+        value = value.split("\n")
+    if not isinstance(value, list):
+        return []
+    lines = []
+    for entry in value:
+        text = re.sub(r"[*_`#]+", "", str(entry))
+        text = re.sub(r"^\s*(?:[-\u2022]|\d+[.)])\s*", "", text).strip()
+        if text:
+            lines.append(text)
+    return lines
+
+
+def parse_reply(content: str) -> dict | None:
+    """The model's final message {"answer", "outfit", "why", "tips"} cleaned up, or None when it is not that."""
+    try:
+        data = json.loads(content)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    answer = " ".join(_lines(data.get("answer")))
+    if not answer:
+        return None
+    return {"answer": answer, **{key: _lines(data.get(key)) for key in SECTION_KEYS}}
+
+
 def chat(items: list[dict], message: str) -> dict:
     """One user turn: returns {"reply": str, "items": [...]} grounded in `items`."""
     message = (message or "").strip()
@@ -153,18 +190,30 @@ def chat(items: list[dict], message: str) -> dict:
     advice_asked = False   # has the model consulted the fashion knowledge base yet?
     reminded = False       # the reminder below is given at most once
 
-    def result(reply: str) -> dict:
-        used = [s for marker, s in sources.items() if marker in reply] or []
-        return {"reply": reply, "items": list(found.values()), "filters": filters, "sources": used}
+    def result(content: str, structured: bool = True) -> dict:
+        parsed = parse_reply(content) if structured else None
+        if not parsed:   # a plain message (an error, or a model that ignored the format)
+            used = [src for marker, src in sources.items() if marker in content]
+            return {"reply": content, "items": list(found.values()), "filters": filters, "sources": used,
+                    "sections": None}
+        text = " ".join([parsed["answer"], *parsed["outfit"], *parsed["why"], *parsed["tips"]])
+        used = [src for marker, src in sources.items() if marker in text]
+        # The pieces of the suggested outfit (in the order they are named), else everything the search found.
+        outfit_text = " ".join(parsed["outfit"]).lower()
+        named = sorted((outfit_text.find(str(i.get("name") or "").lower()), i["id"])
+                       for i in found.values() if i.get("name") and str(i["name"]).lower() in outfit_text)
+        shown = [found[item_id] for _, item_id in named] or list(found.values())
+        return {"reply": parsed["answer"], "items": shown, "filters": filters, "sources": used,
+                "sections": {key: parsed[key] for key in SECTION_KEYS}}
 
     for _ in range(MAX_ROUNDS):
         try:
             resp = client.chat.completions.create(
-                model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=600,
-                messages=messages, tools=TOOLS)
+                model=config.LLM_MODEL, temperature=0.3, max_completion_tokens=900,
+                messages=messages, tools=TOOLS, response_format={"type": "json_object"})
         except Exception:
             log.exception("agent LLM call failed")
-            return result("The AI stylist is having trouble right now, try again in a moment.")
+            return result("The AI stylist is having trouble right now, try again in a moment.", structured=False)
 
         msg = resp.choices[0].message
         if not msg.tool_calls:
@@ -203,7 +252,7 @@ def chat(items: list[dict], message: str) -> dict:
                 found[i["id"]] = t
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(trimmed)})
 
-    return result("That search is taking more digging than usual - try asking more specifically.")
+    return result("That search is taking more digging than usual - try asking more specifically.", structured=False)
 
 
 DUPLICATE_SYSTEM = (

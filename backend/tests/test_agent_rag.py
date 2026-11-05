@@ -169,3 +169,58 @@ def test_the_reminder_is_skipped_when_the_knowledge_service_is_switched_off(monk
     monkeypatch.setattr(config, "RAG_URL", "")
     fake = llm([_message("Wool.")])
     assert agent.chat(ITEMS, "Which fabric for winter?")["reply"] == "Wool." and len(fake.calls) == 1
+
+
+# ------------------------------------------------------------------------- structured answer (sections)
+ITEMS2 = ITEMS + [
+    {"id": "jeans-1", "name": "Light Blue Jeans", "category": "pants", "category_group": "Bottoms", "color_name": "blue",
+     "seasons": ["autumn"], "occasions": ["work"], "style": "casual", "warmth": 2},
+    {"id": "shoes-1", "name": "Brown Suede Sneakers", "category": "shoe", "category_group": "Shoes",
+     "color_name": "brown", "seasons": ["autumn"], "occasions": ["work"], "style": "casual", "warmth": 2},
+]
+
+
+def test_the_answer_comes_in_sections_with_the_outfit_pieces_and_only_the_sources_it_cites(monkeypatch, llm):
+    monkeypatch.setattr(rag_client, "advise", lambda question: {
+        "answer": "x", "grounded": True,
+        "sources": [{"marker": "[S1]", "title": "Color Harmony Workbook", "page": 8, "source": "c.pdf"},
+                    {"marker": "[S2]", "title": "Dress to Impress Guide", "page": 3, "source": "d.pdf"}]})
+    llm([
+        _message(tool_calls=[_tool_call("a", "search_wardrobe", season="autumn"),
+                             _tool_call("b", "fashion_advice", question="Colours that go with navy?")]),
+        _message(json.dumps({
+            "answer": "Try your **Navy blazer** with light jeans.",
+            "outfit": ["Navy blazer + Light Blue Jeans + Brown Suede Sneakers"],
+            "why": ["- Navy pairs well with light blue [S1].", "A relaxed fit keeps it casual."],
+            "tips": "Roll the sleeves.\nKeep the shoes clean [S1].",
+        })),
+    ])
+    reply = agent.chat(ITEMS2, "Quelles couleurs avec mon blazer marine ?")
+
+    assert reply["reply"] == "Try your Navy blazer with light jeans."          # markdown stripped
+    assert reply["sections"] == {"outfit": ["Navy blazer + Light Blue Jeans + Brown Suede Sneakers"],
+                                 "why": ["Navy pairs well with light blue [S1].", "A relaxed fit keeps it casual."],
+                                 "tips": ["Roll the sleeves.", "Keep the shoes clean [S1]."]}
+    assert [i["id"] for i in reply["items"]] == ["jacket-1", "jeans-1", "shoes-1"]   # the outfit, in the order named
+    assert [s["marker"] for s in reply["sources"]] == ["[S1]"]                       # [S2] was never cited
+
+
+def test_a_plain_search_answer_keeps_every_item_found_and_has_empty_sections(monkeypatch, llm):
+    monkeypatch.setattr(rag_client, "advise", lambda question: pytest.fail("not needed"))
+    llm([_message(tool_calls=[_tool_call("a", "search_wardrobe", color_name="navy")]),
+         _message(json.dumps({"answer": "Here is your Navy blazer.", "outfit": [], "why": [], "tips": []}))])
+    reply = agent.chat(ITEMS2, "Show me my navy pieces")
+    assert reply["reply"] == "Here is your Navy blazer." and [i["id"] for i in reply["items"]] == ["jacket-1"]
+    assert reply["sections"] == {"outfit": [], "why": [], "tips": []} and reply["sources"] == []
+
+
+def test_a_model_that_ignores_the_format_still_gets_its_text_shown(llm):
+    llm([_message(tool_calls=[_tool_call("a", "search_wardrobe", text="blazer")]), _message("Wear the Navy blazer.")])
+    reply = agent.chat(ITEMS2, "Show me a blazer")
+    assert reply["reply"] == "Wear the Navy blazer." and reply["sections"] is None
+
+
+def test_every_model_call_asks_for_the_json_answer(llm):
+    fake = llm([_message(json.dumps({"answer": "Hi."}))])
+    agent.chat(ITEMS2, "Hello")
+    assert fake.calls[0]["response_format"] == {"type": "json_object"}

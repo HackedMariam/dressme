@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { api, asset } from "../../lib/api"
+import { api } from "../../lib/api"
 import { cap } from "../../lib/taxonomy"
-import type { AdviceSource, WardrobeItem } from "../../lib/types"
+import type { AdviceSource, StylistSections, WardrobeItem } from "../../lib/types"
+import StylistAnswer from "./StylistAnswer"
 import { useSpeech } from "../../lib/useSpeech"
 import { useUserData } from "../profile/UserDataProvider"
 import { useWardrobe } from "../wardrobe/WardrobeProvider"
@@ -12,6 +13,7 @@ interface ChatMessage {
   text: string
   items?: WardrobeItem[]
   sources?: AdviceSource[]
+  sections?: StylistSections | null
   error?: boolean
 }
 
@@ -63,6 +65,7 @@ export default function StylistPage() {
           text: response.reply,
           items: response.items.map((found) => items.find((owned) => owned.id === found.id) ?? found),
           sources: response.sources ?? [],
+          sections: response.sections ?? null,
         },
       ])
     } catch (sendError) {
@@ -129,7 +132,7 @@ export default function StylistPage() {
                   {message.role === "assistant" ? "AI" : "You"}
                 </div>
                 <div
-                  className={`max-w-[80%] space-y-3 rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  className={`max-w-[88%] space-y-3 rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     message.role === "assistant"
                       ? message.error
                         ? "rounded-tl-none bg-red-50 text-red-700"
@@ -137,52 +140,15 @@ export default function StylistPage() {
                       : "rounded-tr-none bg-[#1C1C1C] text-white"
                   }`}
                 >
-                  <p className="whitespace-pre-line">{message.text}</p>
-                  {message.sources && message.sources.length > 0 && (
-                    <div className="rounded-lg border border-[#E2E0D8] bg-[#FAF9F6] p-2.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-[#556B2F]">
-                        From fashion books
-                      </p>
-                      <ul className="mt-1.5 space-y-1">
-                        {message.sources.map((source) => (
-                          <li key={source.marker} className="flex gap-2 text-[11px] leading-snug text-[#1C1C1C]">
-                            <span className="shrink-0 font-semibold text-[#556B2F]">{source.marker}</span>
-                            <span>
-                              {source.title}
-                              {source.page ? <span className="text-[#8C8A82]"> - p. {source.page}</span> : null}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {message.items && message.items.length > 0 && (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {message.items.slice(0, 6).map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center gap-2 rounded-lg border border-[#E2E0D8] bg-[#FAF9F6] p-2"
-                        >
-                          <div className="h-12 w-10 shrink-0 overflow-hidden rounded bg-[#F0EFEA]">
-                            {item.cutout_url ? (
-                              <img
-                                src={asset(item.cutout_url)}
-                                alt={item.name}
-                                className="h-full w-full object-contain"
-                              />
-                            ) : null}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold text-[#1C1C1C]">
-                              {item.name}
-                            </p>
-                            <p className="truncate text-[10px] text-[#8C8A82]">
-                              {cap(item.color_name ?? item.category)}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                  {message.role === "assistant" && !message.error ? (
+                    <StylistAnswer
+                      text={message.text}
+                      sections={message.sections}
+                      items={message.items ?? []}
+                      sources={message.sources ?? []}
+                    />
+                  ) : (
+                    <p className="whitespace-pre-line">{message.text}</p>
                   )}
                 </div>
               </div>
