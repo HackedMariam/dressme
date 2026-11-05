@@ -40,10 +40,10 @@ SYSTEM = (
     "(warmth, rain, wind), the occasion and its formality, and the season; combine colours as the book advice says. "
     "Reply with ONLY a JSON object, plain text, no markdown, no emojis: "
     '{"outfits": [{"title": "a short name for the look", "items": ["<id>", ...], '
-    '"weather_note": "one sentence on how this outfit answers the forecast (empty if no forecast)", '
+    '"weather_note": "one sentence quoting the real numbers of the forecast (temperatures, rain chance, wind) and how this outfit answers them (empty if no forecast)", '
     '"why": ["3 to 5 short reasons, each pointing to a real fact of the pieces (colour, material, warmth, season, '
     'occasion, style) and to the book advice with its [S1]-style marker when it applies"]}], '
-    '"missing": ["a piece the closet lacks for a better outfit, e.g. \'a rain jacket\' (empty if nothing)"]}. '
+    '"missing": ["a piece the closet really lacks for these conditions, e.g. \'a rain jacket\' only when rain is likely (empty if nothing)"]}. '
     "Give " + str(COUNT) + " outfits when the closet allows it, fewer when it does not."
 )
 
