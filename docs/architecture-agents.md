@@ -22,6 +22,14 @@ Supabase fournit l'authentification, la base de données (garde-robe) et le stoc
 Principe commun à tous les agents : **le LLM décide et rédige, le code déterministe vérifie et calcule**. Aucun agent
 ne peut citer une pièce qui n'existe pas dans la garde-robe, ni inventer la météo, ni inventer une source.
 
+### Orchestration des interactions
+
+Le point d'entrée conversationnel `POST /api/assistant/chat` est piloté par l'orchestrateur LangGraph
+(`backend/app/orchestrator_agent.py`). Il appelle désormais **tous les agents via A2A**, y compris les agents
+hébergés dans BO1. Il demande d'abord un instantané au Wardrobe Agent, puis le transmet aux agents qui en ont besoin ;
+un agent ne demande donc pas directement la garde-robe à un autre agent. La seule interaction A2A agent-à-agent
+conservée est `Trip Agent -> Gap Agent`, pour l'analyse des pièces manquantes d'une valise.
+
 ## 2. Combien d'agents ?
 
 **5 agents dans l'application** (appelés depuis l'interface React) :

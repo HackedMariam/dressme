@@ -117,18 +117,27 @@ def _priority(rank: int, total: int) -> str:
 class GapAgentTools:
     """Binds the tools to one user and conversation."""
 
-    def __init__(self, memory: AgentMemory, user_id: str, conversation_id: str | None = None) -> None:
+    def __init__(self, memory: AgentMemory, user_id: str, conversation_id: str | None = None,
+                 wardrobe_items: list[dict[str, Any]] | None = None) -> None:
         self.memory = memory
         self.user_id = user_id
         self.conversation_id = conversation_id
+        self.wardrobe_items = wardrobe_items
         self.last_ranking: dict[str, Any] | None = None
         self.shown_items: list[dict[str, Any]] = []   # owned items the agent chose to show as photo cards
 
+    def _items(self) -> list[dict[str, Any]]:
+        return self.wardrobe_items if self.wardrobe_items is not None else load_wardrobe(self.user_id)
+
+    def _source(self) -> dict[str, Any]:
+        return {"source": "orchestrator_snapshot", "message": "Wardrobe supplied by the orchestrator."} \
+            if self.wardrobe_items is not None else source_info(self.user_id)
+
     def get_wardrobe(self) -> dict[str, Any]:
-        wardrobe, profile = load_wardrobe(self.user_id), load_profile(self.user_id)
+        wardrobe, profile = self._items(), load_profile(self.user_id)
         return {
             "profile": profile,
-            "wardrobe_source": source_info(self.user_id),
+            "wardrobe_source": self._source(),
             "item_count": len(wardrobe),
             "items_by_category": dict(Counter(item["category"] for item in wardrobe)),
             "items": [
@@ -140,12 +149,12 @@ class GapAgentTools:
 
     def compute_coverage(self, goal: str) -> dict[str, Any]:
         department = load_profile(self.user_id).get("department")
-        return {**compute_coverage(load_wardrobe(self.user_id), goal, department), "department": department,
-                "wardrobe_source": source_info(self.user_id)}
+        return {**compute_coverage(self._items(), goal, department), "department": department,
+                "wardrobe_source": self._source()}
 
     def rank_gaps(self, goal: str) -> dict[str, Any]:
-        wardrobe, profile = load_wardrobe(self.user_id), load_profile(self.user_id)
-        source = source_info(self.user_id)
+        wardrobe, profile = self._items(), load_profile(self.user_id)
+        source = self._source()
         if source["source"] in ("empty", "error"):
             # No pieces to analyse: say so instead of reporting every requirement as a gap.
             return {"goal": goal, "ranked_gaps": [], "covered": [], "wardrobe_source": source,
@@ -188,7 +197,7 @@ class GapAgentTools:
 
     def show_items(self, item_ids: list[str]) -> dict[str, Any]:
         """Queue owned items to be displayed to the user, with their photo, next to the answer."""
-        by_id = {item["id"]: item for item in load_wardrobe(self.user_id)}
+        by_id = {item["id"]: item for item in self._items()}
         shown, unknown = [], []
         for item_id in item_ids:
             item = by_id.get(item_id)

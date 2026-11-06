@@ -94,6 +94,7 @@ class WeatherRequest(BaseModel):
 class TripSession:
     agent: TripAgent
     user_id: str
+    wardrobe_items: list[dict[str, Any]] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -440,7 +441,8 @@ def create_app(
             content={"detail": f"Internal server error: {type(exc).__name__}"},
         )
 
-    def make_gap_checker(authorization: str | None) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
+    def make_gap_checker(authorization: str | None,
+                         wardrobe_items: list[dict[str, Any]] | None = None) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
         """The Trip Agent's `check_gaps` hook: an injected callable (tests) or the Gap Agent reached over A2A."""
         if app.state.gap_checker:
             return app.state.gap_checker
@@ -453,7 +455,8 @@ def create_app(
             trip = capsule.get("trip") or {}
             task = client.send(
                 text="This is a trip the user is packing for. Which pieces is their wardrobe missing for it?",
-                data={"capsule": {"trip": trip, "days": capsule.get("days") or []}})
+                data={"capsule": {"trip": trip, "days": capsule.get("days") or []},
+                      "wardrobe_items": wardrobe_items or []})
             if client.state_of(task) == "failed":
                 raise A2AError(client.text_of(task) or "The Gap Agent failed")
             ranking = (client.data_of(task).get("ranking") or {})
@@ -478,7 +481,7 @@ def create_app(
         return TripAgent(
             use_llm=app.state.use_llm,
             allow_weather_network=app.state.allow_weather_network,
-            gap_checker=make_gap_checker(authorization),
+            gap_checker=make_gap_checker(authorization, wardrobe_items),
             wardrobe_provider=wardrobe_provider_factory(wardrobe_items),
         )
 
@@ -496,6 +499,7 @@ def create_app(
         provider = wardrobe_provider_factory(items)
         previous = session.agent.tools.wardrobe_provider
         if not previous.load()[0].equals(provider.load()[0]):
+            session.wardrobe_items = items
             state = session.agent.state
             session.agent.tools.wardrobe_provider = provider
             state.wardrobe_items = []
@@ -506,6 +510,7 @@ def create_app(
             state.suggestions = []
             state.missing_items = []
             state.can_repeat_outfits = False
+        session.agent.tools.gap_checker = make_gap_checker(request.state.authorization, session.wardrobe_items)
 
     # ------------------------------------------------------------------
     # Meta / health
@@ -539,7 +544,7 @@ def create_app(
             if session.user_id != request.state.user_id:
                 raise HTTPException(404, "Trip session not found")
             agent = session.agent
-            agent.tools.gap_checker = make_gap_checker(request.state.authorization)
+            agent.tools.gap_checker = make_gap_checker(request.state.authorization, session.wardrobe_items)
         else:
             items = load_items(request.state.authorization)
             if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
@@ -549,6 +554,7 @@ def create_app(
             if len(items) > 500:
                 raise HTTPException(422, "Packing currently supports up to 500 wardrobe items.")
             session = app.state.store.add(new_agent(items, request.state.authorization), request.state.user_id)
+            session.wardrobe_items = items
             agent = session.agent
 
         with session.lock:
@@ -796,6 +802,7 @@ def create_app(
     def handle_trip(call: AgentCall) -> AgentResult:
         who = call.principal
         session = None
+        injected_items = call.data.get("wardrobe_items")
         try:
             existing = app.state.store.get(call.context_id)
             session = existing if existing.user_id == who.id else None
@@ -804,7 +811,12 @@ def create_app(
         try:
             with_context = SimpleNamespace(state=SimpleNamespace(authorization=who.authorization))
             if session is None:
-                items = load_items(who.authorization)
+                items = injected_items
+                if not isinstance(items, list):
+                    return AgentResult(
+                        text="The orchestrator must provide the wardrobe snapshot.",
+                        state="failed",
+                    )
                 if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
                     return AgentResult(text="The wardrobe service answered with invalid data.", state="failed")
                 if not items:
@@ -812,11 +824,12 @@ def create_app(
                 if len(items) > 500:
                     return AgentResult(text="Packing supports up to 500 wardrobe items.", state="failed")
                 session = app.state.store.add(new_agent(items, who.authorization), who.id)
+                session.wardrobe_items = items
             with session.lock:
                 agent = session.agent
-                if agent.state.optimization_result is not None or agent.state.messages:
+                if not isinstance(injected_items, list) and (agent.state.optimization_result is not None or agent.state.messages):
                     refresh_wardrobe(session, with_context)
-                agent.tools.gap_checker = make_gap_checker(who.authorization)
+                agent.tools.gap_checker = make_gap_checker(who.authorization, session.wardrobe_items)
                 trip = call.data.get("trip")
                 response = agent.handle_structured(trip) if isinstance(trip, dict) and trip else agent.handle(call.text)
                 payload = _response_payload(agent, response)

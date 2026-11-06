@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:      # a2a_protocol/ sits at the root of the repos
 
 from a2a_protocol import AgentCall, AgentResult, Skill, build_router  # noqa: E402
 
-from . import agent, outfit_agent, similar_agent, wardrobe_a2a, wardrobe_agent  # noqa: E402
+from . import agent, outfit_agent, similar_agent, wardrobe_agent  # noqa: E402
 from .auth import current_user  # noqa: E402
 from .taxonomy import OCCASIONS, SEASONS  # noqa: E402
 
@@ -48,7 +48,9 @@ def _word_in(text: str, options: list[str]) -> str | None:
 
 # ------------------------------------------------------------------------------------------------ AI Stylist
 def handle_stylist(call: AgentCall) -> AgentResult:
-    items = wardrobe_a2a.list_items(call.principal.id, call.authorization)
+    items = call.data.get("wardrobe_items")
+    if not isinstance(items, list):
+        return AgentResult(text="The orchestrator must provide the wardrobe snapshot.", state="failed")
     if not call.text:
         return AgentResult(text="Ask me what to wear, how to style a piece, or to find something in the wardrobe.",
                            state="input-required")
@@ -61,7 +63,9 @@ def handle_stylist(call: AgentCall) -> AgentResult:
 
 # ------------------------------------------------------------------------------------------------ Outfit Builder
 def handle_outfit(call: AgentCall) -> AgentResult:
-    items = wardrobe_a2a.list_items(call.principal.id, call.authorization)
+    items = call.data.get("wardrobe_items")
+    if not isinstance(items, list):
+        return AgentResult(text="The orchestrator must provide the wardrobe snapshot.", state="failed")
     if not items:
         return AgentResult(text="The wardrobe is empty: add clothes before building outfits.", state="failed")
     occasion = str(call.data.get("occasion") or _word_in(call.text, OCCASIONS) or "everyday")
@@ -150,7 +154,10 @@ def handle_similar(call: AgentCall) -> AgentResult:
     if not isinstance(pieces, list) or not pieces:
         return AgentResult(text="Send the pieces of the look as data.pieces (category, color_name, material, style...).",
                            state="input-required")
-    verdict = similar_agent.compare(wardrobe_a2a.list_items(call.principal.id, call.authorization), pieces, call.authorization)
+    items = call.data.get("wardrobe_items")
+    if not isinstance(items, list):
+        return AgentResult(text="The orchestrator must provide the wardrobe snapshot.", state="failed")
+    verdict = similar_agent.compare(items, pieces, call.authorization)
     lines = [f"{p['index'] + 1}. {p['status']}: {p['reason']}" for p in verdict["pieces"]]
     summary = verdict["summary"] + "\n" if verdict["summary"] else ""
     return AgentResult(text=summary + "\n".join(lines), data=verdict)

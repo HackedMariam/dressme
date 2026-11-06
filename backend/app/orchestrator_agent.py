@@ -13,9 +13,9 @@ when it is unavailable or answers badly. A conversation is a LangGraph thread wi
 remembers the last turns: a question the Trip Agent or the Wardrobe Agent left open (`input-required`, or a change
 waiting for the user's yes) is continued with the SAME agent on the next message, whatever the words.
 
-How the agents are reached: the AI Stylist, the Wardrobe Agent and the Outfit Builder run in this service (direct
-calls); the Trip Agent (Help Me Pack) and the Gap Agent (BO3) are other services: they are called over A2A with the
-user's own token, exactly like any other A2A client would.
+How the agents are reached: every agent is called over A2A with the user's own token, exactly like any other A2A
+client would. The orchestrator obtains the wardrobe snapshot first and passes it to agents that need it. The only
+agent-to-agent exception is the Trip Agent's A2A call to the Gap Agent.
 """
 from __future__ import annotations
 
@@ -32,16 +32,20 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from a2a_protocol import A2AClient, A2AError, AgentCall  # noqa: E402
+from a2a_protocol import A2AClient, A2AError  # noqa: E402
 from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 
-from . import a2a_agents, agent, config, wardrobe_a2a, wardrobe_agent  # noqa: E402
+from . import config  # noqa: E402
 
 log = logging.getLogger("dressme.orchestrator")
 
 TRIP_URL = os.getenv("TRIP_A2A_URL", "http://127.0.0.1:8020/a2a/trip")
 GAP_URL = os.getenv("GAP_A2A_URL", "http://127.0.0.1:8001/a2a/gap")
+WARDROBE_URL = os.getenv("WARDROBE_A2A_URL", "http://127.0.0.1:8000/a2a/wardrobe")
+STYLIST_URL = os.getenv("STYLIST_A2A_URL", "http://127.0.0.1:8000/a2a/stylist")
+OUTFIT_URL = os.getenv("OUTFIT_A2A_URL", "http://127.0.0.1:8000/a2a/outfit")
+SIMILAR_URL = os.getenv("SIMILAR_A2A_URL", "http://127.0.0.1:8000/a2a/similar")
 HISTORY_TURNS = 8
 
 AGENTS = {
@@ -141,6 +145,36 @@ def _client(url: str, authorization: Optional[str]) -> A2AClient:
     return A2AClient(url, token=authorization, timeout=120)
 
 
+def _send(url: str, authorization: Optional[str], text: str = "", data: Optional[dict] = None,
+          context_id: Optional[str] = None) -> tuple[A2AClient, dict]:
+    client = _client(url, authorization)
+    return client, client.send(text=text, data=data or {}, context_id=context_id)
+
+
+def _wardrobe_snapshot(state: State, config: RunnableConfig) -> tuple[list[dict], Optional[str]]:
+    authorization = _request_token(config)
+    client, task = _send(WARDROBE_URL, authorization, data={"action": "list"})
+    if client.state_of(task) != "completed":
+        raise A2AError(client.text_of(task) or "The Wardrobe Agent failed")
+    items = client.data_of(task).get("items")
+    if not isinstance(items, list):
+        raise A2AError("The Wardrobe Agent returned invalid data")
+    return items, authorization
+
+
+def call_with_wardrobe(url: str, authorization: Optional[str], text: str = "",
+                       data: Optional[dict] = None, context_id: Optional[str] = None) -> tuple[A2AClient, dict]:
+    """Orchestrate the standard Wardrobe -> agent A2A handoff for non-chat API routes."""
+    wardrobe_client, wardrobe_task = _send(WARDROBE_URL, authorization, data={"action": "list"})
+    if wardrobe_client.state_of(wardrobe_task) != "completed":
+        raise A2AError(wardrobe_client.text_of(wardrobe_task) or "The Wardrobe Agent failed")
+    items = wardrobe_client.data_of(wardrobe_task).get("items")
+    if not isinstance(items, list):
+        raise A2AError("The Wardrobe Agent returned invalid data")
+    return _send(url, authorization, text=text, data={**(data or {}), "wardrobe_items": items},
+                 context_id=context_id)
+
+
 def make_router_llm() -> Optional[Callable[[list[dict]], str]]:
     if not config.OPENAI_API_KEY:
         return None
@@ -169,38 +203,58 @@ def pick(state: State) -> str:
 
 
 def node_stylist(state: State, config: RunnableConfig) -> dict:
-    authorization = _request_token(config)
-    result = agent.chat(wardrobe_a2a.list_items(state["user_id"], authorization), state["message"], state.get("place"), authorization)
-    return {"reply": result["reply"], "items": result.get("items", []), "agents_called": ["AI Stylist"], "awaiting": None,
-            "data": {k: result.get(k) for k in ("sections", "weather", "sources", "filters")}}
+    try:
+        items, authorization = _wardrobe_snapshot(state, config)
+        client, task = _send(STYLIST_URL, authorization, text=state["message"],
+                             data={"wardrobe_items": items, **(state.get("place") or {})},
+                             context_id=state["context_id"])
+    except A2AError as error:
+        return {"reply": f"The AI Stylist is not reachable right now ({error}). Try again in a moment.",
+                "state": "failed", "awaiting": None, "agents_called": ["AI Stylist (unreachable)"], "data": {}}
+    return {"reply": client.text_of(task), "items": client.data_of(task).get("items", []),
+            "agents_called": ["Wardrobe Agent (A2A)", "AI Stylist (A2A)"], "awaiting": None,
+            "data": client.data_of(task)}
 
 
-def node_wardrobe(state: State) -> dict:
+def node_wardrobe(state: State, config: RunnableConfig) -> dict:
     waiting = state.get("awaiting") or {}
-    context = waiting.get("context") or state["context_id"]
-    result = wardrobe_agent.converse(state["user_id"], state["message"], context_id=context)
-    awaiting = {"agent": "wardrobe", "context": result["context_id"]} if result["pending"] else None
-    return {"reply": result["reply"], "items": result["items"], "awaiting": awaiting, "state": result["state"],
-            "agents_called": ["Wardrobe Agent"], "data": {"pending": result["pending"], "filters": result["filters"]}}
+    authorization = _request_token(config)
+    data = {}
+    if isinstance(state.get("message"), str) and YES_NO.match(state["message"]):
+        data["confirm"] = state["message"].lower().startswith(("yes", "y", "oui", "ok", "sure", "confirm"))
+    try:
+        client, task = _send(WARDROBE_URL, authorization, text=state["message"], data=data,
+                             context_id=waiting.get("context") or state["context_id"])
+    except A2AError as error:
+        return {"reply": f"The Wardrobe Agent is not reachable right now ({error}). Try again in a moment.",
+                "state": "failed", "awaiting": None, "agents_called": ["Wardrobe Agent (unreachable)"], "data": {}}
+    result = client.data_of(task)
+    context = task.get("contextId") or state["context_id"]
+    awaiting = {"agent": "wardrobe", "context": context} if client.state_of(task) == "input-required" else None
+    return {"reply": client.text_of(task), "items": result.get("items", []), "awaiting": awaiting,
+            "state": client.state_of(task), "agents_called": ["Wardrobe Agent (A2A)"],
+            "data": {"pending": result.get("pending"), "filters": result.get("filters")}}
 
 
 def node_outfit(state: State, config: RunnableConfig) -> dict:
-    result = a2a_agents.handle_outfit(AgentCall(text=state["message"], data=dict(state.get("place") or {}), context_id=state["context_id"],
-                                                principal=SimpleUser(state["user_id"]), message_id="",
-                                                authorization=_request_token(config)))
-    return {"reply": result.text, "state": result.state, "awaiting": None, "agents_called": ["Outfit Builder"], "data": result.data or {}}
-
-
-class SimpleUser:
-    def __init__(self, user_id: str) -> None:
-        self.id = user_id
+    try:
+        items, authorization = _wardrobe_snapshot(state, config)
+        client, task = _send(OUTFIT_URL, authorization, text=state["message"],
+                             data={"wardrobe_items": items, **(state.get("place") or {})},
+                             context_id=state["context_id"])
+    except A2AError as error:
+        return {"reply": f"The Outfit Builder is not reachable right now ({error}). Try again in a moment.",
+                "state": "failed", "awaiting": None, "agents_called": ["Outfit Builder (unreachable)"], "data": {}}
+    return {"reply": client.text_of(task), "state": client.state_of(task), "awaiting": None,
+            "agents_called": ["Wardrobe Agent (A2A)", "Outfit Builder (A2A)"], "data": client.data_of(task)}
 
 
 def _a2a(state: State, url: str, label: str, key: str, config: RunnableConfig) -> dict:
     waiting = state.get("awaiting") or {}
-    client = _client(url, _request_token(config))
     try:
-        task = client.send(state["message"], data={}, context_id=waiting.get("context"))
+        items, authorization = _wardrobe_snapshot(state, config)
+        client, task = _send(url, authorization, text=state["message"],
+                             data={"wardrobe_items": items}, context_id=waiting.get("context"))
     except A2AError as error:
         return {"reply": f"The {label} is not reachable right now ({error}). Try again in a moment.", "state": "failed",
                 "awaiting": None, "agents_called": [f"{label} (unreachable)"], "data": {}}

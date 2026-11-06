@@ -26,8 +26,8 @@ if str(ROOT) not in sys.path:          # agent_kit/ sits at the root of the repo
 from agent_kit import run_loop  # noqa: E402
 
 from . import config, rag_client, weather  # noqa: E402
-# The wardrobe is read through the Wardrobe Agent: its search tool and its duplicate check are used here.
-from . import wardrobe_a2a, wardrobe_agent  # noqa: E402
+# The orchestrator supplies the wardrobe snapshot; the stylist never calls another agent directly.
+from . import wardrobe_agent  # noqa: E402
 from .wardrobe_agent import DUPLICATE_SYSTEM, RESULT_FIELDS, _matches, _run_search, check_duplicate  # noqa: E402,F401
 
 # Agent to agent: the stylist asks the Wardrobe Agent in plain words instead of filtering the closet itself.
@@ -296,9 +296,9 @@ def chat(items: list[dict], message: str, place: dict | None = None, authorizati
                 return json.dumps({"advice": advice["answer"], "sources": advice["sources"]})
             return json.dumps({"advice": None, "note": "The fashion knowledge base is unavailable "
                                "or has nothing on this: answer from the wardrobe alone."})
-        # ask_wardrobe_agent: the Wardrobe Agent (its own LLM and tools) answers in words and with the pieces it found
+        # The orchestrator already supplied the wardrobe snapshot; search it locally in this agent.
         request_text = str(args.get("request") or message)
-        answer = wardrobe_a2a.ask(items, request_text, authorization) if authorization else _ask_wardrobe(items, request_text)
+        answer = _ask_wardrobe(items, request_text)
         for piece in answer["items"]:
             found[piece["id"]] = piece
         filters.extend(answer["filters"])

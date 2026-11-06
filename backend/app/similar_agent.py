@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
 from agent_kit import run_loop  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 
-from . import config, wardrobe_a2a, wardrobe_agent  # noqa: E402
+from . import config, wardrobe_agent  # noqa: E402
 
 log = logging.getLogger("dressme.similar_agent")
 
@@ -89,7 +89,7 @@ def node_ask(state: State) -> dict:
 
     def run_tool(name: str, args: dict) -> str:
         request_text = str(args.get("request") or "")
-        answer = wardrobe_a2a.ask(items, request_text, state.get("authorization")) if state.get("authorization") else _ask_wardrobe(items, request_text)
+        answer = _ask_wardrobe(items, request_text)
         return json.dumps({"wardrobe_agent_says": answer["reply"],
                            "pieces": [{k: i.get(k) for k in ("id", "name", "category", "color_name", "material", "style")}
                                       for i in answer["items"]]})

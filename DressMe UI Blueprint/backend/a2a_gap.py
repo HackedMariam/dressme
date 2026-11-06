@@ -31,7 +31,10 @@ def make_router(memory, principal):
         if goal:
             if goal not in GOALS:
                 return AgentResult(text=f"Unknown goal {goal!r}. Known goals: {', '.join(GOALS)}.", state="failed")
-            ranking = GapAgentTools(memory, user_id).rank_gaps(goal)
+            items = call.data.get("wardrobe_items")
+            if not isinstance(items, list):
+                return AgentResult(text="The orchestrator must provide the wardrobe snapshot.", state="failed")
+            ranking = GapAgentTools(memory, user_id, wardrobe_items=items).rank_gaps(goal)
             gaps = ranking.get("ranked_gaps", [])
             label = ranking.get("goal_label") or goal
             text = (f"Wardrobe gaps for {label}:\n" + "\n".join(_gap_line(n, g) for n, g in enumerate(gaps[:5], 1))
@@ -49,7 +52,10 @@ def make_router(memory, principal):
                        f"activities: {', '.join(trip.get('activities') or []) or 'unspecified'}, "
                        f"{len(capsule.get('days') or [])} day(s). Pick the goal that fits best.")
         conversation_id = memory.start_conversation(user_id)
-        tools = GapAgentTools(memory, user_id, conversation_id)
+        items = call.data.get("wardrobe_items")
+        if not isinstance(items, list):
+            return AgentResult(text="The orchestrator must provide the wardrobe snapshot.", state="failed")
+        tools = GapAgentTools(memory, user_id, conversation_id, wardrobe_items=items)
         result = GapAgent(tools).run(call.text + context, [])
         memory.add_message(conversation_id, "user", call.text)
         memory.add_message(conversation_id, "assistant", result.answer)
