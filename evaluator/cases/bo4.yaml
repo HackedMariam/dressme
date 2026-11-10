@@ -23,7 +23,7 @@ cases:
     lang: fr
     steps:
       - input: {text: "Il pleut, que porter pour aller au bureau ?"}
-        expect: {state: completed, rules: [complete_outfit, dress_code_business], rain: true, max_latency_s: 60}
+        expect: {state: completed, rules: [complete_outfit, dress_code_business, layer_when_rain_announced], max_latency_s: 60}
         judge: "Chaque tenue comporte une veste ; la soie et le daim sont écartés."
   - id: bo4-casual-weekend-en
     lang: en

@@ -1,0 +1,1375 @@
+{
+  "generated_at": "2026-11-10T16:00:29",
+  "agents": {
+    "bo4": {
+      "label": "Stylist BO4",
+      "steps": 6,
+      "pass": 1,
+      "warn": 1,
+      "fail": 4,
+      "success_rate": 16.7,
+      "code_success_rate": 33.3,
+      "criteria": {
+        "contract": {
+          "passed": 20,
+          "total": 20,
+          "score": 100.0
+        },
+        "robustness": {
+          "passed": 13,
+          "total": 13,
+          "score": 100.0
+        },
+        "grounding": {
+          "passed": 20,
+          "total": 20,
+          "score": 100.0
+        },
+        "rules": {
+          "passed": 12,
+          "total": 24,
+          "score": 50.0
+        },
+        "performance": {
+          "passed": 6,
+          "total": 6,
+          "score": 100.0
+        }
+      },
+      "median_latency_s": 2.07,
+      "judge": {
+        "relevance": 2,
+        "usefulness": 2,
+        "n": 1
+      }
+    },
+    "gap": {
+      "label": "Gap Agent (BO3)",
+      "steps": 5,
+      "pass": 1,
+      "warn": 0,
+      "fail": 4,
+      "success_rate": 20.0,
+      "code_success_rate": 20.0,
+      "criteria": {
+        "contract": {
+          "passed": 6,
+          "total": 10,
+          "score": 60.0
+        },
+        "robustness": {
+          "passed": 11,
+          "total": 11,
+          "score": 100.0
+        },
+        "performance": {
+          "passed": 5,
+          "total": 5,
+          "score": 100.0
+        }
+      },
+      "median_latency_s": null,
+      "judge": null
+    },
+    "orchestrator": {
+      "label": "Orchestrateur (8070) + RAG",
+      "steps": 9,
+      "pass": 3,
+      "warn": 3,
+      "fail": 3,
+      "success_rate": 33.3,
+      "code_success_rate": 66.7,
+      "criteria": {
+        "contract": {
+          "passed": 19,
+          "total": 21,
+          "score": 90.5
+        },
+        "robustness": {
+          "passed": 19,
+          "total": 19,
+          "score": 100.0
+        },
+        "routing": {
+          "passed": 8,
+          "total": 8,
+          "score": 100.0
+        },
+        "performance": {
+          "passed": 9,
+          "total": 9,
+          "score": 100.0
+        },
+        "rules": {
+          "passed": 0,
+          "total": 3,
+          "score": 0.0
+        }
+      },
+      "median_latency_s": 1.76,
+      "judge": {
+        "relevance": 3.4,
+        "usefulness": 2,
+        "n": 5
+      }
+    },
+    "orchestrator_bo1": {
+      "label": "Orchestrateur BO1",
+      "steps": 9,
+      "pass": 3,
+      "warn": 2,
+      "fail": 4,
+      "success_rate": 33.3,
+      "code_success_rate": 55.6,
+      "criteria": {
+        "contract": {
+          "passed": 18,
+          "total": 21,
+          "score": 85.7
+        },
+        "robustness": {
+          "passed": 18,
+          "total": 19,
+          "score": 94.7
+        },
+        "routing": {
+          "passed": 6,
+          "total": 7,
+          "score": 85.7
+        },
+        "performance": {
+          "passed": 9,
+          "total": 9,
+          "score": 100.0
+        },
+        "rules": {
+          "passed": 0,
+          "total": 1,
+          "score": 0.0
+        }
+      },
+      "median_latency_s": 0.54,
+      "judge": {
+        "relevance": 1,
+        "usefulness": 1,
+        "n": 2
+      }
+    },
+    "outfit": {
+      "label": "Outfit Builder",
+      "steps": 6,
+      "pass": 1,
+      "warn": 0,
+      "fail": 5,
+      "success_rate": 16.7,
+      "code_success_rate": 16.7,
+      "criteria": {
+        "contract": {
+          "passed": 7,
+          "total": 16,
+          "score": 43.8
+        },
+        "robustness": {
+          "passed": 13,
+          "total": 13,
+          "score": 100.0
+        },
+        "rules": {
+          "passed": 0,
+          "total": 8,
+          "score": 0.0
+        },
+        "performance": {
+          "passed": 6,
+          "total": 6,
+          "score": 100.0
+        }
+      },
+      "median_latency_s": 1.17,
+      "judge": null
+    },
+    "purchase": {
+      "label": "Purchase Redundancy (via l'orchestrateur)",
+      "steps": 5,
+      "pass": 1,
+      "warn": 4,
+      "fail": 0,
+      "success_rate": 20.0,
+      "code_success_rate": 100.0,
+      "criteria": {
+        "contract": {
+          "passed": 16,
+          "total": 16,
+          "score": 100.0
+        },
+        "robustness": {
+          "passed": 11,
+          "total": 11,
+          "score": 100.0
+        },
+        "routing": {
+          "passed": 4,
+          "total": 4,
+          "score": 100.0
+        },
+        "performance": {
+          "passed": 5,
+          "total": 5,
+          "score": 100.0
+        }
+      },
+      "median_latency_s": 1.41,
+      "judge": {
+        "relevance": 2.5,
+        "usefulness": 1.25,
+        "n": 4
+      }
+    },
+    "rag": {
+      "label": "RAG BO5 (livres de mode)",
+      "steps": 7,
+      "pass": 1,
+      "warn": 0,
+      "fail": 6,
+      "success_rate": 14.3,
+      "code_success_rate": 14.3,
+      "criteria": {
+        "contract": {
+          "passed": 8,
+          "total": 16,
+          "score": 50.0
+        },
+        "robustness": {
+          "passed": 9,
+          "total": 15,
+          "score": 60.0
+        },
+        "rules": {
+          "passed": 0,
+          "total": 6,
+          "score": 0.0
+        },
+        "performance": {
+          "passed": 6,
+          "total": 7,
+          "score": 85.7
+        }
+      },
+      "median_latency_s": 60.68,
+      "judge": null
+    },
+    "similar": {
+      "label": "Similar Agent",
+      "steps": 5,
+      "pass": 1,
+      "warn": 1,
+      "fail": 3,
+      "success_rate": 20.0,
+      "code_success_rate": 40.0,
+      "criteria": {
+        "contract": {
+          "passed": 16,
+          "total": 17,
+          "score": 94.1
+        },
+        "robustness": {
+          "passed": 11,
+          "total": 11,
+          "score": 100.0
+        },
+        "grounding": {
+          "passed": 0,
+          "total": 3,
+          "score": 0.0
+        },
+        "performance": {
+          "passed": 5,
+          "total": 5,
+          "score": 100.0
+        }
+      },
+      "median_latency_s": 0.86,
+      "judge": {
+        "relevance": 1,
+        "usefulness": 1,
+        "n": 1
+      }
+    },
+    "stylist": {
+      "label": "AI Stylist",
+      "steps": 7,
+      "pass": 1,
+      "warn": 1,
+      "fail": 5,
+      "success_rate": 14.3,
+      "code_success_rate": 28.6,
+      "criteria": {
+        "contract": {
+          "passed": 22,
+          "total": 22,
+          "score": 100.0
+        },
+        "robustness": {
+          "passed": 15,
+          "total": 15,
+          "score": 100.0
+        },
+        "rules": {
+          "passed": 4,
+          "total": 10,
+          "score": 40.0
+        },
+        "performance": {
+          "passed": 7,
+          "total": 7,
+          "score": 100.0
+        }
+      },
+      "median_latency_s": 0.88,
+      "judge": {
+        "relevance": 1,
+        "usefulness": 1,
+        "n": 1
+      }
+    },
+    "trip": {
+      "label": "Trip Agent",
+      "steps": 6,
+      "pass": 1,
+      "warn": 0,
+      "fail": 5,
+      "success_rate": 16.7,
+      "code_success_rate": 16.7,
+      "criteria": {
+        "contract": {
+          "passed": 8,
+          "total": 12,
+          "score": 66.7
+        },
+        "robustness": {
+          "passed": 13,
+          "total": 13,
+          "score": 100.0
+        },
+        "performance": {
+          "passed": 6,
+          "total": 6,
+          "score": 100.0
+        },
+        "rules": {
+          "passed": 0,
+          "total": 1,
+          "score": 0.0
+        }
+      },
+      "median_latency_s": null,
+      "judge": null
+    },
+    "wardrobe": {
+      "label": "Wardrobe Agent",
+      "steps": 9,
+      "pass": 1,
+      "warn": 1,
+      "fail": 7,
+      "success_rate": 11.1,
+      "code_success_rate": 22.2,
+      "criteria": {
+        "contract": {
+          "passed": 14,
+          "total": 21,
+          "score": 66.7
+        },
+        "robustness": {
+          "passed": 19,
+          "total": 19,
+          "score": 100.0
+        },
+        "rules": {
+          "passed": 1,
+          "total": 7,
+          "score": 14.3
+        },
+        "performance": {
+          "passed": 9,
+          "total": 9,
+          "score": 100.0
+        },
+        "grounding": {
+          "passed": 18,
+          "total": 18,
+          "score": 100.0
+        }
+      },
+      "median_latency_s": 0.04,
+      "judge": {
+        "relevance": 5,
+        "usefulness": 1,
+        "n": 1
+      }
+    }
+  },
+  "overall": {
+    "steps": 74,
+    "pass": 15,
+    "warn": 13,
+    "fail": 46,
+    "success_rate": 20.3
+  },
+  "failures": [
+    {
+      "agent": "bo4",
+      "case": "bo4-interview-fr#1",
+      "criterion": "rules",
+      "check": "tenue 1 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 11/11 : 17 à 30 °C).\nDress code : business (déduit du message).\nTa garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, c'est la pièce à ajoute"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-interview-fr#1",
+      "criterion": "rules",
+      "check": "tenue 2 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 11/11 : 17 à 30 °C).\nDress code : business (déduit du message).\nTa garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, c'est la pièce à ajoute"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-interview-fr#1",
+      "criterion": "rules",
+      "check": "tenue 3 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 11/11 : 17 à 30 °C).\nDress code : business (déduit du message).\nTa garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, c'est la pièce à ajoute"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-business-meeting-en#1",
+      "criterion": "rules",
+      "check": "tenue 1 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : business (déduit du message).\nTa garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, c'est la pièce à ajoute"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-business-meeting-en#1",
+      "criterion": "rules",
+      "check": "tenue 2 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : business (déduit du message).\nTa garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, c'est la pièce à ajoute"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-business-meeting-en#1",
+      "criterion": "rules",
+      "check": "tenue 3 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : business (déduit du message).\nTa garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, c'est la pièce à ajoute"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-wedding-black-tie-fr#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "Answer provides suggestions but does not directly address the user's question about what to wear for a black tie wedding.",
+      "state": "completed",
+      "excerpt": "Contexte : soirée, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : formel (déduit du message).\nTa garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, c'est la pièce à ajouter.\n"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-rain-office-fr#1",
+      "criterion": "rules",
+      "check": "tenue 1 complète",
+      "reason": "pas de chaussures, pas de couche supplémentaire alors qu'il fait froid ou qu'il pleut",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : smart casual (par défaut pour l'occasion).\nVoici mes propositions, à partir de ta garde-robe :\n1. White Cotton Shirt (shirt) +"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-rain-office-fr#1",
+      "criterion": "rules",
+      "check": "tenue 2 complète",
+      "reason": "pas de chaussures, pas de couche supplémentaire alors qu'il fait froid ou qu'il pleut",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : smart casual (par défaut pour l'occasion).\nVoici mes propositions, à partir de ta garde-robe :\n1. White Cotton Shirt (shirt) +"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-rain-office-fr#1",
+      "criterion": "rules",
+      "check": "tenue 3 complète",
+      "reason": "pas de chaussures, pas de couche supplémentaire alors qu'il fait froid ou qu'il pleut",
+      "state": "completed",
+      "excerpt": "Contexte : travail, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : smart casual (par défaut pour l'occasion).\nVoici mes propositions, à partir de ta garde-robe :\n1. White Cotton Shirt (shirt) +"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-casual-weekend-en#1",
+      "criterion": "rules",
+      "check": "tenue 1 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : décontracté, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : décontracté (déduit du message).\nVoici mes propositions, à partir de ta garde-robe :\n1. Black T-Shirt (t_shirt) + Navy Den"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-casual-weekend-en#1",
+      "criterion": "rules",
+      "check": "tenue 2 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : décontracté, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : décontracté (déduit du message).\nVoici mes propositions, à partir de ta garde-robe :\n1. Black T-Shirt (t_shirt) + Navy Den"
+    },
+    {
+      "agent": "bo4",
+      "case": "bo4-casual-weekend-en#1",
+      "criterion": "rules",
+      "check": "tenue 3 complète",
+      "reason": "pas de chaussures",
+      "state": "completed",
+      "excerpt": "Contexte : décontracté, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : décontracté (déduit du message).\nVoici mes propositions, à partir de ta garde-robe :\n1. Black T-Shirt (t_shirt) + Navy Den"
+    },
+    {
+      "agent": "gap",
+      "case": "gap-winter-work-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "gap",
+      "case": "gap-winter-work-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "gap",
+      "case": "gap-summer-holiday-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "gap",
+      "case": "gap-weekend-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "orchestrator",
+      "case": "orch-route-wardrobe-fr#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The answer provides the total number of items in the wardrobe but does not specifically address the number of tops.",
+      "state": "completed",
+      "excerpt": "Ta garde-robe BO1 contient 18 vêtement(s).\nHauts : 4 — White Cotton Shirt, Cream Silk Blouse, Light Blue Denim Shirt, Black T-Shirt."
+    },
+    {
+      "agent": "orchestrator",
+      "case": "orch-route-purchase-fr#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The answer does not directly address whether the user should purchase the black blazer or not, instead discussing the redundancy of owning a black blazer in their wardrobe.",
+      "state": "completed",
+      "excerpt": "Avis de Purchase Redundancy sur « blazer noir », comparé aux 18 pièces de ta garde-robe :\nblack blazer : un bon achat. Rien de similaire dans votre garde-robe (score de redondance 10/100) — il apporte"
+    },
+    {
+      "agent": "orchestrator",
+      "case": "orch-route-knowledge-wool-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "BO5 RAG n'est pas encore disponible dans cette version de DressMe (désactivé dans services.yaml)."
+    },
+    {
+      "agent": "orchestrator",
+      "case": "orch-route-knowledge-wool-fr#1",
+      "criterion": "rules",
+      "check": "has_citations",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "BO5 RAG n'est pas encore disponible dans cette version de DressMe (désactivé dans services.yaml)."
+    },
+    {
+      "agent": "orchestrator",
+      "case": "orch-wedding-black-tie-fr#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "Answer is partially relevant and somewhat useful, but lacks concrete and complete suggestions based on the user's initial question.",
+      "state": "completed",
+      "excerpt": "Contexte : soirée, été (météo Tunis le 10/11 : 18 à 29 °C).\nDress code : formel (déduit du message).\nTa garde-robe n'a pas de veste structurée (blazer) : pour ce dress code, c'est la pièce à ajouter.\n"
+    },
+    {
+      "agent": "orchestrator",
+      "case": "orch-trends-refusal-fr#1",
+      "criterion": "rules",
+      "check": "refus (« I don't know »)",
+      "reason": "l'agent répond au lieu de refuser une question sans source",
+      "state": "failed",
+      "excerpt": "BO5 RAG n'est pas encore disponible dans cette version de DressMe (désactivé dans services.yaml)."
+    },
+    {
+      "agent": "orchestrator",
+      "case": "orch-knowledge-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "BO5 RAG n'est pas encore disponible dans cette version de DressMe (désactivé dans services.yaml)."
+    },
+    {
+      "agent": "orchestrator",
+      "case": "orch-knowledge-en#1",
+      "criterion": "rules",
+      "check": "has_citations",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "BO5 RAG n'est pas encore disponible dans cette version de DressMe (désactivé dans services.yaml)."
+    },
+    {
+      "agent": "orchestrator_bo1",
+      "case": "obo1-route-stylist-fr#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The answer is irrelevant and useless as it requires an API key that is not provided.",
+      "state": "completed",
+      "excerpt": "The AI stylist needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "orchestrator_bo1",
+      "case": "obo1-route-wardrobe-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "orchestrator_bo1",
+      "case": "obo1-route-outfit-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "orchestrator_bo1",
+      "case": "obo1-route-outfit-en#1",
+      "criterion": "robustness",
+      "check": "aucune erreur HTTP 5xx",
+      "reason": "HTTP 500",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "orchestrator_bo1",
+      "case": "obo1-route-outfit-en#1",
+      "criterion": "routing",
+      "check": "route attendue",
+      "reason": "route « None », attendue « outfit »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "orchestrator_bo1",
+      "case": "obo1-route-redirect-en#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The assistant's response is not relevant or useful for the user's specific question.",
+      "state": "completed",
+      "excerpt": "For this I need a photo: open Should I buy this?, add the picture, and the agent will answer there."
+    },
+    {
+      "agent": "orchestrator_bo1",
+      "case": "obo1-small-talk-clarify-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « completed », attendu « input-required »",
+      "state": "completed",
+      "excerpt": "I can pick outfits and style advice, find or correct pieces of your wardrobe, plan your suitcase, or tell you what your wardrobe is missing. What would you like?"
+    },
+    {
+      "agent": "orchestrator_bo1",
+      "case": "obo1-trends-refusal-fr#1",
+      "criterion": "rules",
+      "check": "refus (« I don't know »)",
+      "reason": "l'agent répond au lieu de refuser une question sans source",
+      "state": "completed",
+      "excerpt": "I can pick outfits and style advice, find or correct pieces of your wardrobe, plan your suitcase, or tell you what your wardrobe is missing. What would you like?"
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-work-winter-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-work-winter-fr#1",
+      "criterion": "contract",
+      "check": "champ « outfits »",
+      "reason": "champ obligatoire « outfits » absent",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-work-winter-fr#1",
+      "criterion": "contract",
+      "check": "champ « weather »",
+      "reason": "champ obligatoire « weather » absent",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-work-winter-fr#1",
+      "criterion": "rules",
+      "check": "complete_outfit",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-work-winter-fr#1",
+      "criterion": "rules",
+      "check": "dress_code_business",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-everyday-autumn-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-everyday-autumn-en#1",
+      "criterion": "contract",
+      "check": "champ « outfits »",
+      "reason": "champ obligatoire « outfits » absent",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-everyday-autumn-en#1",
+      "criterion": "rules",
+      "check": "complete_outfit",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-business-spring-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-business-spring-fr#1",
+      "criterion": "contract",
+      "check": "champ « outfits »",
+      "reason": "champ obligatoire « outfits » absent",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-business-spring-fr#1",
+      "criterion": "rules",
+      "check": "complete_outfit",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-business-spring-fr#1",
+      "criterion": "rules",
+      "check": "dress_code_business",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-wedding-summer-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-wedding-summer-en#1",
+      "criterion": "rules",
+      "check": "complete_outfit",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-wedding-summer-en#1",
+      "criterion": "rules",
+      "check": "dress_code_business",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-party-winter-text-only#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "outfit",
+      "case": "outfit-party-winter-text-only#1",
+      "criterion": "rules",
+      "check": "complete_outfit",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "DressMe Outfit Builder could not complete this request."
+    },
+    {
+      "agent": "purchase",
+      "case": "purchase-blazer-fr#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The answer does not directly address whether to purchase a black blazer or provide useful advice on how to use it.",
+      "state": "completed",
+      "excerpt": "Avis de Purchase Redundancy sur « blazer noir », comparé aux 18 pièces de ta garde-robe :\nblack blazer : un bon achat. Rien de similaire dans votre garde-robe (score de redondance 10/100) — il apporte"
+    },
+    {
+      "agent": "purchase",
+      "case": "purchase-blazer-en#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The answer is off-topic and useless as it does not provide a clear buy/don't buy opinion or any actionable advice.",
+      "state": "completed",
+      "excerpt": "Purchase Redundancy's opinion on \"black blazer\", compared with the 18 items in your wardrobe:\nblack blazer looks a good purchase: nothing similar was found in your wardrobe (redundancy score 10/100)."
+    },
+    {
+      "agent": "purchase",
+      "case": "purchase-duplicate-skirt-fr#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The answer addresses the user's question about whether to buy a black pleated midi skirt, but the suggestion to compare it to other items in the wardrobe is not directly useful for the specific question.",
+      "state": "completed",
+      "excerpt": "Avis de Purchase Redundancy sur « jupe noire », comparé aux 18 pièces de ta garde-robe :\nblack skirt : un bon achat. Rien de similaire dans votre garde-robe (score de redondance 20/100) — il apporte d"
+    },
+    {
+      "agent": "purchase",
+      "case": "purchase-sweater-en#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The answer is partly relevant but does not provide useful advice.",
+      "state": "completed",
+      "excerpt": "Purchase Redundancy's opinion on \"white wool sweater\", compared with the 18 items in your wardrobe:\nwhite wool sweater looks a good purchase: nothing similar was found in your wardrobe (redundancy sco"
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-en#1",
+      "criterion": "contract",
+      "check": "champ « sources »",
+      "reason": "champ obligatoire « sources » absent",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-en#1",
+      "criterion": "robustness",
+      "check": "aucune erreur HTTP 5xx",
+      "reason": "HTTP 500",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-en#1",
+      "criterion": "rules",
+      "check": "has_citations",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-en#1",
+      "criterion": "performance",
+      "check": "latence ≤ 90 s",
+      "reason": "115.6 s",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-fr#1",
+      "criterion": "contract",
+      "check": "champ « sources »",
+      "reason": "champ obligatoire « sources » absent",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-fr#1",
+      "criterion": "robustness",
+      "check": "aucune erreur HTTP 5xx",
+      "reason": "HTTP 500",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-wash-wool-fr#1",
+      "criterion": "rules",
+      "check": "has_citations",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-black-tie-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-black-tie-en#1",
+      "criterion": "robustness",
+      "check": "aucune erreur HTTP 5xx",
+      "reason": "HTTP 500",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-black-tie-en#1",
+      "criterion": "rules",
+      "check": "has_citations",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-colours-navy-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-colours-navy-en#1",
+      "criterion": "robustness",
+      "check": "aucune erreur HTTP 5xx",
+      "reason": "HTTP 500",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-colours-navy-en#1",
+      "criterion": "rules",
+      "check": "has_citations",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-trends-refusal-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-trends-refusal-en#1",
+      "criterion": "robustness",
+      "check": "aucune erreur HTTP 5xx",
+      "reason": "HTTP 500",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-trends-refusal-en#1",
+      "criterion": "rules",
+      "check": "refus (« I don't know »)",
+      "reason": "l'agent répond au lieu de refuser une question sans source",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-trends-refusal-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-trends-refusal-fr#1",
+      "criterion": "robustness",
+      "check": "aucune erreur HTTP 5xx",
+      "reason": "HTTP 500",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "rag",
+      "case": "rag-trends-refusal-fr#1",
+      "criterion": "rules",
+      "check": "refus (« I don't know »)",
+      "reason": "l'agent répond au lieu de refuser une question sans source",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "similar",
+      "case": "similar-owned-skirt-fr#1",
+      "criterion": "grounding",
+      "check": "pièce ? (None)",
+      "reason": "absente de la garde-robe de l'utilisatrice (inventée ou d'une autre utilisatrice)",
+      "state": "completed",
+      "excerpt": "1. owned: You own Black Pleated Midi Skirt (same type, same colour, same material, same style)."
+    },
+    {
+      "agent": "similar",
+      "case": "similar-missing-jacket-en#1",
+      "criterion": "grounding",
+      "check": "pièce ? (None)",
+      "reason": "absente de la garde-robe de l'utilisatrice (inventée ou d'une autre utilisatrice)",
+      "state": "completed",
+      "excerpt": "1. close: You own Black Leather Biker Jacket (same type)."
+    },
+    {
+      "agent": "similar",
+      "case": "similar-full-look-fr#1",
+      "criterion": "contract",
+      "check": "champ « summary »",
+      "reason": "champ obligatoire « summary » absent",
+      "state": "completed",
+      "excerpt": "1. owned: You own White Cotton Shirt (same type, same colour, same material).\n2. owned: You own Black Tailored Trousers (same type, same colour).\n3. owned: You own Black Leather Biker Jacket (same typ"
+    },
+    {
+      "agent": "similar",
+      "case": "similar-full-look-fr#1",
+      "criterion": "grounding",
+      "check": "pièce ? (None)",
+      "reason": "absente de la garde-robe de l'utilisatrice (inventée ou d'une autre utilisatrice)",
+      "state": "completed",
+      "excerpt": "1. owned: You own White Cotton Shirt (same type, same colour, same material).\n2. owned: You own Black Tailored Trousers (same type, same colour).\n3. owned: You own Black Leather Biker Jacket (same typ"
+    },
+    {
+      "agent": "similar",
+      "case": "similar-no-pieces-input-required#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The assistant's answer is not relevant or useful as it does not provide a clear action or information on how to send pieces.",
+      "state": "input-required",
+      "excerpt": "Send the pieces of the look as data.pieces (category, color_name, material, style...)."
+    },
+    {
+      "agent": "stylist",
+      "case": "stylist-interview-fr#1",
+      "criterion": "rules",
+      "check": "pièces trouvées",
+      "reason": "0 pièce(s) trouvée(s), 2 attendue(s)",
+      "state": "completed",
+      "excerpt": "The AI stylist needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "stylist",
+      "case": "stylist-interview-fr#1",
+      "criterion": "rules",
+      "check": "tenue complète",
+      "reason": "aucune tenue dans la réponse",
+      "state": "completed",
+      "excerpt": "The AI stylist needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "stylist",
+      "case": "stylist-interview-en#1",
+      "criterion": "rules",
+      "check": "tenue complète",
+      "reason": "aucune tenue dans la réponse",
+      "state": "completed",
+      "excerpt": "The AI stylist needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "stylist",
+      "case": "stylist-wedding-black-tie-fr#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The assistant's answer is completely unrelated and unhelpful.",
+      "state": "completed",
+      "excerpt": "The AI stylist needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "stylist",
+      "case": "stylist-rain-fr#1",
+      "criterion": "rules",
+      "check": "tenue complète",
+      "reason": "aucune tenue dans la réponse",
+      "state": "completed",
+      "excerpt": "The AI stylist needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "stylist",
+      "case": "stylist-search-black-skirt-en#1",
+      "criterion": "rules",
+      "check": "pièces trouvées",
+      "reason": "0 pièce(s) trouvée(s), 1 attendue(s)",
+      "state": "completed",
+      "excerpt": "The AI stylist needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "stylist",
+      "case": "stylist-trends-refusal-fr#1",
+      "criterion": "rules",
+      "check": "refus (« I don't know »)",
+      "reason": "l'agent répond au lieu de refuser une question sans source",
+      "state": "completed",
+      "excerpt": "The AI stylist needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "trip",
+      "case": "trip-paris-business-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed ou input-required »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "trip",
+      "case": "trip-beach-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed ou input-required »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "trip",
+      "case": "trip-vague-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « input-required »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "trip",
+      "case": "trip-missing-destination-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « input-required »",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "trip",
+      "case": "trip-infeasible-constraint-en#1",
+      "criterion": "rules",
+      "check": "trip_constraints",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": ""
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-search-skirts-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-search-skirts-fr#1",
+      "criterion": "rules",
+      "check": "finds_items",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-count-tops-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-list-structured#1",
+      "criterion": "judge",
+      "check": "pertinence / utilité < 3",
+      "reason": "The answer only provides a vague count of pieces without context or actionable information.",
+      "state": "completed",
+      "excerpt": "18 piece(s) in the wardrobe."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-correct-color-with-confirmation-fr#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « input-required »",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-correct-color-with-confirmation-fr#1",
+      "criterion": "rules",
+      "check": "no_change_without_confirmation",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-correct-color-with-confirmation-fr#2",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-correct-color-with-confirmation-fr#2",
+      "criterion": "rules",
+      "check": "change_applied",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-correct-then-refuse-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « input-required »",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-correct-then-refuse-en#1",
+      "criterion": "rules",
+      "check": "no_change_without_confirmation",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-correct-then-refuse-en#2",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-correct-then-refuse-en#2",
+      "criterion": "rules",
+      "check": "nothing_changed",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-find-similar-en#1",
+      "criterion": "contract",
+      "check": "état attendu",
+      "reason": "état « failed », attendu « completed »",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    },
+    {
+      "agent": "wardrobe",
+      "case": "wardrobe-find-similar-en#1",
+      "criterion": "rules",
+      "check": "finds_items",
+      "reason": "l'agent a échoué : règle non vérifiable",
+      "state": "failed",
+      "excerpt": "The wardrobe agent needs an OPENAI_API_KEY configured on the server."
+    }
+  ],
+  "rule": "FAIL = un contrôle du code échoue (le juge ne peut pas l'effacer) ; WARN = code OK mais note du juge < 3 ; taux de réussite = PASS / pas de test"
+}

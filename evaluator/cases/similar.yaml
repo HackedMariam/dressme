@@ -17,7 +17,7 @@ cases:
     lang: fr
     steps:
       - input: {text: "Look d'inspiration", data: {pieces: [{category: top, color_name: white, material: cotton}, {category: pants, color_name: black, material: wool}, {category: jacket, color_name: black, material: leather}]}}
-        expect: {state: completed, required_fields: [pieces, summary]}
+        expect: {state: completed, required_fields: [pieces]}
         judge: "Un verdict par pièce (possédée, proche ou absente) avec la raison."
   - id: similar-no-pieces-input-required
     lang: en

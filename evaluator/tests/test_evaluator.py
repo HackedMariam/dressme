@@ -325,3 +325,29 @@ def test_missing_credentials_is_input_required_without_leaking_values(monkeypatc
     monkeypatch.setattr(config, "load_credentials", lambda env_file=None: (_ for _ in ()).throw(RuntimeError("configuration incomplète : TEST_EMAIL")))
     outcome = evaluator_agent.run(["stylist"])
     assert outcome["state"] == "input-required" and "TEST_EMAIL" in outcome["message"]
+
+
+# ------------------------------------------------------------------------------------------- Similar Agent et pluie annoncée
+def similar_reply(closest):
+    return Reply(state="completed", text="1. owned", latency_ms=500, http_status=200,
+                 data={"pieces": [{"index": 0, "status": "owned", "closest_item_id": closest, "reason": "same", "score": 72}], "summary": ""})
+
+
+def test_similar_verdict_pieces_are_not_mistaken_for_wardrobe_items(ctx):
+    assert not failed(run_checks("similar", {"required_fields": ["pieces"]}, similar_reply("t1"), ctx))
+
+
+def test_similar_closest_item_id_must_exist_in_the_wardrobe(ctx):
+    results = run_checks("similar", {}, similar_reply("id-inventé"), ctx)
+    assert "grounding" in criteria_failed(results)
+
+
+def test_rain_announced_requires_a_layer_in_every_outfit(ctx):
+    rainy = outfit_reply(ids("t1", "b1", "s1"), ids("t1", "b1", "s1", "j1"), text="Pluie probable (63 %)")
+    results = [r for r in run_checks("bo4", {"rules": ["layer_when_rain_announced"]}, rainy, ctx) if r.criterion == "rules"]
+    assert [r.passed for r in results] == [False, True]
+
+
+def test_no_rain_announced_means_the_rain_rule_does_not_apply(ctx):
+    dry = outfit_reply(ids("t1", "b1", "s1"), text="Journée sèche")
+    assert not failed(run_checks("bo4", {"rules": ["layer_when_rain_announced"]}, dry, ctx))

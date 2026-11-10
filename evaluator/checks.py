@@ -47,7 +47,7 @@ class Ctx:
 def _walk_items(node: Any, found: list[dict]) -> None:
     if isinstance(node, dict):
         for key, value in node.items():
-            if key in ("items", "pieces", "capsule_items", "selected_items") and isinstance(value, list):
+            if key in ("items", "capsule_items", "selected_items") and isinstance(value, list):
                 found.extend(v for v in value if isinstance(v, dict))
             _walk_items(value, found)
     elif isinstance(node, list):
@@ -55,10 +55,25 @@ def _walk_items(node: Any, found: list[dict]) -> None:
             _walk_items(value, found)
 
 
+ID_KEYS = ("closest_item_id", "similar_item_id")       # identifiants cités à plat (Similar Agent, anti-doublon)
+
+
+def _walk_id_keys(node: Any, found: list[dict]) -> None:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ID_KEYS and value:
+                found.append({"id": value, "name": key})
+            _walk_id_keys(value, found)
+    elif isinstance(node, list):
+        for value in node:
+            _walk_id_keys(value, found)
+
+
 def item_refs(reply: Reply) -> list[dict]:
-    """Toutes les pièces citées par la réponse (listes « items » à n'importe quel niveau), sans doublons."""
+    """Toutes les pièces citées par la réponse (listes « items », ou identifiants « closest_item_id »), sans doublons."""
     found: list[dict] = []
     _walk_items(reply.data, found)
+    _walk_id_keys(reply.data, found)
     seen, out = set(), []
     for ref in found:
         key = (ref.get("id"), ref.get("name"))
@@ -171,6 +186,22 @@ def rule_complete_outfit(reply: Reply, ctx: Ctx, expect: dict) -> list[CheckResu
     return out
 
 
+RAIN_ANNOUNCED = re.compile(r"(pluie|pleut|rain|showers?)", re.I)
+
+
+def rule_layer_when_rain_announced(reply: Reply, ctx: Ctx) -> list[CheckResult]:
+    """Si la réponse annonce de la pluie, chaque tenue doit avoir une couche extérieure (la pluie ne se commande pas :
+    on ne l'exige donc que lorsque l'agent lui-même la mentionne)."""
+    if not RAIN_ANNOUNCED.search(reply.text):
+        return [CheckResult("rules", "couche si pluie annoncée", True, "pas de pluie annoncée : contrôle non applicable")]
+    out = []
+    for number, outfit in enumerate(outfits_of(reply, ctx), 1):
+        has_layer = any(group_of(p) == "Outerwear" for p in outfit if "_unknown" not in p)
+        out.append(CheckResult("rules", f"couche tenue {number} (pluie annoncée)", has_layer,
+                               "pluie annoncée mais aucune veste dans la tenue" if not has_layer else ""))
+    return out or [CheckResult("rules", "couche si pluie annoncée", False, "pluie annoncée mais aucune tenue")]
+
+
 def rule_dress_code(reply: Reply, ctx: Ctx, expect: dict) -> list[CheckResult]:
     out = []
     for number, outfit in enumerate(outfits_of(reply, ctx), 1):
@@ -239,6 +270,7 @@ RULES = {
     "dress_code_business": lambda reply, ctx, expect: rule_dress_code(reply, ctx, expect),
     "no_change_without_confirmation": lambda reply, ctx, expect: rule_no_change_without_confirmation(reply, ctx),
     "change_applied": lambda reply, ctx, expect: rule_change_applied(reply, ctx),
+    "layer_when_rain_announced": lambda reply, ctx, expect: rule_layer_when_rain_announced(reply, ctx),
     "nothing_changed": lambda reply, ctx, expect: rule_nothing_changed(ctx),
     "trip_constraints": lambda reply, ctx, expect: rule_trip_constraints(reply),
     "refuses": lambda reply, ctx, expect: rule_refuses(reply),
