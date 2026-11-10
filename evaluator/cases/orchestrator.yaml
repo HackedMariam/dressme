@@ -1,0 +1,52 @@
+# Orchestrateur (LangGraph, port 8070) : stylist BO4, garde-robe BO1, Purchase, RAG BO5, clarification.
+agent: orchestrator
+cases:
+  - id: orch-route-stylist-fr
+    lang: fr
+    steps:
+      - input: {text: "J'ai un entretien demain, que porter ?"}
+        expect: {route: stylist, state: completed, max_latency_s: 90}
+        judge: "Des tenues professionnelles de la garde-robe."
+  - id: orch-route-wardrobe-fr
+    lang: fr
+    steps:
+      - input: {text: "Combien de hauts j'ai ?"}
+        expect: {route: wardrobe, state: completed, max_latency_s: 60}
+  - id: orch-route-purchase-fr
+    lang: fr
+    steps:
+      - input: {text: "Dois-je acheter un blazer noir à 80 € ?"}
+        expect: {route: purchase, state: completed, max_latency_s: 90}
+  - id: orch-route-knowledge-wool-fr
+    lang: fr
+    steps:
+      - input: {text: "Comment laver un pull en laine ?"}
+        expect: {route: knowledge, state: completed, rules: [has_citations], max_latency_s: 120}
+        judge: "Des conseils de lavage de la laine appuyés sur des sources citées."
+  - id: orch-wedding-black-tie-fr
+    lang: fr
+    steps:
+      - input: {text: "Que porter pour un mariage black tie ?"}
+        expect: {route: stylist, state: [completed, input-required], max_latency_s: 90}
+        judge: "Des tenues formelles ou le constat honnête que la garde-robe n'en contient pas."
+  - id: orch-trends-refusal-fr
+    lang: fr
+    steps:
+      - input: {text: "Quelles sont les tendances de l'année prochaine ?"}
+        expect: {route: knowledge, rules: [refuses], max_latency_s: 120}
+        judge: "Refuse (« I don't know ») sans inventer de tendance."
+  - id: orch-knowledge-en
+    lang: en
+    steps:
+      - input: {text: "How do I wear a plaid mini skirt in autumn?"}
+        expect: {route: knowledge, state: completed, rules: [has_citations], max_latency_s: 120}
+  - id: orch-small-talk-clarify-fr
+    lang: fr
+    steps:
+      - input: {text: "bonjour"}
+        expect: {route: clarify, state: input-required, max_latency_s: 60}
+  - id: orch-service-down
+    lang: fr
+    steps:
+      - input: {text: "J'ai un entretien demain, que porter ?", service_down: true}
+        expect: {state: failed, service_down: true}

@@ -1,0 +1,32 @@
+# Purchase Redundancy, atteint comme les utilisatrices l'atteignent : par l'orchestrateur (8070), route « purchase ».
+agent: purchase
+cases:
+  - id: purchase-blazer-fr
+    lang: fr
+    steps:
+      - input: {text: "Dois-je acheter un blazer noir à 80 € ?"}
+        expect: {state: completed, route: purchase, required_fields: [result], max_latency_s: 60}
+        judge: "Donne un avis d'achat clair pour un blazer noir (l'utilisatrice n'en a pas)."
+  - id: purchase-blazer-en
+    lang: en
+    steps:
+      - input: {text: "Should I buy a black blazer for 80 euros?"}
+        expect: {state: completed, route: purchase, required_fields: [result], max_latency_s: 60}
+        judge: "A clear buy / don't buy opinion for a black blazer."
+  - id: purchase-duplicate-skirt-fr
+    lang: fr
+    steps:
+      - input: {text: "Dois-je acheter une jupe midi noire plissée à 40 € ?"}
+        expect: {state: completed, route: purchase, max_latency_s: 60}
+        judge: "Remarque qu'une jupe midi noire plissée est déjà dans la garde-robe (doublon)."
+  - id: purchase-sweater-en
+    lang: en
+    steps:
+      - input: {text: "Is it worth buying a white wool sweater for 60 euros?"}
+        expect: {state: completed, route: purchase, max_latency_s: 60}
+        judge: "Compares with the pieces already owned before advising."
+  - id: purchase-service-down
+    lang: fr
+    steps:
+      - input: {text: "Dois-je acheter un blazer noir à 80 € ?", service_down: true}
+        expect: {state: failed, service_down: true}

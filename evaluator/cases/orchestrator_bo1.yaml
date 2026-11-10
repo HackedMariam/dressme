@@ -1,0 +1,51 @@
+# Orchestrateur BO1 (LangGraph, REST /api/assistant/chat) : la route choisie doit correspondre à la route attendue.
+# Routes : stylist, wardrobe, outfit, trip, gap, redirect (photo nécessaire), clarify.
+agent: orchestrator_bo1
+cases:
+  - id: obo1-route-stylist-fr
+    lang: fr
+    steps:
+      - input: {text: "Que porter pour un entretien demain ?"}
+        expect: {route: stylist, state: completed, max_latency_s: 120}
+        judge: "Répond comme un styliste, avec une tenue de la garde-robe."
+  - id: obo1-route-wardrobe-fr
+    lang: fr
+    steps:
+      - input: {text: "Montre-moi mes jupes"}
+        expect: {route: wardrobe, state: completed, max_latency_s: 120}
+  - id: obo1-route-outfit-en
+    lang: en
+    steps:
+      - input: {text: "Build me outfits for work this winter"}
+        expect: {route: outfit, state: completed, max_latency_s: 120}
+  - id: obo1-route-trip-fr
+    lang: fr
+    steps:
+      - input: {text: "Je pars 4 jours à Rome, que mettre dans ma valise ?"}
+        expect: {route: trip, state: [completed, input-required, failed], max_latency_s: 180}
+  - id: obo1-route-gap-en
+    lang: en
+    steps:
+      - input: {text: "What am I missing in my wardrobe for winter work?"}
+        expect: {route: gap, state: [completed, input-required, failed], max_latency_s: 120}
+  - id: obo1-route-redirect-en
+    lang: en
+    steps:
+      - input: {text: "Should I buy this jacket?"}
+        expect: {route: redirect, max_latency_s: 60}
+  - id: obo1-small-talk-clarify-fr
+    lang: fr
+    steps:
+      - input: {text: "bonjour"}
+        expect: {route: clarify, state: input-required, max_latency_s: 60}
+  - id: obo1-trends-refusal-fr
+    lang: fr
+    steps:
+      - input: {text: "Quelles sont les tendances de l'année prochaine ?"}
+        expect: {state: completed, rules: [refuses], max_latency_s: 120}
+        judge: "Refuse honnêtement de prédire les tendances sans source."
+  - id: obo1-service-down
+    lang: fr
+    steps:
+      - input: {text: "Que porter pour un entretien demain ?", service_down: true}
+        expect: {state: failed, service_down: true}

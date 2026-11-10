@@ -77,3 +77,7 @@ demo/*.mp4
 
 # conversations and caches written by the RAG service
 rag_backend/data/
+
+# Evaluator Agent : rapports générés (le rapport de référence est evaluator/reports/premiere-evaluation.*)
+evaluator/reports/eval-*
+evaluator/**/__pycache__/

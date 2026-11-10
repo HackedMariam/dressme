@@ -1,0 +1,51 @@
+# Wardrobe Agent (BO1, A2A /a2a/wardrobe) : chercher, compter, comparer ; AUCUNE modification sans confirmation.
+agent: wardrobe
+cases:
+  - id: wardrobe-search-skirts-fr
+    lang: fr
+    steps:
+      - input: {text: "Montre-moi mes jupes"}
+        expect: {state: completed, required_fields: [items], rules: [finds_items], min_items: 2}
+        judge: "Liste les jupes réellement présentes dans la garde-robe."
+  - id: wardrobe-count-tops-en
+    lang: en
+    steps:
+      - input: {text: "How many tops do I own?"}
+        expect: {state: completed}
+        judge: "Gives a number of tops and not a vague answer."
+  - id: wardrobe-list-structured
+    lang: en
+    steps:
+      - input: {data: {action: list}}
+        expect: {state: completed, required_fields: [items], rules: [finds_items], min_items: 10, max_latency_s: 15}
+  - id: wardrobe-correct-color-with-confirmation-fr
+    lang: fr
+    watch_changes: true
+    note: "La modification est confirmée puis remise en état par l'évaluateur (PATCH BO1)."
+    steps:
+      - input: {text: "Change la couleur de ma jupe noire plissée en bleu marine"}
+        expect: {state: input-required, rules: [no_change_without_confirmation]}
+        judge: "Propose la correction et demande une confirmation avant de modifier."
+      - input: {text: "oui", data: {confirm: true}}
+        expect: {state: completed, rules: [change_applied]}
+        judge: "Confirme que la couleur a été changée."
+  - id: wardrobe-correct-then-refuse-en
+    lang: en
+    watch_changes: true
+    steps:
+      - input: {text: "Change the colour of my navy denim skirt to black"}
+        expect: {state: input-required, rules: [no_change_without_confirmation]}
+      - input: {text: "no", data: {confirm: false}}
+        expect: {state: completed, rules: [nothing_changed]}
+        judge: "Acknowledges that nothing was changed."
+  - id: wardrobe-find-similar-en
+    lang: en
+    steps:
+      - input: {text: "Do I already have something like a navy denim skirt?"}
+        expect: {state: completed, rules: [finds_items], min_items: 1}
+        judge: "Points to the navy denim skirt or a close piece."
+  - id: wardrobe-service-down
+    lang: fr
+    steps:
+      - input: {text: "Montre-moi mes jupes", service_down: true}
+        expect: {state: failed, service_down: true}

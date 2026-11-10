@@ -1,0 +1,38 @@
+# Trip Agent (Help Me Pack, A2A /a2a/trip, port 8020) : valise optimisée par le solveur, jamais de contrainte relâchée en silence.
+agent: trip
+cases:
+  - id: trip-paris-business-fr
+    lang: fr
+    steps:
+      - input: {text: "Je pars 5 jours à Paris en novembre pour le travail, que mettre dans ma valise ?"}
+        expect: {state: [completed, input-required], max_latency_s: 180}
+        judge: "Prépare une valise cohérente pour 5 jours à Paris en novembre, ou pose UNE question utile."
+  - id: trip-beach-en
+    lang: en
+    steps:
+      - input: {text: "Plan a 3-day beach trip to Tunis in July with hand luggage only"}
+        expect: {state: [completed, input-required], max_latency_s: 180}
+        judge: "A light summer packing list that respects the hand-luggage constraint."
+  - id: trip-vague-fr
+    lang: fr
+    steps:
+      - input: {text: "Je veux partir en voyage"}
+        expect: {state: input-required, max_latency_s: 120}
+        judge: "Pose une seule question précise (destination ou dates) au lieu d'inventer."
+  - id: trip-missing-destination-en
+    lang: en
+    steps:
+      - input: {text: "Help me pack for next week"}
+        expect: {state: input-required, max_latency_s: 120}
+        judge: "Asks where the user is going instead of making it up."
+  - id: trip-infeasible-constraint-en
+    lang: en
+    steps:
+      - input: {text: "Pack for 14 days of formal business meetings in Oslo in January using only 2 pieces of clothing, no laundry"}
+        expect: {state: [completed, input-required, failed], rules: [trip_constraints], max_latency_s: 180}
+        judge: "Explains that the constraint cannot be met and offers alternatives, without silently breaking it."
+  - id: trip-service-down
+    lang: fr
+    steps:
+      - input: {text: "Je pars 3 jours à Rome, que mettre dans ma valise ?", service_down: true}
+        expect: {state: failed, service_down: true}

@@ -1,0 +1,31 @@
+# Similar Agent (BO1, A2A /a2a/similar) : pour chaque pièce d'un look, déjà possédée / proche / absente.
+agent: similar
+cases:
+  - id: similar-owned-skirt-fr
+    lang: fr
+    steps:
+      - input: {text: "Est-ce que je possède ce look ?", data: {pieces: [{category: skirt, color_name: black, material: polyester, style: classic}]}}
+        expect: {state: completed, required_fields: [pieces], max_latency_s: 60}
+        judge: "Dit que la jupe noire plissée est déjà possédée ou très proche."
+  - id: similar-missing-jacket-en
+    lang: en
+    steps:
+      - input: {text: "Do I own this?", data: {pieces: [{category: jacket, color_name: red, material: velvet, style: glamorous}]}}
+        expect: {state: completed, required_fields: [pieces]}
+        judge: "Says the red velvet jacket is missing or only loosely matched."
+  - id: similar-full-look-fr
+    lang: fr
+    steps:
+      - input: {text: "Look d'inspiration", data: {pieces: [{category: top, color_name: white, material: cotton}, {category: pants, color_name: black, material: wool}, {category: jacket, color_name: black, material: leather}]}}
+        expect: {state: completed, required_fields: [pieces, summary]}
+        judge: "Un verdict par pièce (possédée, proche ou absente) avec la raison."
+  - id: similar-no-pieces-input-required
+    lang: en
+    steps:
+      - input: {data: {pieces: []}}
+        expect: {state: input-required}
+  - id: similar-service-down
+    lang: en
+    steps:
+      - input: {text: "Do I own this?", data: {pieces: [{category: skirt, color_name: black}]}, service_down: true}
+        expect: {state: failed, service_down: true}

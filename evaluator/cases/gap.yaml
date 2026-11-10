@@ -1,0 +1,32 @@
+# Gap Agent (BO3, A2A /a2a/gap, port 8001) : ce qui manque dans la garde-robe, d'après des règles déterministes.
+agent: gap
+cases:
+  - id: gap-winter-work-fr
+    lang: fr
+    steps:
+      - input: {text: "Que me manque-t-il dans ma garde-robe pour le travail cet hiver ?"}
+        expect: {state: completed, max_latency_s: 120}
+        judge: "Nomme des lacunes concrètes (par exemple blazer, manteau, chaussures) en lien avec le travail en hiver."
+  - id: gap-winter-work-en
+    lang: en
+    steps:
+      - input: {text: "What should I buy to complete my wardrobe for winter work?"}
+        expect: {state: completed, max_latency_s: 120}
+        judge: "Concrete missing pieces for winter work, ranked, no invented pieces already owned."
+  - id: gap-summer-holiday-en
+    lang: en
+    steps:
+      - input: {text: "What am I missing for a summer holiday?"}
+        expect: {state: completed, max_latency_s: 120}
+        judge: "Lists missing summer pieces (for example sandals, light tops)."
+  - id: gap-weekend-fr
+    lang: fr
+    steps:
+      - input: {text: "Quelles pièces manquent à ma garde-robe pour le week-end ?"}
+        expect: {state: completed, max_latency_s: 120}
+        judge: "Des lacunes pour un usage décontracté, cohérentes avec ce que l'utilisatrice possède déjà."
+  - id: gap-service-down
+    lang: fr
+    steps:
+      - input: {text: "Que me manque-t-il pour le travail ?", service_down: true}
+        expect: {state: failed, service_down: true}

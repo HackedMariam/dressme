@@ -1,0 +1,42 @@
+# RAG BO5 (rag_backend, POST /ask, clé X-API-Key) : réponses sourcées, citations [S#] réelles, refus sans source.
+agent: rag
+cases:
+  - id: rag-wash-wool-en
+    lang: en
+    steps:
+      - input: {text: "How do I wash a wool sweater?"}
+        expect: {state: completed, required_fields: [sources], rules: [has_citations], max_latency_s: 90}
+        judge: "Practical wool-washing advice drawn from the sources."
+  - id: rag-wash-wool-fr
+    lang: fr
+    steps:
+      - input: {text: "Comment laver un pull en laine ?"}
+        expect: {state: completed, required_fields: [sources], rules: [has_citations], max_latency_s: 90}
+        judge: "Conseils de lavage de la laine tirés des sources."
+  - id: rag-black-tie-en
+    lang: en
+    steps:
+      - input: {text: "What should I wear to a black tie wedding?"}
+        expect: {state: completed, rules: [has_citations], max_latency_s: 90}
+        judge: "Black tie dress code advice from the sources."
+  - id: rag-colours-navy-en
+    lang: en
+    steps:
+      - input: {text: "Which colours go well with navy?"}
+        expect: {state: completed, rules: [has_citations], max_latency_s: 90}
+  - id: rag-trends-refusal-en
+    lang: en
+    steps:
+      - input: {text: "What are next year's fashion trends?"}
+        expect: {state: completed, rules: [refuses], max_latency_s: 90}
+        judge: "Says it does not know instead of inventing trends."
+  - id: rag-trends-refusal-fr
+    lang: fr
+    steps:
+      - input: {text: "Quelles sont les tendances de l'année prochaine ?"}
+        expect: {state: completed, rules: [refuses], max_latency_s: 90}
+  - id: rag-service-down
+    lang: en
+    steps:
+      - input: {text: "How do I wash a wool sweater?", service_down: true}
+        expect: {state: failed, service_down: true}

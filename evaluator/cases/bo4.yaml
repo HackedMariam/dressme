@@ -1,0 +1,38 @@
+# Stylist BO4 (LangGraph, port 8061, --require-auth) : tenues classées, règles de dress code absolues.
+agent: bo4
+cases:
+  - id: bo4-interview-fr
+    lang: fr
+    steps:
+      - input: {text: "J'ai un entretien demain, que porter ?"}
+        expect: {state: completed, required_fields: [outfits], rules: [complete_outfit, dress_code_business], max_latency_s: 60}
+        judge: "Propose des tenues professionnelles classées, avec leurs raisons."
+  - id: bo4-business-meeting-en
+    lang: en
+    steps:
+      - input: {text: "What should I wear to a business meeting?"}
+        expect: {state: completed, required_fields: [outfits], rules: [complete_outfit, dress_code_business], max_latency_s: 60}
+        judge: "Professional outfits, none with a mini skirt or bare shoulders."
+  - id: bo4-wedding-black-tie-fr
+    lang: fr
+    steps:
+      - input: {text: "Que porter pour un mariage black tie ?"}
+        expect: {state: [completed, input-required], rules: [dress_code_business], max_latency_s: 60}
+        judge: "Des tenues formelles, ou le constat honnête qu'aucune pièce de la garde-robe ne convient."
+  - id: bo4-rain-office-fr
+    lang: fr
+    steps:
+      - input: {text: "Il pleut, que porter pour aller au bureau ?"}
+        expect: {state: completed, rules: [complete_outfit, dress_code_business], rain: true, max_latency_s: 60}
+        judge: "Chaque tenue comporte une veste ; la soie et le daim sont écartés."
+  - id: bo4-casual-weekend-en
+    lang: en
+    steps:
+      - input: {text: "Casual outfit for the weekend please"}
+        expect: {state: completed, required_fields: [outfits], rules: [complete_outfit], max_latency_s: 60}
+        judge: "Relaxed, complete outfits for the weekend."
+  - id: bo4-service-down
+    lang: fr
+    steps:
+      - input: {text: "J'ai un entretien demain, que porter ?", service_down: true}
+        expect: {state: failed, service_down: true}

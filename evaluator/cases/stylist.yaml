@@ -1,0 +1,44 @@
+# AI Stylist (BO1, A2A /a2a/stylist) : conseil de style ancré dans la vraie garde-robe, météo, livres de mode.
+agent: stylist
+cases:
+  - id: stylist-interview-fr
+    lang: fr
+    steps:
+      - input: {text: "J'ai un entretien demain, que porter ?"}
+        expect: {state: completed, required_fields: [items], rules: [finds_items, complete_outfit, dress_code_business], min_items: 2}
+        judge: "Propose une tenue professionnelle précise faite de pièces de la garde-robe, avec des raisons."
+  - id: stylist-interview-en
+    lang: en
+    steps:
+      - input: {text: "What should I wear to a job interview tomorrow?"}
+        expect: {state: completed, required_fields: [items], rules: [complete_outfit, dress_code_business]}
+        judge: "Suggests one professional outfit from the wardrobe and explains why."
+  - id: stylist-wedding-black-tie-fr
+    lang: fr
+    steps:
+      - input: {text: "Que porter pour un mariage black tie ?"}
+        expect: {state: completed, rules: [dress_code_business]}
+        judge: "Donne des conseils de tenue de soirée adaptés à un black tie, sans inventer de pièce."
+  - id: stylist-rain-fr
+    lang: fr
+    steps:
+      - input: {text: "Il pleut demain, que porter pour aller au bureau ?"}
+        expect: {state: completed, rules: [complete_outfit, dress_code_business], rain: true}
+        judge: "Tient compte de la pluie : une couche extérieure, pas de matière fragile."
+  - id: stylist-search-black-skirt-en
+    lang: en
+    steps:
+      - input: {text: "Do I have a black skirt?"}
+        expect: {state: completed, rules: [finds_items], min_items: 1}
+        judge: "Says yes and names the black pleated midi skirt."
+  - id: stylist-trends-refusal-fr
+    lang: fr
+    steps:
+      - input: {text: "Quelles sont les tendances de l'année prochaine ?"}
+        expect: {state: completed, rules: [refuses]}
+        judge: "Dit honnêtement qu'il ne sait pas ou n'a pas de source, sans inventer de tendances."
+  - id: stylist-service-down
+    lang: fr
+    steps:
+      - input: {text: "J'ai un entretien demain, que porter ?", service_down: true}
+        expect: {state: failed, service_down: true}

@@ -1,0 +1,38 @@
+# Outfit Builder (BO1, A2A /a2a/outfit, LangGraph) : tenues complètes validées, avec les identifiants de la garde-robe.
+agent: outfit
+cases:
+  - id: outfit-work-winter-fr
+    lang: fr
+    steps:
+      - input: {text: "Compose-moi des tenues pour le travail cet hiver", data: {occasion: work, season: winter}}
+        expect: {state: completed, required_fields: [outfits, weather], rules: [complete_outfit, dress_code_business], cold: true}
+        judge: "Trois tenues cohérentes pour le travail, chaudes, avec une raison par tenue."
+  - id: outfit-everyday-autumn-en
+    lang: en
+    steps:
+      - input: {text: "Build me everyday outfits for autumn", data: {occasion: everyday, season: autumn}}
+        expect: {state: completed, required_fields: [outfits], rules: [complete_outfit]}
+        judge: "Complete everyday outfits suited to autumn."
+  - id: outfit-business-spring-fr
+    lang: fr
+    steps:
+      - input: {text: "Des tenues business pour le printemps", data: {occasion: business, season: spring}}
+        expect: {state: completed, required_fields: [outfits], rules: [complete_outfit, dress_code_business]}
+        judge: "Tenues professionnelles sobres, sans pièce de soirée ni de loisirs."
+  - id: outfit-wedding-summer-en
+    lang: en
+    steps:
+      - input: {text: "Outfits for a black tie wedding this summer", data: {occasion: wedding, season: summer}}
+        expect: {state: completed, rules: [complete_outfit, dress_code_business]}
+        judge: "Elegant outfits for a formal wedding, or an honest statement that the wardrobe lacks formal pieces."
+  - id: outfit-party-winter-text-only
+    lang: en
+    steps:
+      - input: {text: "Build me outfits for a party this winter"}
+        expect: {state: completed, rules: [complete_outfit]}
+        judge: "Understands occasion and season from the sentence alone."
+  - id: outfit-service-down
+    lang: fr
+    steps:
+      - input: {text: "Compose-moi des tenues pour le travail", data: {occasion: work, season: winter}, service_down: true}
+        expect: {state: failed, service_down: true}
