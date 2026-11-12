@@ -1,19 +1,4 @@
-"""The decision agent of "Should I buy this?": fine-tuned Qwen, driving the purchase tools.
 
-    item + wardrobe ->  Qwen agent (LangGraph tool loop, agent_kit)  ->  JSON verdict  ->  GPT stylist interpreter
-
-Qwen is the autonomous agent: it decides which tools to call (analyze_item, find_similar_items,
-check_outfit_compatibility, analyze_wardrobe_gaps, predict_purchase_ml, calculate_purchase_value), reads their
-results and ends with a JSON verdict {decision: BUY | CONSIDER | SKIP, score, matching_item_ids, reasons}. The tools
-are Python functions computed on the real wardrobe: they are authoritative (Qwen's own arguments never replace the
-measured values). GPT is NOT part of this file: it only rewrites the verdict as stylist advice, afterwards.
-
-The model is Qwen/Qwen2.5-3B-Instruct + the LoRA adapter meriemgharbi123/dressme_qwen3b_lora, loaded from Hugging Face
-(HF_TOKEN in .env). No Ollama. Backends (QWEN_BACKEND): "local" (transformers + peft in this process), "hf_api"
-(Hugging Face InferenceClient, optionally on a dedicated endpoint: HF_ENDPOINT_URL), "auto" (endpoint, else local when
-peft is installed, else the Hugging Face API) or "off". Without HF_TOKEN, or when the model cannot run (no GPU/RAM, no
-network), `run_decision_agent` returns None and the caller falls back to the deterministic evaluation.
-"""
 from __future__ import annotations
 
 import importlib.util

@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from typing import Any, Callable
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .. import optimizer
 from .config import (
@@ -40,6 +40,24 @@ from .wardrobe import SyntheticWardrobeProvider, WardrobeProvider
 from .weather import FORECAST_HORIZON_DAYS, DestinationResolutionError, fetch_weather
 
 logger = logging.getLogger(__name__)
+
+_FIELD_MESSAGES = {
+    "duration_days": "The trip must last between 1 and 60 days (got {value}). Check the start and end dates.",
+    "max_luggage_weight_kg": "The luggage limit must be between 0 and 50 kg (got {value}).",
+    "max_items_target": "The number of items must be between 1 and 100 (got {value}).",
+}
+
+
+def _friendly_validation_error(exc: Exception) -> str | None:
+    """A readable sentence for a trip-field validation error, or None for any other error."""
+    if not isinstance(exc, ValidationError):
+        return None
+    for issue in exc.errors():
+        field = str((issue.get("loc") or ("",))[-1])
+        template = _FIELD_MESSAGES.get(field)
+        if template:
+            return template.format(value=issue.get("input"))
+    return None
 
 TRIP_UPDATE_FIELDS = {
     "destination",
@@ -446,8 +464,9 @@ class TripTools:
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             log_event(logger, "tool_failed", tool=name, error=error, level=logging.ERROR)
-            self.state.errors.append(f"{name}: {error}")
-            result = {"ok": False, "tool": name, "error": error}
+            friendly = _friendly_validation_error(exc)
+            self.state.errors.append(friendly or f"{name}: {error}")
+            result = {"ok": False, "tool": name, "error": friendly or error}
 
         self._record(name, arguments, result)
         self.state.touch()

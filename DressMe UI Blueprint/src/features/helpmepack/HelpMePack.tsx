@@ -316,6 +316,20 @@ export default function HelpMePack({
       setError("The end date is before the start date. Please fix the dates.");
       return;
     }
+    if (startDate && startDate < inputDate(-1)) {
+      setError("The start date is in the past. Please pick today or a later date.");
+      return;
+    }
+    if (startDate && endDate) {
+      const days =
+        Math.round(
+          (new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000,
+        ) + 1;
+      if (days > 60) {
+        setError(`This trip lasts ${days} days. Help Me Pack plans up to 60 days: check the start and end dates.`);
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
     setGap(null);

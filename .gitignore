@@ -79,3 +79,4 @@ demo/*.mp4
 
 # conversations and caches written by the RAG service
 rag_backend/data/
+agent_eval/results/
